@@ -1,6 +1,6 @@
 """Fails when Engine.lua defines the same E.<name> twice (function E.x / E.x = ...), which silently replaces the first."""
 import re, sys, collections
-src = open(sys.argv[1] if len(sys.argv) > 1 else "Engine.lua").read().split("\n")
+src = open(sys.argv[1] if len(sys.argv) > 1 else "Engine.lua", encoding="utf-8").read().split("\n")
 seen = collections.defaultdict(list)
 for i, line in enumerate(src, 1):
     m = re.match(r"^function E\.(\w+)\s*\(", line) or re.match(r"^E\.(\w+)\s*=", line)

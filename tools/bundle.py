@@ -14,7 +14,7 @@ LIMIT = 180_000  # bytes per part, leaving room under Studio's 200k
 
 
 def block(name):
-    src = (here / "src" / (name + ".lua")).read_text().rstrip("\n")
+    src = (here / "src" / (name + ".lua")).read_text(encoding="utf-8").replace("\r\n", "\n").rstrip("\n")
     return "\n".join(["", "-- #module %s" % name, "MODULES[%d] = (function()" % (ORDER.index(name) + 1), src, "end)()"])
 
 
@@ -85,11 +85,11 @@ chunks.append(cur)
 for old in [p for p in here.glob("Main_[0-9]*.lua") if p.stem[5:].isdigit()]:
     old.unlink()
 entry = "\n".join(HEAD + chunks[0] + RUNNER)
-(here / "Main.lua").write_text(entry)
+(here / "Main.lua").write_bytes((entry).encode("utf-8"))
 sizes = [len(entry.encode())]
 for k, ch in enumerate(chunks[1:], start=2):
     text = "\n".join([l % k if "%d" in l else l for l in PART_HEAD] + ch + ["", "return MODULES", ""])
-    (here / ("Main_%d.lua" % k)).write_text(text)
+    (here / ("Main_%d.lua" % k)).write_bytes((text).encode("utf-8"))
     sizes.append(len(text.encode()))
 assert all(s < 195_000 for s in sizes), sizes
 print("Main.lua", " + ".join(str(s) for s in sizes), "bytes in", len(sizes), "part(s) from", len(ORDER), "modules")

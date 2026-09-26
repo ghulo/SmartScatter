@@ -24,11 +24,11 @@ def item(cls, ref, name, src, children=""):
 
 # where releases are published: update_url.txt (one line, no trailing slash), e.g. a GitHub raw URL of the dist folder
 url_file = here / "update_url.txt"
-update_url = url_file.read_text().strip() if url_file.exists() else ""
-loader = ((here / "Loader.lua").read_text().replace("__VERSION__", version).replace("__BUILD__", build)
+update_url = url_file.read_text(encoding="utf-8").replace("\r\n", "\n").strip() if url_file.exists() else ""
+loader = ((here / "Loader.lua").read_text(encoding="utf-8").replace("\r\n", "\n").replace("__VERSION__", version).replace("__BUILD__", build)
           .replace("__UPDATE_URL__", update_url))
-engine = (here / "Engine.lua").read_text()
-main = (here / "Main.lua").read_text()
+engine = (here / "Engine.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
+main = (here / "Main.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
 parts = sorted([p for p in here.glob("Main_[0-9]*.lua") if p.stem[5:].isdigit()], key=lambda p: int(p.stem.split("_")[1]))
 
 xml = ('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
@@ -36,10 +36,10 @@ xml = ('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
        'xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">'
        + item("Script", "RBX0", "SmartScatter", loader,
               item("ModuleScript", "RBX1", "Engine", engine) + item("ModuleScript", "RBX2", "Main", main)
-              + "".join(item("ModuleScript", "RBX%d" % (3 + k), p.stem, p.read_text()) for k, p in enumerate(parts)))
+              + "".join(item("ModuleScript", "RBX%d" % (3 + k), p.stem, p.read_text(encoding="utf-8").replace("\r\n", "\n")) for k, p in enumerate(parts)))
        + '</roblox>')
 out = here / "SmartScatter.rbxmx"
-out.write_text(xml)
+out.write_bytes((xml).encode("utf-8"))
 print(out, len(xml), "bytes, version", version)
 
 # the release: what installed copies download (upload the dist folder to where update_url.txt points)
@@ -54,8 +54,8 @@ dist.mkdir(exist_ok=True)
 for old in dist.glob("*.lua"):
     old.unlink()
 files = {}
-for name, src in [("Engine", engine), ("Main", main)] + [(p.stem, p.read_text()) for p in parts]:
-    (dist / (name + ".lua")).write_text(src)
+for name, src in [("Engine", engine), ("Main", main)] + [(p.stem, p.read_text(encoding="utf-8").replace("\r\n", "\n")) for p in parts]:
+    (dist / (name + ".lua")).write_bytes((src).encode("utf-8"))
     files[name] = {"path": name + ".lua", "sum": checksum(src)}
-(dist / "manifest.json").write_text(json.dumps({"version": version, "build": int(build), "files": files}, indent=1))
+(dist / "manifest.json").write_bytes((json.dumps({"version": version, "build": int(build), "files": files}, indent=1)).encode("utf-8"))
 print("release in", dist, "build", build, "->", update_url or "(no update_url.txt: online updates off)")
