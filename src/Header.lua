@@ -403,15 +403,10 @@ return function(App)
 		}, { corner(10) })
 		App.shade(b, 0.12) -- lit from the top, like the design's glossy button
 		App.topLight(b, 0.35, 8)
-		App.pressable(b, 0.98)
-		local lit = App.glow(b, 10, 0.7)
-		lit:set(true, true)
+		App.pressable(b, 0.98) -- (no glow: it runs the card's full width, and the gap to the card's edge stays clean)
 		local function rest()
 			return b:GetAttribute("secondary") and P.raised or P.accent
 		end
-		b:GetAttributeChangedSignal("secondary"):Connect(function() -- a secondary button ("Done") doesn't glow
-			lit:set(not b:GetAttribute("secondary"))
-		end)
 		b.MouseEnter:Connect(function()
 			b.BackgroundColor3 = rest():Lerp(Color3.new(1, 1, 1), 0.1)
 		end)

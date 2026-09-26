@@ -12,7 +12,9 @@ E.ROAD_STYLES = {
 }
 local function surfaceStyle(name)
 	for _, st in E.ROAD_STYLES do
-		if st.name == name then return st end
+		if st.name == name then
+			return st
+		end
 	end
 	return E.ROAD_STYLES[1]
 end
@@ -29,28 +31,43 @@ end
 local function triangle(parent, style, a, b, c, thick)
 	local ab, ac, bc = b - a, c - a, c - b
 	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
-	if abd > acd and abd > bcd then c, a = a, c
-	elseif acd > bcd and acd > abd then a, b = b, a end
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, b = b, a
+	end
 	ab, ac, bc = b - a, c - a, c - b
 	local nrm = ac:Cross(ab)
-	if nrm.Magnitude < 1e-4 or bc.Magnitude < 1e-3 then return 0 end
+	if nrm.Magnitude < 1e-4 or bc.Magnitude < 1e-3 then
+		return 0
+	end
 	local right = nrm.Unit
 	local up = bc:Cross(right).Unit
 	local back = bc.Unit
 	local height = math.abs(ab:Dot(up))
-	if height < 1e-3 then return 0 end
+	if height < 1e-3 then
+		return 0
+	end
 	local sink = (right.Y >= 0 and -right or right) * (thick / 2) -- the top face sits on the triangle, depth goes down
 	local n = 0
 	local d0, d1 = math.abs(ab:Dot(back)), math.abs(ac:Dot(back))
-	if d0 > 1e-3 then wedge(parent, style, Vector3.new(thick, height, d0), CFrame.fromMatrix((a + b) / 2 + sink, right, up, back)); n += 1 end
-	if d1 > 1e-3 then wedge(parent, style, Vector3.new(thick, height, d1), CFrame.fromMatrix((a + c) / 2 + sink, -right, up, -back)); n += 1 end
+	if d0 > 1e-3 then
+		wedge(parent, style, Vector3.new(thick, height, d0), CFrame.fromMatrix((a + b) / 2 + sink, right, up, back))
+		n += 1
+	end
+	if d1 > 1e-3 then
+		wedge(parent, style, Vector3.new(thick, height, d1), CFrame.fromMatrix((a + c) / 2 + sink, -right, up, -back))
+		n += 1
+	end
 	return n
 end
 -- builds a.spline's surface into a new folder (not parented); returns it and the part count, or nil when there's none
 function E.buildSurface(a, rp)
 	local sp = a.spline
 	local sf = sp and sp.surface
-	if not sf or not sf.on or (sp.width or 0) <= 0 then return nil, 0 end
+	if not sf or not sf.on or (sp.width or 0) <= 0 then
+		return nil, 0
+	end
 	local style = surfaceStyle(sf.style)
 	local thick = math.clamp(tonumber(sf.thick) or 1, 0.2, 20)
 	local R0 = sp.width / 2
@@ -60,7 +77,9 @@ function E.buildSurface(a, rp)
 	local parts = 0
 	-- every curve's samples first: a branch needs to know where the road it joins lies
 	local all = {}
-	for ci, cv in E.splineCurves(sp) do all[ci] = { smp = E.splineSamples(cv, rp) } end
+	for ci, cv in E.splineCurves(sp) do
+		all[ci] = { smp = E.splineSamples(cv, rp) }
+	end
 	-- flat distance from q to curve j's centre line, that road's half width there, and whether the closest spot is
 	-- one of its ends (an end-to-end join, not a junction into the middle of it)
 	local function nearest(j, q)
@@ -106,7 +125,9 @@ function E.buildSurface(a, rp)
 			-- the ground (a tall probe, so a steep cross-slope still finds it)
 			local lift = 0.04 + (ci - 1) * 0.03 -- branches sit a hair higher where they overlap the main road
 			local function flat(v)
-				if not v then return nil end
+				if not v then
+					return nil
+				end
 				v = Vector3.new(v.X, 0, v.Z)
 				return v.Magnitude > 0.05 and v.Unit or nil
 			end
@@ -117,7 +138,9 @@ function E.buildSurface(a, rp)
 			local cache = {}
 			local function edgeAt(k)
 				local hitC = cache[k]
-				if hitC then return hitC[1], hitC[2], hitC[3] end
+				if hitC then
+					return hitC[1], hitC[2], hitC[3]
+				end
 				-- direction from ~4.5 studs of curve either side (not a neighbouring station, which can be far away or
 				-- a sub-stud step at a kerb); at a sharp corner the two sides differ and the edges mitre
 				local m = 6
@@ -131,7 +154,9 @@ function E.buildSurface(a, rp)
 				local miter = (t0 and t1) and 1 / math.max(math.cos(math.acos(math.clamp(t0:Dot(t1), -1, 1)) / 2), 0.5) or 1
 				local half = R0 * (W[k] or 1) * miter
 				local l, r, c = P[k] + right * half, P[k] - right * half, P[k]
-				if smp.snap then l, r, c = ground(l), ground(r), ground(c) end
+				if smp.snap then
+					l, r, c = ground(l), ground(r), ground(c)
+				end
 				l, r, c = l + Vector3.yAxis * lift, r + Vector3.yAxis * lift, c + Vector3.yAxis * lift
 				cache[k] = { l, r, c }
 				return l, r, c
@@ -158,10 +183,16 @@ function E.buildSurface(a, rp)
 								math.abs(rk.Y - (r0.Y + (r1.Y - r0.Y) * f)),
 								math.abs(ck.Y - (c0.Y + (c1.Y - c0.Y) * f))
 							)
-							if d > worst then worst, split = d, k end
+							if d > worst then
+								worst, split = d, k
+							end
 						end
 					end
-					if split then table.insert(st, j + 1, split) else j += 1 end
+					if split then
+						table.insert(st, j + 1, split)
+					else
+						j += 1
+					end
 				end
 			end
 			local L, Rr, C = {}, {}, {}
@@ -189,13 +220,19 @@ function E.buildSurface(a, rp)
 								local l, r = edgeAt(k)
 								local q = side == 1 and l or r
 								if not inside(q) then
-									if k == kEnd then return q, k end
+									if k == kEnd then
+										return q, k
+									end
 									local lp, rp2 = edgeAt(prevK)
 									local a0 = side == 1 and lp or rp2
 									local lo, hi = 0, 1
 									for _ = 1, 10 do
 										local mid = (lo + hi) / 2
-										if inside(a0:Lerp(q, mid)) then lo = mid else hi = mid end
+										if inside(a0:Lerp(q, mid)) then
+											lo = mid
+										else
+											hi = mid
+										end
 									end
 									return a0:Lerp(q, hi), k
 								end
@@ -206,7 +243,9 @@ function E.buildSurface(a, rp)
 						end
 						local lx, kl = cross(1)
 						local rx, kr = cross(-1)
-						if not lx or not rx then return "gone" end -- the whole road lies inside the other one
+						if not lx or not rx then
+							return "gone"
+						end -- the whole road lies inside the other one
 						return { l = lx, r = rx, k = fromStart and math.max(kl, kr) or math.min(kl, kr) }
 					end
 				end
@@ -214,19 +253,31 @@ function E.buildSurface(a, rp)
 			end
 			if not loop then
 				local cut0, cut1 = trim(true), trim(false)
-				if cut0 == "gone" or cut1 == "gone" then continue end
+				if cut0 == "gone" or cut1 == "gone" then
+					continue
+				end
 				if cut0 or cut1 then
 					-- the stations between the cuts, with each crossing as the new end edge
 					local nL, nR, nC = {}, {}, {}
 					local function push(l, r, c)
-						table.insert(nL, l); table.insert(nR, r); table.insert(nC, c or (l + r) / 2)
+						table.insert(nL, l)
+						table.insert(nR, r)
+						table.insert(nC, c or (l + r) / 2)
 					end
-					if cut0 then push(cut0.l, cut0.r) end
+					if cut0 then
+						push(cut0.l, cut0.r)
+					end
 					for idx, k in st do
-						if (not cut0 or k >= cut0.k) and (not cut1 or k <= cut1.k) then push(L[idx], Rr[idx], C[idx]) end
+						if (not cut0 or k >= cut0.k) and (not cut1 or k <= cut1.k) then
+							push(L[idx], Rr[idx], C[idx])
+						end
 					end
-					if cut1 then push(cut1.l, cut1.r) end
-					if #nL < 2 then continue end
+					if cut1 then
+						push(cut1.l, cut1.r)
+					end
+					if #nL < 2 then
+						continue
+					end
 					L, Rr, C = nL, nR, nC
 				end
 			end
@@ -245,7 +296,9 @@ function E.buildSurface(a, rp)
 				elseif ((Rr[j + 1] - Rr[j]) - along).Magnitude < 0.02 and math.abs(across.Unit:Dot(along.Unit)) < 0.01 then
 					-- a straight, even stretch is a plain rectangle: one part instead of four wedges
 					local nrm = along:Cross(across).Unit
-					if nrm.Y < 0 then nrm = -nrm end
+					if nrm.Y < 0 then
+						nrm = -nrm
+					end
 					local b = Instance.new("Part")
 					b.Anchored = true
 					b.TopSurface, b.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
@@ -272,8 +325,12 @@ end
 function E.maskFromSpline(a, rp)
 	local sp = a.spline
 	a.rows, a.count = {}, 0
-	if not sp or (sp.width or 0) <= 0 then return end
-	if sp.surface and sp.surface.on then return end -- the strip is a road: nothing gets scattered onto it
+	if not sp or (sp.width or 0) <= 0 then
+		return
+	end
+	if sp.surface and sp.surface.on then
+		return
+	end -- the strip is a road: nothing gets scattered onto it
 	local c, R0 = a.cell, sp.width / 2
 	local top = -math.huge
 	for _, cv in E.splineCurves(sp) do
@@ -288,12 +345,15 @@ function E.maskFromSpline(a, rp)
 				for cx = math.floor((p.X - R) / c), math.floor((p.X + R) / c) do
 					for cz = math.floor((p.Z - R) / c), math.floor((p.Z + R) / c) do
 						local dx, dz = (cx + 0.5) * c - p.X, (cz + 0.5) * c - p.Z
-						if dx * dx + dz * dz <= R * R then E.setCell(a, cx, cz, true) end
+						if dx * dx + dz * dz <= R * R then
+							E.setCell(a, cx, cz, true)
+						end
 					end
 				end
 			end
 		end
 	end
-	if top > -math.huge then a.topY = top end
+	if top > -math.huge then
+		a.topY = top
+	end
 end
-

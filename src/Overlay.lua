@@ -62,7 +62,11 @@ return function(App)
 	end
 
 	local function overlayVisible()
-		return App.area ~= nil and App.widget.Enabled and (G.overlay or App.mode ~= "Off") and App.area.count <= MAX_OVERLAY
+		return App.area ~= nil
+			and App.widget.Enabled
+			and not App.overlayHidden -- the hide key (for this session)
+			and (G.overlay or App.mode ~= "Off" or App.heatLayer ~= nil)
+			and App.area.count <= MAX_OVERLAY
 	end
 	local function clearOverlay()
 		if overlayFolder then
@@ -74,6 +78,14 @@ return function(App)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
 	local BLOCKED = { Building = true, Water = true }
 	local function cellColor(cx, cz, zone)
+		-- the heatmap of one object: dark where it never goes, the accent where it grows thickest
+		local an = App.lastAnalysis
+		if App.heatLayer and an and not App.analysisDirty then
+			App.heatFn = App.heatFn or Engine.heat(App.heatLayer, an, App.area)
+			local j = Engine.indexAt(an, (cx + 0.5) * App.area.cell, (cz + 0.5) * App.area.cell)
+			local v = j and App.heatFn(j) or 0
+			return v <= 0 and VIEW.less or VIEW.muted:Lerp(VIEW.accent, math.clamp(0.25 + v * 0.75, 0, 1))
+		end
 		if App.paintLayer and LAYER_MODES[App.mode] then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
@@ -213,7 +225,7 @@ return function(App)
 		if paint or breathing then
 			breath += dt
 			if breath >= 0.08 or not paint then
-				local t = paint and EDGE_REST - 0.12 + 0.12 * math.sin(os.clock() * 3.2) or EDGE_REST
+				local t = paint and EDGE_REST - 0.06 + 0.06 * math.sin(os.clock() * 2.4) or EDGE_REST
 				breath, breathing = 0, paint
 				for strip in edgeStrips do
 					strip.Transparency = t
@@ -238,6 +250,7 @@ return function(App)
 		flushRows(0.03) -- the first part now, the rest over the next frames
 	end
 	local function recolorOverlay()
+		App.heatFn = nil -- rules may have changed: the heatmap is worked out again
 		for cz in rowParts do
 			App.dirtyRows[cz] = true
 		end

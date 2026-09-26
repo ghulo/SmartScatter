@@ -136,7 +136,16 @@ return function(App)
 	local job -- the running job: { live = bool, from = layer?, cancel = bool }
 	local liveFrom, liveLoop = nil, false
 
-	local function runGenerate(recorded, from)
+	-- region: the patch a stroke changed (live only). A run that gets cancelled leaves its patch (or, for a full run,
+	-- everything: lostPatch = true) out of date, so the next run covers it too; a completed run clears it.
+	local lostPatch
+	local function joinBoxes(a, b)
+		if not (a and b) then
+			return a or b
+		end
+		return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
+	end
+	local function runGenerate(recorded, from, region)
 		if not canGenerate() then -- the Generate button shows why
 			return
 		end
@@ -151,6 +160,12 @@ return function(App)
 			return
 		end
 		job = me
+		-- (after the wait: the run just retired may have left something out of date) every layer there, or all
+		if lostPatch then
+			from = nil
+			region = lostPatch ~= true and region and joinBoxes(region, lostPatch) or nil
+		end
+		me.from, me.region = from, not recorded and region or nil
 		App.heavyWarning = nil
 		local area = App.area
 		local t0, slice = os.clock(), os.clock()
@@ -202,18 +217,23 @@ return function(App)
 			phase = "Placing"
 			local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 				from = from,
+				region = me.region,
 				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = G.ghost },
 				tick = tick,
 			})
 			if counts then
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
+				lostPatch = nil
 			end
 		end, function(e)
 			trace = debug.traceback(tostring(e), 2)
 			return e
 		end)
 		job = nil
+		if not me.done and App.area == area then
+			lostPatch = (me.region and lostPatch ~= true) and joinBoxes(lostPatch, me.region) or true
+		end
 		if App.showProgress then
 			App.showProgress(nil)
 		end

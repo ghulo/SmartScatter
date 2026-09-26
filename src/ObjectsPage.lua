@@ -9,7 +9,8 @@ return function(App)
 	local P, SANS, SANS_M, SANS_B, new, corner, stroke = App.P, App.SANS, App.SANS_M, App.SANS_B, App.new, App.corner, App.stroke
 	local pad, vlist, hlist, box, col, label, para = App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 	local hintOn, slider, switch, switchRow, segmented, section = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented, App.section
-	local recolorOverlay, canGenerate, requestLive, commit = App.recolorOverlay, App.canGenerate, App.requestLive, App.commit
+	local recolorOverlay, rebuildOverlay, canGenerate, requestLive, commit =
+		App.recolorOverlay, App.rebuildOverlay, App.canGenerate, App.requestLive, App.commit
 	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
 	local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 	local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
@@ -25,9 +26,12 @@ return function(App)
 			App.setMode("Off")
 		end
 		App.expanded = l
+		if App.heatLayer and App.heatLayer ~= l then -- the heatmap belongs to the object whose page it was
+			App.heatLayer = nil
+			rebuildOverlay()
+		end
 		App.rebuildAll()
 	end
-	-- a small model row: thumbnail, name and, optionally, a Remove button
 	-- a model with its thumbnail and, on the right, its buttons: actions = { { text, style, onClick }, ... }
 	local function modelRow(parent, inst, text, actions)
 		local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = parent })
@@ -61,11 +65,18 @@ return function(App)
 	local function controls(l)
 		local s, D = l.s, Engine.defaults(l.type)
 		local c = {}
+		local function reheat() -- the heatmap follows the rules as they change
+			if App.heatLayer == l then
+				recolorOverlay()
+			end
+		end
 		function c.live()
 			requestLive(l)
+			reheat()
 		end
 		function c.done()
 			commit(l)
+			reheat()
 		end
 		function c.changed(rebuild) -- a change the page must be redrawn for (other controls appear or go)
 			c.live()
@@ -406,6 +417,16 @@ return function(App)
 			else
 				c.S(b, "scaleMin", "Smallest", 0.2, 4, "%.2f×", 0.05, "Smallest random size a copy can be.")
 				c.S(b, "scaleMax", "Largest", 0.2, 4, "%.2f×", 0.05, "Largest random size. Bigger copies land in the middle of clumps.")
+				c.S(
+					b,
+					"edgeYoung",
+					"Young at the edges",
+					0,
+					1,
+					"%.0f%%",
+					0.05,
+					"Smaller copies toward the area's edge and its clearings, like the young fringe of a real forest."
+				)
 			end
 		end)
 	end
@@ -505,6 +526,37 @@ return function(App)
 			if l.type == "Building" then
 				c.SW(b, "faceRoad", "Face the nearest road", "Turns the front (−Z side) of each building toward the closest road.")
 			end
+			-- near another of this area's objects: mushrooms round trees, flowers round rocks
+			local others = {}
+			for _, o in App.area.layers do
+				if o ~= l then
+					table.insert(others, o)
+				end
+			end
+			if #others > 0 then
+				gap(b, 6)
+				stepLabel(b, nil, "Near another object")
+				local grid = chipGrid(b, 3, 30)
+				chip(grid, "None", function()
+					return s.near == ""
+				end, function()
+					s.near = ""
+					c.changed(true)
+				end)
+				for _, o in others do
+					local key = Engine.layerKey(o)
+					chip(grid, o.inst.Name, function()
+						return s.near == key
+					end, function()
+						s.near = key
+						c.changed(true)
+					end)
+				end
+				if s.near ~= "" then
+					c.S(b, "nearRange", "Within", 2, 60, "%.0f studs", 1, "How far from that object's copies this one grows.")
+					c.S(b, "nearStrength", "Strength", 0, 1, "%.0f%%", 0.05, "100% means only near it. 0% ignores it.")
+				end
+			end
 		end)
 	end
 
@@ -528,8 +580,48 @@ return function(App)
 			end
 			if not (line and s.fit) then -- joined pieces stay true so their joints meet
 				c.S(b, "tilt", "Random tilt", 0, 45, "%.0f°", 1, "Random lean for a less uniform look.")
+				c.S(
+					b,
+					"lean",
+					"Lean with the wind",
+					0,
+					30,
+					"%.0f°",
+					1,
+					"Every copy leans the same way, like windswept trees. The direction is the area's Wind setting."
+				)
 			end
-			c.S(b, "tint", "Colour shift", 0, 0.4, "%.0f%%", 0.01, "Random brightness and hue change per copy.")
+			gap(b, 4)
+			c.SW(
+				b,
+				"vary",
+				"Variation",
+				"Every copy a little different: its own hue, saturation and brightness, on part colours, SurfaceAppearance meshes and decals alike; optionally with some details left out.",
+				true
+			)
+			if s.vary then
+				c.S(b, "hueVar", "Hue", 0, 0.15, "±%.0f%%", 0.005, "How far colours may drift round the colour wheel.")
+				c.S(b, "satVar", "Saturation", 0, 0.5, "±%.0f%%", 0.01, "Richer or more washed-out colours.")
+				c.S(b, "valVar", "Brightness", 0, 0.5, "±%.0f%%", 0.01, "Lighter or darker copies.")
+				c.SW(
+					b,
+					"perPart",
+					"Each part separately",
+					"Off: one shift for the whole copy. On: every part gets its own, e.g. leaves in slightly different greens."
+				)
+				c.S(
+					b,
+					"dropDetails",
+					"Leave out details",
+					0,
+					1,
+					"%.0f%%",
+					0.05,
+					"Chance each detail part is left out, so copies differ in shape too. Details: parts named like Apple, Fruit, Berry, Mushroom, Moss, Detail, Extra or Optional, or marked with the attribute SS_Optional."
+				)
+			else
+				c.S(b, "tint", "Colour shift", 0, 0.4, "%.0f%%", 0.01, "Random brightness and hue change per copy.")
+			end
 			c.S(
 				b,
 				"sink",
@@ -682,6 +774,22 @@ return function(App)
 		local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -52, 0, 16), Parent = head })
 		rowRefs[l] = { sub = sub }
 		gap(parent, 8)
+		if not Engine.isLine(l) then
+			switchRow(
+				"Show where it grows",
+				function()
+					return App.heatLayer == l
+				end,
+				function(v)
+					App.heatLayer = v and l or nil
+				end,
+				function()
+					rebuildOverlay()
+				end,
+				"Colours the painted area by how likely this object is to grow there with its current rules: dark is never, the accent is thickest. It follows your changes as you make them."
+			).Parent =
+				parent
+		end
 		layerRules(l, parent)
 	end
 
@@ -948,6 +1056,28 @@ return function(App)
 				button("+  Add selected models", nil, addSelected, { Parent = buttonRow(list) }),
 				"Select models, or a folder of them, in the Explorer. Each becomes an object you can tune."
 			)
+			-- single copies: take out the one that looks wrong, or bring them all back
+			local fix = buttonRow(list)
+			local pick = button("", nil, function()
+				App.setMode("Remove")
+			end, { Parent = fix })
+			hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
+			local function refresh()
+				pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
+			end
+			refresh()
+			App.ui.refreshRemoveBtn = refresh
+			local n = Engine.removedCount(App.area)
+			if n > 0 then
+				button(string.format("Bring back %d removed", n), "ghost", function()
+					App.area.removed = {}
+					commit()
+					App.refreshObjects()
+					if not G.live then
+						App.status("Press Generate to bring them back.")
+					end
+				end, { Parent = fix })
+			end
 		else
 			App.emptyState(
 				list,

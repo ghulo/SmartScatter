@@ -77,6 +77,7 @@ return function(App)
 		query = true,
 		chunks = false,
 		accent = "Sage", -- the accent theme (ACCENTS below)
+		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
 		ghost = false, -- preview as boxes: one see-through box per copy, for quick tuning of big areas
 		tool = "Brush",
 		shape = "Circle",
@@ -115,6 +116,109 @@ return function(App)
 	-- App.area: current area (Engine.loadArea / createArea)
 	-- App.expanded: layer whose rules are open
 	-- App.lastAnalysis: cached scan
+	--------------------------------------------------------------------------------
+	-- Shortcuts: every action a key can do, its default key, and the one the user picked (G.keys). Painting reads
+	-- keys through this, Settings edits it, and the hints under the tools show what's bound. Shift (erase / height)
+	-- and Ctrl+Z are Studio's modifiers and stay fixed.
+	--------------------------------------------------------------------------------
+	local KEYMAP = {
+		{ id = "tool1", group = "Painting", label = "Brush", key = "One" },
+		{ id = "tool2", group = "Painting", label = "Lasso", key = "Two" },
+		{ id = "tool3", group = "Painting", label = "Box", key = "Three" },
+		{ id = "tool4", group = "Painting", label = "Polygon", key = "Four" },
+		{ id = "tool5", group = "Painting", label = "Fill", key = "Five" },
+		{ id = "erase", group = "Painting", label = "Erase on / off", key = "E" },
+		{ id = "size", group = "Painting", label = "Resize brush with the mouse", key = "F" },
+		{ id = "shrink", group = "Painting", label = "Smaller brush", key = "LeftBracket" },
+		{ id = "grow", group = "Painting", label = "Bigger brush", key = "RightBracket" },
+		{ id = "close", group = "Shapes and paths", label = "Close polygon / finish", key = "Return" },
+		{ id = "back", group = "Shapes and paths", label = "Remove last point", key = "Backspace" },
+		{ id = "cancel", group = "Shapes and paths", label = "Stop", key = "Escape" },
+		{ id = "corner", group = "Shapes and paths", label = "Sharp corner", key = "C" },
+		{ id = "delete", group = "Shapes and paths", label = "Delete point", key = "X" },
+		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout", key = "R" },
+		{ id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
+	}
+	-- how a key is written on a chip
+	local KEY_TEXT = {
+		One = "1",
+		Two = "2",
+		Three = "3",
+		Four = "4",
+		Five = "5",
+		Six = "6",
+		Seven = "7",
+		Eight = "8",
+		Nine = "9",
+		Zero = "0",
+		LeftBracket = "[",
+		RightBracket = "]",
+		Return = "Enter",
+		Backspace = "Backspace",
+		Escape = "Esc",
+		Space = "Space",
+		Minus = "-",
+		Equals = "=",
+		Semicolon = ";",
+		Quote = "'",
+		Comma = ",",
+		Period = ".",
+		Slash = "/",
+		BackSlash = "\\",
+		Tab = "Tab",
+		Delete = "Del",
+		Insert = "Ins",
+		Home = "Home",
+		End = "End",
+		PageUp = "PgUp",
+		PageDown = "PgDn",
+	}
+	-- keys that can't be bound: modifiers, and the mouse's own
+	local UNBINDABLE = {
+		LeftShift = true,
+		RightShift = true,
+		LeftControl = true,
+		RightControl = true,
+		LeftAlt = true,
+		RightAlt = true,
+		LeftSuper = true,
+		RightSuper = true,
+		Unknown = true,
+	}
+	local function keyOf(id) -- the KeyCode name bound to an action
+		if type(G.keys[id]) == "string" and not UNBINDABLE[G.keys[id]] then
+			return G.keys[id]
+		end
+		for _, a in KEYMAP do
+			if a.id == id then
+				return a.key
+			end
+		end
+		return nil
+	end
+	local function keyText(id)
+		local k = keyOf(id)
+		return k and (KEY_TEXT[k] or k) or "?"
+	end
+	-- bind an action to a key; an action already on that key takes this one's old key (a swap). Returns the
+	-- action that moved, if any.
+	local function bindKey(id, key)
+		local old, moved = keyOf(id), nil
+		for _, a in KEYMAP do
+			if a.id ~= id and keyOf(a.id) == key then
+				moved = a
+				G.keys[a.id] = old
+			end
+		end
+		G.keys[id] = key
+		saveG()
+		return moved
+	end
+	local function resetKeys()
+		table.clear(G.keys)
+		saveG()
+	end
+
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" (paint one layer) · "Off"
@@ -244,6 +348,12 @@ return function(App)
 	App.num = num
 	App.P = P
 	App.makePalette = makePalette
+	App.KEYMAP = KEYMAP
+	App.UNBINDABLE = UNBINDABLE
+	App.keyOf = keyOf
+	App.keyText = keyText
+	App.bindKey = bindKey
+	App.resetKeys = resetKeys
 	App.VIEW = VIEW
 	App.ACCENTS = ACCENTS
 	App.SANS = SANS

@@ -954,6 +954,55 @@ local ok, err = pcall(function()
 		end
 		check("objects sharing a path stay apart", #items > 0 and inside == 0, string.format("%d placed, %d inside each other", #items, inside))
 	end
+	-- 16. Variation: colours differ per copy on parts, SurfaceAppearance tints and decals; details can be left out
+	do
+		local m = model("TestShrub", {
+			{ Name = "Body", Size = Vector3.new(3, 3, 3), CFrame = CFrame.new(0, 1.5, 0), Color = Color3.fromRGB(90, 150, 80) },
+			{ Name = "Apple", Size = Vector3.new(0.6, 0.6, 0.6), CFrame = CFrame.new(1, 3, 0), Color = Color3.fromRGB(200, 40, 40) },
+		})
+		local sa = Instance.new("SurfaceAppearance")
+		sa.Parent = m.Body
+		local decal = Instance.new("Decal")
+		decal.Parent = m.Body
+		table.insert(templates, m)
+		local l = E.makeLayer(m, "Bush")
+		l.s.vary, l.s.valVar, l.s.dropDetails, l.s.density = true, 0.4, 1, 2
+		local a = newArea("SS_Test_Vary", { l })
+		paintRect(a, 40, 60, 80, 100)
+		run(a)
+		local colours, tints, apples, n = {}, {}, 0, 0
+		for _, c in placed(a.folder) do
+			n += 1
+			local body = c:FindFirstChild("Body")
+			if body then
+				colours[body.Color:ToHex()] = true
+				local s2 = body:FindFirstChildOfClass("SurfaceAppearance")
+				if s2 then
+					local ok, col = pcall(function()
+						return s2.Color:ToHex()
+					end)
+					if ok then
+						tints[col] = true
+					end
+				end
+			end
+			if c:FindFirstChild("Apple") then
+				apples += 1
+			end
+		end
+		local function count(t)
+			local k = 0
+			for _ in t do
+				k += 1
+			end
+			return k
+		end
+		check(
+			"Variation recolours parts and SurfaceAppearance, and drops details",
+			n > 3 and count(colours) > 3 and count(tints) > 3 and apples == 0,
+			string.format("%d copies, %d part colours, %d SurfaceAppearance tints, %d with details", n, count(colours), count(tints), apples)
+		)
+	end
 	-- 13. names are read word by word
 	do
 		local function kind(name)
@@ -969,6 +1018,52 @@ local ok, err = pcall(function()
 			and kind("Trailhead") == "Scatter"
 			and kind("Sign Post") == "Along"
 		check("names are matched as words", okNames, "palisade/streetlamp/fences are lines; campfire/trailhead are not")
+	end
+	-- 14. removed copies stay gone, and a patch rebuild leaves everything outside the patch alone
+	do
+		local a = newArea("SS_Test_Patch", { E.makeLayer(rock, "Rock") })
+		paintRect(a, -60, -60, 60, 60)
+		local total, _, _, an = run(a)
+		local before = {}
+		for _, m in placed(a.folder) do
+			before[m] = true
+		end
+		local victim = placed(a.folder)[1]
+		local vx, vz = victim and victim:GetAttribute("SS_X"), victim and victim:GetAttribute("SS_Z")
+		if victim then
+			E.removeCopy(a, E.copyAt(a, victim:FindFirstChildWhichIsA("BasePart", true)))
+		end
+		local _, again = E.generate(a, an, 1, templates, {})
+		local back = 0
+		for _, m in placed(a.folder) do
+			if math.abs(m:GetAttribute("SS_X") - vx) < 0.3 and math.abs(m:GetAttribute("SS_Z") - vz) < 0.3 then
+				back += 1
+			end
+		end
+		check(
+			"a removed copy stays removed after generating again",
+			victim ~= nil and back == 0 and again == total - 1 and E.removedCount(a) == 1,
+			string.format("%d placed, %d after, %d back at the spot", total, again or -1, back)
+		)
+		local kept = {}
+		for _, m in placed(a.folder) do
+			kept[m] = true
+		end
+		local box = { O.X - 10, O.Z - 10, O.X + 10, O.Z + 10 }
+		E.generate(a, an, 1, templates, { region = box })
+		local moved, stayed = 0, 0
+		for m in kept do
+			if m.Parent then
+				stayed += 1
+			elseif math.abs(m:GetAttribute("SS_X") - O.X) > 30 or math.abs(m:GetAttribute("SS_Z") - O.Z) > 30 then
+				moved += 1 -- far outside the patch (and its padding), yet rebuilt
+			end
+		end
+		check(
+			"a patch rebuild keeps copies outside the patch",
+			stayed > 0 and moved == 0,
+			string.format("%d kept, %d far copies rebuilt", stayed, moved)
+		)
 	end
 end)
 if not ok then
@@ -992,6 +1087,7 @@ for _, n in
 		"SS_Test_Axis",
 		"SS_Test_Lamps",
 		"SS_Test_Piles",
+		"SS_Test_Patch",
 	}
 do
 	local f = E.getOut():FindFirstChild(n)

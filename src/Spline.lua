@@ -86,7 +86,12 @@ return function(App)
 	end
 
 	local function splineVisible()
-		return App.area ~= nil and App.area.spline ~= nil and #App.area.spline.pts > 0 and App.widget.Enabled and (G.overlay or App.mode ~= "Off")
+		return App.area ~= nil
+			and App.area.spline ~= nil
+			and #App.area.spline.pts > 0
+			and App.widget.Enabled
+			and (G.overlay or App.mode ~= "Off")
+			and not (App.overlayHidden and App.mode ~= "Spline") -- hidden with the overlay, except while drawing it
 	end
 	local function removeSplineViz()
 		if sv.folder then
@@ -117,7 +122,7 @@ return function(App)
 			-- the neon glow under the curve: the same lines, wide and faint
 			sv.halo = new(
 				"WireframeHandleAdornment",
-				{ Adornee = T, AlwaysOnTop = true, Thickness = 9, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 7, ZIndex = 1, Transparency = 0.9, Color3 = VIEW.edge, Parent = sv.folder }
 			)
 		end
 		for _, k in { "hOut", "hIn" } do

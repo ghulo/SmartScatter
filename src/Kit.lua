@@ -233,7 +233,7 @@ return function(App)
 	end
 	-- a soft neon glow round obj (the accent, or color): two rings, bright close in, faint further out. Returns a
 	-- controller: :set(on, instant) lights it or puts it out; :pulse(on) breathes while something runs.
-	local GLOW = { { 1, 2, 0.45 }, { 4, 5, 0.86 } } -- { out, thickness, transparency when fully lit }
+	local GLOW = { { 1, 1.5, 0.62 }, { 3, 4, 0.93 } } -- { out, thickness, transparency when fully lit }
 	local function glow(obj, radius, strength, color)
 		strength = strength or 1
 		local rings, lit, pulses = {}, false, {}
@@ -731,12 +731,15 @@ return function(App)
 	end
 
 	-- small icons drawn from frames (no uploaded images), in a unit square scaled to `size`
+	-- The style: chunky, rounded strokes and a soft fill of the same colour inside every outline (two-tone), so
+	-- icons read as friendly shapes rather than thin line art.
+	local ICON_FILL = 0.72 -- transparency of the soft fill inside outlines
 	local function icon(name, size, color)
 		local f = box({ Size = UDim2.fromOffset(size, size) })
-		local th = math.max(1.2, size / 10)
+		local th = math.max(1.6, size / 7.5)
 		local function ring(cx, cy, r, filled)
 			local o = box({
-				BackgroundTransparency = filled and 0 or 1,
+				BackgroundTransparency = filled and 0 or ICON_FILL,
 				BackgroundColor3 = color,
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromOffset(cx * size, cy * size),
@@ -752,13 +755,13 @@ return function(App)
 		end
 		local function rect(cx, cy, w, h, filled, rad)
 			local o = box({
-				BackgroundTransparency = filled and 0 or 1,
+				BackgroundTransparency = filled and 0 or ICON_FILL,
 				BackgroundColor3 = color,
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromOffset(cx * size, cy * size),
 				Size = UDim2.fromOffset(w * size, h * size),
 				Parent = f,
-			}, { corner(rad or 1) })
+			}, { corner(math.max(rad or 1, size * 0.14)) })
 			if not filled then
 				local st = stroke(color)
 				st.Thickness = th
@@ -773,10 +776,10 @@ return function(App)
 				BackgroundColor3 = color,
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.fromOffset((x1 + x2) / 2 * size, (y1 + y2) / 2 * size),
-				Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + th * 0.6, th),
+				Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + th, th),
 				Rotation = math.deg(math.atan2(dy, dx)),
 				Parent = f,
-			}, { corner(1) })
+			}, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) }) -- round ends
 		end
 		if name == "brush" then
 			ring(0.5, 0.5, 0.36)
@@ -886,7 +889,7 @@ return function(App)
 		local pillStroke = stroke(P.accentLine)
 		pillStroke.Transparency = 1
 		pillStroke.Parent = pill
-		local pillGlow = glow(pill, 7, 0.45)
+
 		local row = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = inner }, { hlist(0) })
 		local btns = {}
 		local shown, init = false, false
@@ -910,7 +913,6 @@ return function(App)
 				tween(pill, FAST, { BackgroundTransparency = 1 })
 				tween(pillStroke, FAST, { Transparency = 1 })
 			end
-			pillGlow:set(idx ~= nil, not init)
 			shown, init = idx ~= nil, true
 			for o, b in btns do
 				local on = cur == o
@@ -1088,7 +1090,7 @@ return function(App)
 		avoid = "Distance from buildings, roads, water",
 		attract = "Grow close to walls, water or roads",
 		terrain = "Steepest ground and leaning",
-		look = "Rotation, tilt, colour and sinking",
+		look = "Rotation, tilt, colour, variation and sinking",
 		presets = "Save this set of objects, reuse it anywhere",
 		output = "Collision, shadows, streaming",
 	}
@@ -1185,9 +1187,7 @@ return function(App)
 		shade(card, 0.07)
 		topLight(card, 0.12, 16)
 		shadow(card, 14)
-		if n and not done then -- the step to do now
-			glow(card, 14, 0.35):set(true, true)
-		end
+
 		local inner = col({ Parent = card }, { pad(14, 14, 14, 14), vlist(12) })
 		local head = col({ Parent = inner })
 		local badge = box({
@@ -1270,6 +1270,89 @@ return function(App)
 		return b, ic
 	end
 
+	-- Listens for the next key pressed while `over` (a button) waits for one, then calls done(KeyCode name), or
+	-- done(nil) on Esc or a click away. Keys reach a plugin panel by different routes depending on focus, so it
+	-- listens to all of them (a focused text box's key events and typed text, and Studio's input) and takes the
+	-- first. Returns a function that stops listening.
+	local TYPED = {
+		["["] = "LeftBracket",
+		["]"] = "RightBracket",
+		["-"] = "Minus",
+		["="] = "Equals",
+		[";"] = "Semicolon",
+		[","] = "Comma",
+		["."] = "Period",
+		["/"] = "Slash",
+		[" "] = "Space",
+		["'"] = "Quote",
+	}
+	for d, n in
+		{
+			["1"] = "One",
+			["2"] = "Two",
+			["3"] = "Three",
+			["4"] = "Four",
+			["5"] = "Five",
+			["6"] = "Six",
+			["7"] = "Seven",
+			["8"] = "Eight",
+			["9"] = "Nine",
+			["0"] = "Zero",
+		}
+	do
+		TYPED[d] = n
+	end
+	local function captureKey(over, done)
+		local UIS = game:GetService("UserInputService")
+		local tb = new("TextBox", {
+			Text = "",
+			TextTransparency = 1,
+			BackgroundTransparency = 1,
+			ClearTextOnFocus = true,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = over.ZIndex + 2,
+			Parent = over,
+		})
+		local conns, finished = {}, false
+		local function finish(key)
+			if finished then
+				return
+			end
+			finished = true
+			for _, c in conns do
+				c:Disconnect()
+			end
+			tb:Destroy()
+			done(key ~= "Escape" and key or nil)
+		end
+		local function fromInput(input)
+			if input.UserInputType == Enum.UserInputType.Keyboard and not App.UNBINDABLE[input.KeyCode.Name] then
+				finish(input.KeyCode.Name)
+			end
+		end
+		table.insert(conns, tb.InputBegan:Connect(fromInput))
+		table.insert(conns, UIS.InputBegan:Connect(fromInput))
+		table.insert(
+			conns,
+			tb:GetPropertyChangedSignal("Text"):Connect(function()
+				local ch = string.sub(tb.Text, -1)
+				if ch ~= "" then
+					finish(TYPED[ch] or (string.match(ch, "%a") and string.upper(ch)) or nil)
+				end
+			end)
+		)
+		table.insert(
+			conns,
+			tb.FocusLost:Connect(function(enter)
+				task.defer(finish, enter and "Return" or nil) -- after any key event of the same press
+			end)
+		)
+		tb:CaptureFocus()
+		return function()
+			finish(nil)
+		end
+	end
+
 	-- where a list is empty: the logo, a title, a line saying what to do, and (optionally) the button that does it
 	local function emptyState(parent, title, text, actionText, onAction)
 		local f = col({ Parent = parent }, {
@@ -1311,11 +1394,9 @@ return function(App)
 				Parent = b,
 			}, { corner(4) })
 		end
-		local lit = glow(b, 8, 0.45)
 		pressable(b)
 		local function look()
 			local on = isOn ~= nil and isOn() == true
-			lit:set(on)
 			b.Font = on and SANS_B or SANS_M
 			b.BackgroundColor3 = on and P.accentSoft or P.raised
 			b.TextColor3 = on and P.accent or (isOn and P.dim or P.text)
@@ -1410,6 +1491,7 @@ return function(App)
 	App.pageHead = pageHead
 	App.chip = chip
 	App.emptyState = emptyState
+	App.captureKey = captureKey
 	App.chipGrid = chipGrid
 	App.iconButton = iconButton
 end

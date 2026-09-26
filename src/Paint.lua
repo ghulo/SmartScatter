@@ -30,6 +30,13 @@ return function(App)
 	})
 	local down, lastPos, strokeRec, strokeChanged = false, nil, nil, false
 	local strokeTouched = {}
+	local strokeBox -- { x0, z0, x1, z1 } in studs: the patch this gesture changed, so only it is rebuilt
+	local function touched(cx, cz)
+		local c = App.area.cell
+		local x0, z0, x1, z1 = cx * c, cz * c, (cx + 1) * c, (cz + 1) * c
+		local b = strokeBox
+		strokeBox = b and { math.min(b[1], x0), math.min(b[2], z0), math.max(b[3], x1), math.max(b[4], z1) } or { x0, z0, x1, z1 }
+	end
 	local gestureOn = true -- paint (true) or erase (false), fixed when a gesture starts
 	local shapePts, boxStart -- lasso points · box corner
 	-- App.polyPts: polygon points (Vector3)
@@ -66,7 +73,7 @@ return function(App)
 		-- the neon halo: a wider, faint ring just outside the brush's edge
 		App.gz.halo = new(
 			"CylinderHandleAdornment",
-			{ Adornee = T, Height = 0.06, Transparency = 0.72, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
+			{ Adornee = T, Height = 0.06, Transparency = 0.86, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
 		)
 		App.gz.sq = new("BoxHandleAdornment", { Adornee = T, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder })
 		App.gz.dot =
@@ -188,10 +195,13 @@ return function(App)
 	-- its centre; a click, F or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local function updateGizmo(hit)
-		if App.mode == "Spline" then
+		if App.mode == "Spline" or App.mode == "Remove" then
 			return
 		end
 		gizmoFolder()
+		if App.gz.pick then
+			App.gz.pick.Adornee = nil
+		end
 		local tool = activeTool()
 		local show = hit ~= nil
 		local R = G.radius
@@ -255,6 +265,7 @@ return function(App)
 			return false
 		end
 		Engine.setCell(App.area, cx, cz, on)
+		touched(cx, cz)
 		if on then
 			App.area.topY = (App.area.count <= 1) and info.y or math.max(App.area.topY, info.y)
 		end
@@ -289,6 +300,7 @@ return function(App)
 							end
 							if nv ~= v then
 								Engine.setPaint(App.paintLayer, cx, cz, nv)
+								touched(cx, cz)
 								strokeChanged = true
 								App.dirtyRows[cz] = true
 							end
@@ -393,8 +405,8 @@ return function(App)
 	end
 	local function finishGesture()
 		-- this gesture's recording and result: a new gesture may start while the regeneration below waits its turn
-		local rec, changed = strokeRec, strokeChanged
-		strokeRec, strokeChanged = nil, false
+		local rec, changed, box = strokeRec, strokeChanged, strokeBox
+		strokeRec, strokeChanged, strokeBox = nil, false, nil
 		down = false
 		lastPos, shapePts, boxStart = nil, nil, nil
 		clearPath()
@@ -411,7 +423,7 @@ return function(App)
 				App.analysisDirty = true
 			end
 			if G.live and canGenerate() then
-				runGenerate(false, layerPaint or nil)
+				runGenerate(false, layerPaint or nil, box)
 			end
 		end
 		if not changed then
@@ -509,8 +521,64 @@ return function(App)
 		updateGizmo(mouseHit())
 	end
 
+	-- Remove mode: point at one placed copy, it lights up, a click takes it out. The spot is remembered in the
+	-- area, so later generates leave it empty; "Bring back" in the Objects list clears them.
+	local removeParams = RaycastParams.new()
+	removeParams.FilterType = Enum.RaycastFilterType.Include
+	local function copyUnderMouse()
+		if not App.area then
+			return nil
+		end
+		removeParams.FilterDescendantsInstances = { App.area.folder }
+		local ray = mouse.UnitRay
+		local r = workspace:Raycast(ray.Origin, ray.Direction * 5000, removeParams)
+		return r and Engine.copyAt(App.area, r.Instance)
+	end
+	local function markCopy(copy)
+		gizmoFolder()
+		for _, k in { "ring", "disc", "halo", "sq", "dot" } do
+			App.gz[k].Visible = false
+		end
+		App.gz.bb.Enabled = copy ~= nil
+		App.gz.pick = App.gz.pick
+			or new("Highlight", {
+				FillTransparency = 0.6,
+				OutlineTransparency = 0,
+				DepthMode = Enum.HighlightDepthMode.Occluded,
+				Parent = App.gz.folder,
+			})
+		App.gz.pick.FillColor, App.gz.pick.OutlineColor = P.danger, P.danger
+		App.gz.pick.Adornee = copy
+		if copy then
+			App.gz.anchor.CFrame = copy:GetPivot()
+			setLabel("Click to remove " .. copy.Name)
+		end
+	end
+	local function removeUnderMouse()
+		local copy = copyUnderMouse()
+		if not copy then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Remove copy")
+		local h = Engine.removeCopy(App.area, copy)
+		for _, l in App.area.layers do
+			if l._h == h and App.lastCounts[l] then
+				App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
+			end
+		end
+		saveArea()
+		endRec(rec)
+		markCopy(nil)
+		App.refreshCounts()
+		App.status(string.format("Removed. %d removed in this area.", Engine.removedCount(App.area)))
+	end
+
 	mouse.Move:Connect(function()
 		if App.mode == "Off" or App.mode == "Spline" then
+			return
+		end
+		if App.mode == "Remove" then
+			markCopy(copyUnderMouse())
 			return
 		end
 		if sizing then
@@ -554,6 +622,12 @@ return function(App)
 		end
 		if sizing then -- the click that ends F-resizing doesn't paint
 			endSizing(true)
+			return
+		end
+		if App.mode == "Remove" then
+			if App.area and not App.area.locked then
+				removeUnderMouse()
+			end
 			return
 		end
 		if App.clickSplinePoint and App.clickSplinePoint() then -- clicked a spline point: edit it instead of painting
@@ -631,7 +705,8 @@ return function(App)
 		end
 	end
 
-	-- keys: [ ] resize the brush · F resizes it with the mouse · Enter closes a polygon · Backspace removes its last point · Esc cancels
+	-- keys: every action and its key come from the keymap (Base), so they follow what the user set in Settings
+	local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 	local lastKeyAt = {}
 	local function onKey(name)
 		if App.mode == "Off" then
@@ -643,12 +718,31 @@ return function(App)
 			return
 		end
 		lastKeyAt[name] = os.clock()
+		-- anywhere while working (painting, erasing, drawing a path)
+		if name == "shuffle" then
+			if App.area and not App.area.locked and App.shuffle then
+				App.shuffle()
+			end
+			return
+		elseif name == "overlay" then
+			App.overlayHidden = not App.overlayHidden
+			rebuildOverlay()
+			if App.drawSpline then
+				App.drawSpline()
+			end
+			App.status(App.overlayHidden and "Overlay hidden. Press it again to show it." or "Overlay shown.")
+			return
+		end
 		if App.mode == "Spline" then
 			App.splineKey(name)
 			return
 		end
 		if sizing and (name == "size" or name == "close" or name == "cancel") then
 			endSizing(name ~= "cancel")
+		elseif TOOL_KEY[name] and not LAYER_MODES[App.mode] then
+			App.setTool(TOOL_KEY[name])
+		elseif name == "erase" and not LAYER_MODES[App.mode] then
+			App.setMode(App.mode == "Erase" and "Paint" or "Erase")
 		elseif name == "size" then
 			startSizing()
 		elseif name == "grow" or name == "shrink" then
@@ -673,39 +767,50 @@ return function(App)
 			cancelShape()
 		end
 	end
-	local KEYS = {
-		[Enum.KeyCode.LeftBracket] = "shrink",
-		[Enum.KeyCode.RightBracket] = "grow",
-		[Enum.KeyCode.Return] = "close",
-		[Enum.KeyCode.KeypadEnter] = "close",
-		[Enum.KeyCode.Backspace] = "back",
-		[Enum.KeyCode.Delete] = "back",
-		[Enum.KeyCode.Escape] = "cancel",
-		[Enum.KeyCode.C] = "corner",
-		[Enum.KeyCode.F] = "size",
-		[Enum.KeyCode.X] = "delete",
-	}
+	-- keys that always do the same as a bound one (the keypad's Enter, Delete), whatever the keymap says
+	local ALIASES = { KeypadEnter = "close", Delete = "back" }
+	-- what the plugin mouse reports for a KeyCode (it gives characters, not KeyCodes)
+	local CHAR = { LeftBracket = "[", RightBracket = "]", Return = "\r", Backspace = "\b", Escape = "\27", Space = " ", Tab = "\t" }
+	for n, d in { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", Six = "6", Seven = "7", Eight = "8", Nine = "9", Zero = "0" } do
+		CHAR[n] = d
+	end
+	local function charOf(key)
+		return CHAR[key] or (#key == 1 and string.lower(key)) or nil
+	end
 	local function ctrlHeld()
 		return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
 	end
+	-- the action on a key; a plain letter or digit held with Ctrl stays Studio's (Ctrl+C copies, Ctrl+X cuts)
+	local function actionFor(key)
+		if App.capturingKey then -- Settings is listening for a new key: it isn't an action
+			return nil
+		end
+		for _, a in App.KEYMAP do
+			if App.keyOf(a.id) == key then
+				return (#(charOf(key) or "") == 1 and ctrlHeld()) and nil or a.id
+			end
+		end
+		return ALIASES[key]
+	end
 	track(UIS.InputBegan:Connect(function(input)
-		local name = KEYS[input.KeyCode]
-		if name and not UIS:GetFocusedTextBox() and not ((name == "corner" or name == "delete") and ctrlHeld()) then -- Ctrl+C, Ctrl+X stay copy and cut
+		if input.UserInputType ~= Enum.UserInputType.Keyboard or UIS:GetFocusedTextBox() then
+			return
+		end
+		local name = actionFor(input.KeyCode.Name)
+		if name then
 			onKey(name)
 		end
 	end))
 	mouse.KeyDown:Connect(function(k)
-		local name = (k == "[" and "shrink")
-			or (k == "]" and "grow")
-			or (k == "\r" and "close")
-			or (k == "\b" and "back")
-			or (k == "\27" and "cancel")
-			or (k == "c" and not ctrlHeld() and "corner")
-			or (k == "f" and "size")
-			or (k == "x" and not ctrlHeld() and "delete")
-			or nil
-		if name then
-			onKey(name)
+		for _, a in App.KEYMAP do
+			local key = App.keyOf(a.id)
+			if charOf(key) == k then
+				local name = actionFor(key)
+				if name then
+					onKey(name)
+				end
+				return
+			end
 		end
 	end)
 	-- right-click: only a quick click without dragging counts; holding the button to orbit the camera does nothing
@@ -737,23 +842,28 @@ return function(App)
 	end)
 
 	local MODE_TEXT = {
-		Brush = "Drag to paint. Hold Shift to erase. F (or [ ]) resizes.",
+		Brush = "Drag to paint. Hold Shift to erase. {size} (or {shrink} {grow}) resizes.",
 		Lasso = "Drag an outline. It fills when you let go.",
 		Box = "Drag a rectangle. It fills when you let go.",
-		Polygon = "Click points. Click the first point, double-click, right-click or press Enter to close.",
+		Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 		Fill = "Click the ground to fill everything connected of that surface.",
-		Spline = "Click to add points. Drag to move, Shift+drag for height, X or right-click deletes, Enter to finish.",
+		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 		More = "Brush where you want more of this layer.",
 		Less = "Brush where you want less. Twice removes it there.",
 		Clear = "Brush to undo your painting for this layer.",
+		Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 	}
+	-- a mode's hint, with the keys it names as they're bound ({size} → F, or whatever the user picked)
+	local function modeText(k)
+		return (string.gsub(MODE_TEXT[k] or "", "{(%w+)}", App.keyText))
+	end
 	-- everything that shows the current mode: viewport preview and the panel's tool states
 	local function showMode()
 		rebuildOverlay()
 		if App.drawSpline then
 			App.drawSpline()
 		end
-		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint" } do
+		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
 			if App.ui[k] then
 				App.ui[k]()
 			end
@@ -777,6 +887,10 @@ return function(App)
 			App.status("This area is locked. Unlock it in the area menu to paint or edit.")
 			m = "Off"
 		end
+		if m == "Remove" and not App.area then
+			App.status("Generate an area first, then remove single copies from it.")
+			m = "Off"
+		end
 		stopGestures()
 		if m ~= "Off" and not App.area then -- painting needs an area, drawing a path needs a path
 			if m == "Spline" then
@@ -791,7 +905,7 @@ return function(App)
 			plugin:Activate(true)
 			refreshParams()
 			gizmoFolder()
-			local t = MODE_TEXT[(LAYER_MODES[App.mode] or App.mode == "Spline") and App.mode or G.tool]
+			local t = modeText(MODE_TEXT[App.mode] and App.mode or G.tool)
 			App.status((App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
 			updateGizmo(mouseHit())
 		else
@@ -811,7 +925,7 @@ return function(App)
 		if App.mode ~= "Paint" and App.mode ~= "Erase" then
 			App.setMode("Paint")
 		else
-			App.status(MODE_TEXT[t])
+			App.status(modeText(t))
 			updateGizmo(mouseHit())
 		end
 	end

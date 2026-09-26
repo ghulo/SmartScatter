@@ -15,4 +15,3 @@ E.TAG = "SmartScatter"
 E.OUT = "SmartScatter"
 E.ROADS = "SmartScatter Roads" -- road surfaces, one folder per area (kept outside E.OUT so raycasts hit them)
 E.MASK_CELL = 4 -- area mask resolution in studs (older 8-stud areas are upgraded on load)
-

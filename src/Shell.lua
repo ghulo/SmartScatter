@@ -97,17 +97,61 @@ return function(App)
 			App.ui.perf = para("", { Parent = b })
 		end)
 		section(parent, "shortcuts", "Shortcuts", false, function(b)
-			for _, group in
-				{
-					{ "Painting", { { "Shift", "erase" }, { "F", "brush size" }, { "[ ]", "step size" }, { "Esc", "stop" } } },
-					{ "Polygon", { { "Enter", "close" }, { "RMB", "close" }, { "Backspace", "last point" } } },
-					{ "Path", { { "C", "sharp corner" }, { "Shift+drag", "height" }, { "X / RMB", "delete point" } } },
-					{ "Anywhere", { { "Ctrl+Z", "undo any step" } } },
-				}
-			do
-				label(group[1], 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
-				App.keyChips(b, group[2])
+			App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
+			local group
+			for _, a in App.KEYMAP do
+				if a.group ~= group then
+					group = a.group
+					label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
+				end
+				local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
+				label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
+				local key = button(App.keyText(a.id), nil, nil, {
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, 0, 0.5, 0),
+					AutomaticSize = Enum.AutomaticSize.None,
+					Size = UDim2.fromOffset(84, 26),
+					Font = App.SANS_B,
+					Parent = row,
+				})
+				local lit = App.glow(key, 8, 0.8)
+				key.MouseButton1Click:Connect(function()
+					if App.capturingKey then
+						return
+					end
+					App.capturingKey = true
+					key.Text = "Press a key"
+					lit:pulse(true)
+					App.captureKey(key, function(k)
+						App.capturingKey = false
+						if not k then
+							key.Text = App.keyText(a.id)
+							lit:pulse(false)
+							return
+						end
+						local moved = App.bindKey(a.id, k)
+						App.status(
+							moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
+								or string.format("%s is now %s.", a.label, App.keyText(a.id))
+						)
+						App.rebuildAll() -- every hint that names a key shows the new one
+					end)
+				end)
 			end
+			local fixed = label(
+				"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
+				12,
+				P.faint,
+				SANS,
+				{ Parent = b }
+			)
+			fixed.TextWrapped, fixed.AutomaticSize, fixed.Size = true, Enum.AutomaticSize.Y, UDim2.new(1, 0, 0, 0)
+			box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
+			button("Reset all shortcuts", "ghost", function()
+				App.resetKeys()
+				App.status("Shortcuts are back to their defaults.")
+				App.rebuildAll()
+			end, { Parent = buttonRow(b) })
 		end)
 		box({ Size = UDim2.new(1, 0, 0, 12), Parent = parent })
 		hintOn(
@@ -140,6 +184,18 @@ return function(App)
 		local note, heavy = App.perfNote()
 		App.ui.perf.Text = string.format("This area: %s objects, %s parts.  %s", num(App.lastTotal), num(App.lastParts), note)
 		App.ui.perf.TextColor3 = heavy and P.danger or P.dim
+	end
+
+	-- a new random layout with the same settings (the Shuffle button and its key)
+	App.shuffle = function()
+		if not App.area then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Shuffle")
+		App.area.seed = math.random(1, 999999)
+		saveArea()
+		endRec(rec)
+		runGenerate(true)
 	end
 
 	-- the footer: Live update, Shuffle and Clear; with Live update off, a Generate button on top. Messages show as
@@ -187,7 +243,6 @@ return function(App)
 			}, { corner(10) })
 			App.shade(App.ui.genBtn, 0.12)
 			App.topLight(App.ui.genBtn, 0.35, 8)
-			App.glow(App.ui.genBtn, 10, 0.7):set(true, true)
 			App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
 			local press = new("UIScale", { Parent = App.ui.genBtn })
 			-- progress while a job runs: a light sweep across the button
@@ -255,16 +310,7 @@ return function(App)
 			Parent = r,
 		}, { hlist(8) })
 		hintOn(
-			button("Shuffle", nil, function()
-				if not App.area then
-					return
-				end
-				local rec = beginRec("Smart Scatter: Shuffle")
-				App.area.seed = math.random(1, 999999)
-				saveArea()
-				endRec(rec)
-				runGenerate(true)
-			end, { Parent = links }),
+			button("Shuffle", nil, App.shuffle, { Parent = links }),
 			"A new random layout with the same settings. Ctrl+Z goes back to the last one."
 		)
 		hintOn(

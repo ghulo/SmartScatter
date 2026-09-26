@@ -93,7 +93,12 @@ return function(App)
 		end
 		refresh()
 		App.ui.refreshMode = refresh
-		keyChips(parent, { { "Shift", "erase" }, { "F", "size" }, { "[ ]", "step" }, { "Esc", "stop" } })
+		keyChips(parent, {
+			{ "Shift", "erase" },
+			{ App.keyText("size"), "size" },
+			{ App.keyText("shrink") .. " " .. App.keyText("grow"), "step" },
+			{ App.keyText("cancel"), "stop" },
+		})
 		hintOn(
 			button("Fill selected parts", nil, function()
 				App.fillSelection()
@@ -182,30 +187,46 @@ return function(App)
 	-- Scatter area, step 2: edges, which surfaces to paint on, cleanup
 	local function buildSurfaces(parent, done)
 		stepLabel(parent, 2, "Edges and surfaces", done)
-		slider(
-			"Soft edges",
+		-- a setting of the whole area, saved with it; every change rebuilds live
+		local function areaSlider(key, text, min, max, fmt, step, hint, def)
+			slider(
+				text,
+				min,
+				max,
+				function()
+					return App.area and App.area[key] or def
+				end,
+				function(v)
+					if App.area then
+						App.area[key] = v
+					end
+				end,
+				fmt,
+				step,
+				function()
+					requestLive()
+				end,
+				function()
+					commit()
+				end,
+				hint,
+				def
+			).Parent =
+				parent
+		end
+		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
+		areaSlider(
+			"patches",
+			"Groves and clearings",
 			0,
-			48,
-			function()
-				return App.area and App.area.edge or 12
-			end,
-			function(v)
-				if App.area then
-					App.area.edge = v
-				end
-			end,
-			"%.0f studs",
 			1,
-			function()
-				requestLive()
-			end,
-			function()
-				commit()
-			end,
-			"Thins things out toward the border so the area fades into its surroundings.",
-			12
-		).Parent =
-			parent
+			"%.0f%%",
+			0.05,
+			"Natural patches for the whole area: every object thickens in the same groves and thins out in the same clearings.",
+			0
+		)
+		areaSlider("patchSize", "Patch size", 16, 240, "%.0f studs", 4, "How big the groves and clearings are.", 60)
+		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
 		-- surface filter
 		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
 		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
@@ -283,7 +304,7 @@ return function(App)
 			drawBtn.TextColor3 = editing and P.text or P.onAccent
 		end
 		App.ui.refreshSplineBtn()
-		keyChips(parent, { { "Shift", "height" }, { "C", "corner" }, { "X", "delete" } })
+		keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 		App.ui.splineInfo = para("", { Parent = parent })
 		App.refreshSplineInfo()
 		if hasPath() then

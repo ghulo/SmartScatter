@@ -8,17 +8,31 @@ local CELL = 8
 local BIG = 32 -- reach above this goes in the list
 local Hash = {}
 Hash.__index = Hash
-local function ckey(cx, cz) return cx * 73856093 + cz end
-local function reach(it) return it.r * math.max(it.sp or 1, it.cs or 1, 1) end
-function Hash.new() return setmetatable({ cells = {}, big = {}, maxReach = 0 }, Hash) end
+local function ckey(cx, cz)
+	return cx * 73856093 + cz
+end
+local function reach(it)
+	return it.r * math.max(it.sp or 1, it.cs or 1, 1)
+end
+function Hash.new()
+	return setmetatable({ cells = {}, big = {}, maxReach = 0 }, Hash)
+end
 function Hash:add(it)
 	local rch = reach(it)
-	if rch > BIG then table.insert(self.big, it); return end
+	if rch > BIG then
+		table.insert(self.big, it)
+		return
+	end
 	local k = ckey(math.floor(it.x / CELL), math.floor(it.z / CELL))
 	local c = self.cells[k]
-	if not c then c = {}; self.cells[k] = c end
+	if not c then
+		c = {}
+		self.cells[k] = c
+	end
 	table.insert(c, it)
-	if rch > self.maxReach then self.maxReach = rch end
+	if rch > self.maxReach then
+		self.maxReach = rch
+	end
 end
 -- the least distance the rules allow between two items
 local function minDist(o, it)
@@ -41,7 +55,9 @@ local function tooClose(o, it)
 end
 function Hash:conflicts(it)
 	for _, o in self.big do
-		if tooClose(o, it) then return true end
+		if tooClose(o, it) then
+			return true
+		end
 	end
 	local range = reach(it) + self.maxReach
 	for cx = math.floor((it.x - range) / CELL), math.floor((it.x + range) / CELL) do
@@ -49,7 +65,9 @@ function Hash:conflicts(it)
 			local c = self.cells[ckey(cx, cz)]
 			if c then
 				for _, o in c do
-					if tooClose(o, it) then return true end
+					if tooClose(o, it) then
+						return true
+					end
 				end
 			end
 		end
@@ -57,13 +75,16 @@ function Hash:conflicts(it)
 	return false
 end
 
--- distance from (x,z) to the canopy edge of the nearest item of type t (nil if none in range)
+-- distance from (x,z) to the canopy edge of the nearest item of type t (a type name, or a layer's number: the
+-- copies of that one object), nil if none in range
 function Hash:nearest(x, z, range, t)
 	local best
 	for _, o in self.big do
-		if o.type == t then
+		if o.type == t or o.lk == t then
 			local d = math.sqrt((o.x - x) ^ 2 + (o.z - z) ^ 2) - o.r * 0.5
-			if d <= range and (not best or d < best) then best = d end
+			if d <= range and (not best or d < best) then
+				best = d
+			end
 		end
 	end
 	for cx = math.floor((x - range) / CELL), math.floor((x + range) / CELL) do
@@ -71,9 +92,11 @@ function Hash:nearest(x, z, range, t)
 			local c = self.cells[ckey(cx, cz)]
 			if c then
 				for _, o in c do
-					if o.type == t then
+					if o.type == t or o.lk == t then
 						local d = math.sqrt((o.x - x) ^ 2 + (o.z - z) ^ 2) - o.r * 0.5
-						if not best or d < best then best = d end
+						if not best or d < best then
+							best = d
+						end
 					end
 				end
 			end
@@ -84,8 +107,12 @@ end
 
 local function rotateUp(up)
 	local d = Vector3.yAxis:Dot(up)
-	if d > 0.9999 then return CFrame.identity end
-	if d < -0.9999 then return CFrame.Angles(math.pi, 0, 0) end -- straight down: any axis will do
+	if d > 0.9999 then
+		return CFrame.identity
+	end
+	if d < -0.9999 then
+		return CFrame.Angles(math.pi, 0, 0)
+	end -- straight down: any axis will do
 	return CFrame.fromAxisAngle(Vector3.yAxis:Cross(up).Unit, math.acos(math.clamp(d, -1, 1)))
 end
 E.rotateUp = rotateUp
@@ -101,16 +128,22 @@ local function frontOf(s)
 end
 local function alongXOf(s, m) -- true when the model's X axis runs along the line
 	local f = frontOf(s)
-	if f then return f == "+X" or f == "-X" end
+	if f then
+		return f == "+X" or f == "-X"
+	end
 	return m.size.X >= m.size.Z
 end
-local function lengthOf(s, m) return alongXOf(s, m) and m.size.X or m.size.Z end
+local function lengthOf(s, m)
+	return alongXOf(s, m) and m.size.X or m.size.Z
+end
 
 -- A model with an overhang (a street lamp's arm, a sign on a bracket, a basketball hoop) has an obvious front: the
 -- side its top reaches out to. Found from the parts: where the upper parts sit compared with the parts it stands on.
 -- Returns the extra turn that makes that side the front (the side a line's "Face it" turns toward the edge), or nil.
 local function overhangYaw(v)
-	if v._over ~= nil then return v._over or nil end
+	if v._over ~= nil then
+		return v._over or nil
+	end
 	local m = v.m
 	local H = m.size.Y
 	local ref = v.inst:GetPivot().Position
@@ -119,12 +152,22 @@ local function overhangYaw(v)
 		local cf, sz = p.CFrame, p.Size
 		local vol = math.max(sz.X * sz.Y * sz.Z, 1e-3)
 		local lowY = math.huge
-		for sx = -1, 1, 2 do for sy = -1, 1, 2 do for sz2 = -1, 1, 2 do
-			lowY = math.min(lowY, (cf * Vector3.new(sz.X / 2 * sx, sz.Y / 2 * sy, sz.Z / 2 * sz2)).Y - ref.Y)
-		end end end
+		for sx = -1, 1, 2 do
+			for sy = -1, 1, 2 do
+				for sz2 = -1, 1, 2 do
+					lowY = math.min(lowY, (cf * Vector3.new(sz.X / 2 * sx, sz.Y / 2 * sy, sz.Z / 2 * sz2)).Y - ref.Y)
+				end
+			end
+		end
 		local rel = cf.Position - ref
-		if lowY - m.bottom < H * 0.1 then base += rel * vol; wb += vol end -- stands on the ground
-		if rel.Y - m.bottom > H * 0.65 then top += rel * vol; wt += vol end -- up top
+		if lowY - m.bottom < H * 0.1 then
+			base += rel * vol
+			wb += vol
+		end -- stands on the ground
+		if rel.Y - m.bottom > H * 0.65 then
+			top += rel * vol
+			wt += vol
+		end -- up top
 	end
 	v._over = false
 	if wb > 0 and wt > 0 and H > math.max(m.size.X, m.size.Z) then -- taller than wide: a lamp, a sign post
@@ -140,14 +183,18 @@ local function overhangYaw(v)
 end
 
 -- the id shared by the pieces of one pile or one line (n: the pile's number, or 99998/99999 for a layer's lines)
-local function groupId(l, n) return (l._h % 100000) * 100000 + n end
+local function groupId(l, n)
+	return (l._h % 100000) * 100000 + n
+end
 
 local function pickVariant(l, rng)
 	local r = rng:NextNumber() * l._wsum
 	for _, v in l.variants do
 		if v.w > 0 then
 			r -= v.w
-			if r <= 0 then return v end
+			if r <= 0 then
+				return v
+			end
 		end
 	end
 	return l.variants[#l.variants]
@@ -157,7 +204,9 @@ end
 -- they sit along the length (signed, model units). nil when the posts are at both ends or there are none.
 local function capInfo(v, s)
 	local alongX = alongXOf(s, v.m)
-	if v._cap ~= nil and v._capX == alongX then return v._cap or nil end
+	if v._cap ~= nil and v._capX == alongX then
+		return v._cap or nil
+	end
 	v._capX = alongX
 	local m = v.m
 	local A = alongX and Vector3.xAxis or Vector3.zAxis
@@ -173,7 +222,11 @@ local function capInfo(v, s)
 			only[i] = true
 			sum += off
 			cnt += 1
-			if off < 0 then neg = true else pos = true end
+			if off < 0 then
+				neg = true
+			else
+				pos = true
+			end
 		end
 	end
 	v._cap = (cnt > 0 and neg ~= pos) and { only = only, off = sum / cnt, alongX = alongX } or false
@@ -198,17 +251,73 @@ local function squeeze(clone, m, sc, f, alongX)
 			local k = Vector3.new(1 + (f - 1) * dx * dx, 1 + (f - 1) * dy * dy, 1 + (f - 1) * dz * dz)
 			p.Size = sz * k
 			local mesh = p:FindFirstChildWhichIsA("SpecialMesh")
-			if mesh and mesh.MeshType == Enum.MeshType.FileMesh then mesh.Scale *= k end -- file meshes ignore part size
+			if mesh and mesh.MeshType == Enum.MeshType.FileMesh then
+				mesh.Scale *= k
+			end -- file meshes ignore part size
 		end
 		p.CFrame = cf + A * ((c - along) * (1 - f))
 	end
 	-- a model's pivot rides on its PrimaryPart (often an end post that just moved in): pin it back where it was,
 	-- or the piece would land off-centre by however far that post moved
 	local pp = clone:IsA("Model") and clone.PrimaryPart
-	if pp then pp.PivotOffset = pp.CFrame:ToObjectSpace(pivot) end
+	if pp then
+		pp.PivotOffset = pp.CFrame:ToObjectSpace(pivot)
+	end
 end
 
-local tag -- (below)
+local tag, recolor, dropDetails -- (below)
+
+-- ── Variation: every copy a little different ──
+-- a colour shifted by (dh hue, ds saturation, dv brightness as a share)
+local function shifted(c, dh, ds, dv)
+	local h, s, v = c:ToHSV()
+	return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
+end
+-- Recolours a copy's parts. Variation on: its own hue / saturation / brightness ranges, one shift for the copy or
+-- one per part. Off: the simple colour shift (tint: brightness and a little hue). Reaches what gives a part its
+-- look: its colour, a MeshPart's SurfaceAppearance (through its Color tint) and any decals or textures on it.
+recolor = function(parts, s, rng)
+	local function roll()
+		if s.vary then
+			return rng:NextNumber(-s.hueVar, s.hueVar), rng:NextNumber(-s.satVar, s.satVar), rng:NextNumber(-s.valVar, s.valVar)
+		elseif s.tint > 0 then -- (brightness drawn first, as always: existing layouts keep their colours)
+			local dv = rng:NextNumber(-s.tint, s.tint)
+			return rng:NextNumber(-s.tint, s.tint) * 0.15, 0, dv
+		end
+		return nil
+	end
+	local dh, ds, dv = roll()
+	if not dh then
+		return
+	end
+	local each = s.vary and s.perPart
+	for _, p in parts do
+		if each then
+			dh, ds, dv = roll()
+		end
+		p.Color = shifted(p.Color, dh, ds, dv)
+		for _, d in p:GetChildren() do
+			if d:IsA("SurfaceAppearance") then
+				pcall(function()
+					d.Color = shifted(d.Color, dh, ds, dv)
+				end) -- (older Studio builds have no SurfaceAppearance.Color)
+			elseif d:IsA("Decal") then -- (Texture is a Decal too)
+				d.Color3 = shifted(d.Color3, dh, ds, dv)
+			end
+		end
+	end
+end
+-- the parts a copy can do without: named as details ("Apple", "Leaf_Detail", "ExtraBranch") or marked with the
+-- attribute SS_Optional. Each is left out with the given chance; the copy keeps its main part.
+local DETAIL_WORDS = { "detail", "optional", "extra", "deco", "decoration", "apple", "fruit", "berry", "mushroom", "moss" }
+dropDetails = function(clone, chance, rng)
+	local main = clone:IsA("Model") and clone.PrimaryPart or clone
+	for _, p in partsOf(clone) do
+		if p ~= main and p ~= clone and (p:GetAttribute("SS_Optional") or hasKeyword(p.Name, DETAIL_WORDS)) and rng:NextNumber() < chance then
+			p:Destroy()
+		end
+	end
+end
 
 -- a quick stand-in for a copy when previewing: one see-through box the size of the model, standing where it would
 local function ghostOf(v, sc, cf, sink)
@@ -225,7 +334,9 @@ end
 -- makes one copy: clone, scale, place, tint, game-ready flags, tags; registers it for spacing. Nothing is made in a
 -- keep-clear zone (returns nil). stretch (optional, < 1): squeeze the piece along its length to fit a bend
 local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stretch, only, uprightPosts)
-	if E.isCleared(ctx.clear, x, z) then return nil end
+	if E.isCleared(ctx.clear, x, z) then
+		return nil
+	end
 	local s, m = l.s, v.m
 	local out = ctx.output
 	if out.ghost then
@@ -236,20 +347,28 @@ local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stre
 	local clone = (v.src or v.inst):Clone() -- src: a procedural model, frozen
 	if only then -- keep just these parts (by index in partsOf order): an end post taken from the model itself
 		for i, p in partsOf(clone) do
-			if not only[i] and p ~= clone then p:Destroy() end
+			if not only[i] and p ~= clone then
+				p:Destroy()
+			end
 		end
 	end
 	if clone:IsA("Model") then
-		if math.abs(sc - 1) > 1e-3 then clone:ScaleTo(clone:GetScale() * sc) end
+		if math.abs(sc - 1) > 1e-3 then
+			clone:ScaleTo(clone:GetScale() * sc)
+		end
 	else
 		clone.Size *= sc
 	end
-	if stretch and math.abs(stretch - 1) > 0.005 then squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m)) end
+	if stretch and math.abs(stretch - 1) > 0.005 then
+		squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m))
+	end
 	-- a line stands a lamp by its pole (the footprint's middle would be out along its arm)
 	local cx, cz = m.cx, m.cz
 	if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
 		overhangYaw(v)
-		if v._foot then cx, cz = v._foot.X, v._foot.Y end
+		if v._foot then
+			cx, cz = v._foot.X, v._foot.Y
+		end
 	end
 	clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
 	if uprightPosts and math.abs(cf.RightVector.Y) + math.abs(cf.LookVector.Y) > 0.02 then
@@ -261,10 +380,14 @@ local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stre
 			local ext = math.abs(pcf.RightVector:Dot(A)) * sz.X + math.abs(pcf.UpVector:Dot(A)) * sz.Y + math.abs(pcf.LookVector:Dot(A)) * sz.Z
 			-- its long axis (a post is tall and thin, so that's the one that stood up in the template)
 			local axes = { { pcf.RightVector, sz.X }, { pcf.UpVector, sz.Y }, { pcf.LookVector, sz.Z } }
-			table.sort(axes, function(a, b) return a[2] > b[2] end)
+			table.sort(axes, function(a, b)
+				return a[2] > b[2]
+			end)
 			local ax, len = axes[1][1], axes[1][2]
 			if ext < L * 0.4 and len >= math.max(axes[2][2], axes[3][2]) * 1.5 then -- tall and thin across the run: a post
-				if ax.Y < 0 then ax = -ax end
+				if ax.Y < 0 then
+					ax = -ax
+				end
 				local rot = ax:Cross(Vector3.yAxis)
 				local ang = math.acos(math.clamp(ax.Y, -1, 1))
 				if rot.Magnitude > 1e-4 and ang > 1e-3 then
@@ -275,22 +398,24 @@ local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stre
 			end
 		end
 	end
-	local k, hs = 1, 0
-	if s.tint > 0 then
-		k = 1 + rng:NextNumber(-s.tint, s.tint)
-		hs = rng:NextNumber(-s.tint, s.tint) * 0.15
+	if s.vary and s.dropDetails > 0 then
+		dropDetails(clone, s.dropDetails, rng)
 	end
+	recolor(partsOf(clone), s, rng)
 	local small = l.type == "Flower" or l.type == "Bush"
 	local parts = partsOf(clone)
 	ctx.parts += #parts
 	for _, p in parts do
 		p.Anchored = true
-		if out.walk and small then p.CanCollide = false; p.CanTouch = false end
-		if out.shadows and (l.type == "Flower" or p.Size.Magnitude < 2.5) then p.CastShadow = false end
-		if out.query and l.type == "Flower" then p.CanQuery = false end
-		if k ~= 1 or hs ~= 0 then
-			local h0, s0, v0 = p.Color:ToHSV()
-			p.Color = Color3.fromHSV((h0 + hs) % 1, s0, math.clamp(v0 * k, 0, 1))
+		if out.walk and small then
+			p.CanCollide = false
+			p.CanTouch = false
+		end
+		if out.shadows and (l.type == "Flower" or p.Size.Magnitude < 2.5) then
+			p.CastShadow = false
+		end
+		if out.query and l.type == "Flower" then
+			p.CanQuery = false
 		end
 	end
 	return tag(ctx, l, clone, x, z, item, gid, stacked)
@@ -301,15 +426,22 @@ function tag(ctx, l, clone, x, z, item, gid, stacked)
 	local s = l.s
 	CollectionService:AddTag(clone, E.TAG)
 	clone:SetAttribute("SS_Type", l.type)
+	clone:SetAttribute("SS_L", l._h) -- which object it is (kept copies still count for "grows near")
 	clone:SetAttribute("SS_X", x)
 	clone:SetAttribute("SS_Z", z)
 	clone:SetAttribute("SS_R", item.r)
 	clone:SetAttribute("SS_Sp", s.spacing)
 	clone:SetAttribute("SS_Cs", s.clearance)
-	if gid then clone:SetAttribute("SS_G", gid) end
-	if stacked then clone:SetAttribute("SS_Stacked", true) end
+	if gid then
+		clone:SetAttribute("SS_G", gid)
+	end
+	if stacked then
+		clone:SetAttribute("SS_Stacked", true)
+	end
 	clone.Parent = ctx.parentFor(l, x, z)
-	if not stacked then ctx.hash:add(item) end
+	if not stacked then
+		ctx.hash:add(item)
+	end
 	return clone
 end
 
@@ -327,7 +459,9 @@ local function mitre(clone, A, J, nB, atEnd, pieceLen)
 		local best, bd = nil, 0
 		for _, ax in axes do
 			local d = math.abs(ax[1]:Dot(A))
-			if d > bd then best, bd = ax, d end
+			if d > bd then
+				best, bd = ax, d
+			end
 		end
 		if best and bd > 0.9 and best[2] > pieceLen * 0.4 then -- a long part running with the piece
 			local axis = best[1]:Dot(A) > 0 and best[1] or -best[1]
@@ -341,31 +475,43 @@ local function mitre(clone, A, J, nB, atEnd, pieceLen)
 				for _, ax in axes do
 					if ax ~= best then
 						local up = math.abs(ax[1].Y)
-						if up < ld then lat, ld = ax, up end
+						if up < ld then
+							lat, ld = ax, up
+						end
 					end
 				end
 				local isWide = lat and lat[2] > 0.5
 				if isWide then -- the inner side corner: whichever needs the end pulled back the most
 					for sgn = -1, 1, 2 do
 						local sc = (J - (e + lat[1] * (lat[2] / 2 * sgn))):Dot(nB) / denom
-						if (atEnd and sc < shift) or (not atEnd and sc > shift) then shift = sc end
+						if (atEnd and sc < shift) or (not atEnd and sc > shift) then
+							shift = sc
+						end
 					end
 				end
 				-- never trim more than most of the part away: on a bend tighter than the piece is wide, trim what's
 				-- possible and let the fill close the rest (skipping the joint would leave a gap)
-				if isWide then shift = math.clamp(shift, -best[2] * 0.45, best[2] * 0.45) end
+				if isWide then
+					shift = math.clamp(shift, -best[2] * 0.45, best[2] * 0.45)
+				end
 				if math.abs(shift) < best[2] * 0.5 then
 					local grow = atEnd and shift or -shift
 					local size = sz
-					if best[3] == "X" then size = Vector3.new(sz.X + grow, sz.Y, sz.Z)
-					elseif best[3] == "Y" then size = Vector3.new(sz.X, sz.Y + grow, sz.Z)
-					else size = Vector3.new(sz.X, sz.Y, sz.Z + grow) end
+					if best[3] == "X" then
+						size = Vector3.new(sz.X + grow, sz.Y, sz.Z)
+					elseif best[3] == "Y" then
+						size = Vector3.new(sz.X, sz.Y + grow, sz.Z)
+					else
+						size = Vector3.new(sz.X, sz.Y, sz.Z + grow)
+					end
 					p.Size = size
 					p.CFrame = pcf + axis * (shift / 2)
 					if isWide then
 						local upAx
 						for _, ax in axes do
-							if ax ~= best and ax ~= lat then upAx = ax end
+							if ax ~= best and ax ~= lat then
+								upAx = ax
+							end
 						end
 						table.insert(wide, { p = p, along = best[3], across = lat[3], up = upAx[3], sign = axis:Dot(best[1]) > 0 and 1 or -1 })
 					end
@@ -387,22 +533,34 @@ local function fillJoint(ea, eb, nB)
 		local cf, sz = p.CFrame, p.Size
 		local along = cf[AXIS[e.along]] * e.sign
 		local across, up = cf[AXIS[e.across]], cf[AXIS[e.up]]
-		if up.Y < 0 then up = -up end
+		if up.Y < 0 then
+			up = -up
+		end
 		local L, W, H = sz[e.along], sz[e.across], sz[e.up]
 		local c = p.Position + along * (L / 2) * (atEnd and 1 or -1) + up * (H / 2) -- top of the end face
 		return c + across * (W / 2), c - across * (W / 2), along, H
 	end
 	local a1, a2, dirA, H = frame(ea, true)
 	local b1, b2 = frame(eb, false)
-	if (a1 - b2).Magnitude + (a2 - b1).Magnitude < (a1 - b1).Magnitude + (a2 - b2).Magnitude then b1, b2 = b2, b1 end
+	if (a1 - b2).Magnitude + (a2 - b1).Magnitude < (a1 - b1).Magnitude + (a2 - b2).Magnitude then
+		b1, b2 = b2, b1
+	end
 	local ai, bi, ao, bo = a1, b1, a2, b2 -- inner corners (touching) and outer ones (apart)
-	if (a1 - b1).Magnitude > (a2 - b2).Magnitude then ai, bi, ao, bo = a2, b2, a1, b1 end
-	if (ao - bo).Magnitude < 0.02 then return 0 end
+	if (a1 - b1).Magnitude > (a2 - b2).Magnitude then
+		ai, bi, ao, bo = a2, b2, a1, b1
+	end
+	if (ao - bo).Magnitude < 0.02 then
+		return 0
+	end
 	local I = (ai + bi) / 2
 	local denom = dirA:Dot(nB)
-	if math.abs(denom) < 0.2 then return 0 end
+	if math.abs(denom) < 0.2 then
+		return 0
+	end
 	local s = (I - ao):Dot(nB) / denom -- along A's outer edge to the bisector: where the two outer edges meet
-	if s < 0 or s > (ao - ai).Magnitude * 2 then return 0 end
+	if s < 0 or s > (ao - ai).Magnitude * 2 then
+		return 0
+	end
 	local O = ao + dirA * s
 	local tmp = Instance.new("Folder")
 	local style = { mat = ea.p.Material, color = ea.p.Color }
@@ -423,7 +581,9 @@ local function flatAround(an, ix, iz, y, r)
 	for jz = math.max(iz - k, 0), math.min(iz + k, an.nz - 1) do
 		for jx = math.max(ix - k, 0), math.min(ix + k, an.nx - 1) do
 			local j = jz * an.nx + jx + 1
-			if an.cls[j] ~= "None" and math.abs(an.y[j] - y) > 0.25 then return false end
+			if an.cls[j] ~= "None" and math.abs(an.y[j] - y) > 0.25 then
+				return false
+			end
 		end
 	end
 	return true
@@ -434,7 +594,9 @@ end
 -- edge this checks every cell of that kind around the spot, treating each as a solid square (the conservative side).
 local KEEP_CLASS = { Buildings = "Building", Roads = "Road", Water = "Water" }
 local function clearAt(an, i, x, z, field, k)
-	if k <= 0 or an.dist[field][i] >= k + an.G * 1.5 then return true end -- well away: the field is exact enough
+	if k <= 0 or an.dist[field][i] >= k + an.G * 1.5 then
+		return true
+	end -- well away: the field is exact enough
 	local want, G = KEEP_CLASS[field], an.G
 	local r = math.ceil(k / G) + 1
 	local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
@@ -444,7 +606,9 @@ local function clearAt(an, i, x, z, field, k)
 				local cx0, cz0 = an.x0 + jx * G, an.z0 + jz * G
 				local dx = math.max(cx0 - x, 0, x - (cx0 + G))
 				local dz = math.max(cz0 - z, 0, z - (cz0 + G))
-				if dx * dx + dz * dz < k * k then return false end
+				if dx * dx + dz * dz < k * k then
+					return false
+				end
 			end
 		end
 	end
@@ -457,37 +621,70 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 	local v = g.v or pickVariant(l, rng)
 	local an, s, m = ctx.an, l.s, v.m
 	i = i or E.indexAt(an, x, z)
-	if not i or (not an.inM[i] and not g.line) then return nil end -- lines come from the area's own edge
-	if g.line and E.isCleared(ctx.clear, x, z) then return nil end -- (the area's own cells already leave zones out)
+	if not i or (not an.inM[i] and not g.line) then
+		return nil
+	end -- lines come from the area's own edge
+	if g.line and E.isCleared(ctx.clear, x, z) then
+		return nil
+	end -- (the area's own cells already leave zones out)
 	local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
 	if g.member and not g.stackOn then
 		-- a group member must still obey the layer's rules at its own spot
-		if score(l, an, i) <= 0 then return nil end
-		if l.paint and E.paintValue(l, math.floor(x / an.cell), math.floor(z / an.cell)) <= 0 then return nil end
+		if score(l, an, i) <= 0 then
+			return nil
+		end
+		if l.paint and E.paintValue(l, math.floor(x / an.cell), math.floor(z / an.cell)) <= 0 then
+			return nil
+		end
 	end
 
 	local keep = 0.5
 	if g.member or g.line then
 		-- followers go wherever the leader decided
 	else
-	if s.cluster > 0 then -- natural clumps
-		local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
-		keep = math.clamp(0.5 + math.noise(x / f, z / f, (ctx.seed % 997) + (l._h % 1000) * 0.173) * 2.2, 0, 1)
-		if rng:NextNumber() > 1 - s.cluster * (1 - keep) then return nil end
-	end
-	if s.hug == "Trees" then -- undergrowth: gather around trees already placed
-		local d = ctx.hash:nearest(x, z, s.hugRange + 16, "Tree")
-		local near = d and math.clamp(1 - d / math.max(s.hugRange, 1), 0, 1) or 0
-		if rng:NextNumber() > (1 - s.hugStrength) + s.hugStrength * near then return nil end
-	end
+		if s.cluster > 0 then -- natural clumps
+			local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
+			keep = math.clamp(0.5 + math.noise(x / f, z / f, (ctx.seed % 997) + (l._h % 1000) * 0.173) * 2.2, 0, 1)
+			if rng:NextNumber() > 1 - s.cluster * (1 - keep) then
+				return nil
+			end
+		end
+		if s.hug == "Trees" then -- undergrowth: gather around trees already placed
+			local d = ctx.hash:nearest(x, z, s.hugRange + 16, "Tree")
+			local near = d and math.clamp(1 - d / math.max(s.hugRange, 1), 0, 1) or 0
+			if rng:NextNumber() > (1 - s.hugStrength) + s.hugStrength * near then
+				return nil
+			end
+		end
+		if l._nearH then -- grows close to another object's copies (placed before it)
+			local d = ctx.hash:nearest(x, z, s.nearRange + 16, l._nearH)
+			local near = d and math.clamp(1 - d / math.max(s.nearRange, 1), 0, 1) or 0
+			if rng:NextNumber() > (1 - s.nearStrength) + s.nearStrength * near then
+				return nil
+			end
+		end
 	end
 
 	-- bigger specimens toward the middle of clumps, smaller at the fringes
 	local lo, hi = scaleRange(l)
 	local t = s.cluster > 0 and math.clamp(rng:NextNumber() * 0.7 + keep * 0.3, 0, 1) or rng:NextNumber()
 	local sc = g.sc or (lo + (hi - lo) * t) * v.size
-	local item = { x = x, z = z, r = math.max(m.radius * sc, 0.25), type = l.type, sp = s.spacing, cs = s.clearance, g = g.gid,
-		fit = g.stretch ~= nil }
+	if s.edgeYoung > 0 and not g.line and not g.sc then -- the young fringe: smaller toward the edge and clearings
+		local reach = 12 + m.radius * sc * 4
+		local open = math.clamp(an.dist.Edge[i] / reach, 0, 1) * math.clamp(E.patchAt(ctx.area, x, z) * 1.25, 0, 1)
+		sc *= 1 - s.edgeYoung * 0.6 * (1 - open)
+	end
+	local item = {
+		x = x,
+		z = z,
+		r = math.max(m.radius * sc, 0.25),
+		type = l.type,
+		sp = s.spacing,
+		cs = s.clearance,
+		g = g.gid,
+		fit = g.stretch ~= nil,
+		lk = l._h,
+	}
 
 	local base = g.stackOn
 	local hit, y
@@ -495,23 +692,41 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 		-- stacking: sits on top of the piece below, no ground checks
 		y = base.top
 	else
-		if not g.post and ctx.hash:conflicts(item) then return nil end -- posts sit on the joints of their own panels
+		if not g.post and ctx.hash:conflicts(item) then
+			return nil
+		end -- posts sit on the joints of their own panels
 		if not g.line then
 			local cr = l._core or 0
-			if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then return nil end
-			if not clearAt(an, i, x, z, "Buildings", s.keepBuilding + cr) then return nil end
-			if not s.surfaces.Road and not clearAt(an, i, x, z, "Roads", s.keepRoad + cr) then return nil end
+			if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then
+				return nil
+			end
+			if not clearAt(an, i, x, z, "Buildings", s.keepBuilding + cr) then
+				return nil
+			end
+			if not s.surfaces.Road and not clearAt(an, i, x, z, "Roads", s.keepRoad + cr) then
+				return nil
+			end
 		end
 		hit = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
-		if not hit or hit.Material == Enum.Material.Water then return nil end
-		if not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] then return nil end
-		if math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then return nil end
+		if not hit or hit.Material == Enum.Material.Water then
+			return nil
+		end
+		if not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] then
+			return nil
+		end
+		if math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
+			return nil
+		end
 		y = hit.Position.Y
 	end
 	local yaw
 	local function pickYaw()
-		if s.yawMode == "Fixed" then return math.rad(s.yaw) end
-		if s.yawMode == "Snap" then return rng:NextInteger(0, 3) * math.pi / 2 end
+		if s.yawMode == "Fixed" then
+			return math.rad(s.yaw)
+		end
+		if s.yawMode == "Snap" then
+			return rng:NextInteger(0, 3) * math.pi / 2
+		end
 		return rng:NextNumber(0, math.pi * 2)
 	end
 
@@ -521,11 +736,14 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 		elseif s.faceRoad and an.dist.Roads[i] < 90 then -- turn the front (-Z / LookVector) toward the nearest road
 			local f = an.dist.Roads
 			local function at(a, b)
-				a = math.clamp(a, 0, an.nx - 1); b = math.clamp(b, 0, an.nz - 1)
+				a = math.clamp(a, 0, an.nx - 1)
+				b = math.clamp(b, 0, an.nz - 1)
 				return f[b * an.nx + a + 1]
 			end
 			local gx, gz = at(ix + 2, iz) - at(ix - 2, iz), at(ix, iz + 2) - at(ix, iz - 2)
-			if gx * gx + gz * gz > 1e-6 then yaw = math.atan2(gx, gz) end
+			if gx * gx + gz * gz > 1e-6 then
+				yaw = math.atan2(gx, gz)
+			end
 		end
 		yaw = yaw or pickYaw()
 		-- whole footprint must be valid, level ground
@@ -537,17 +755,32 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 			for b = 0, nzs do
 				local o = rot:VectorToWorldSpace(Vector3.new(-hx + 2 * hx * a / nxs, 0, -hz + 2 * hz * b / nzs))
 				local j = E.indexAt(an, x + o.X, z + o.Z)
-				if not j then return nil end
-				if not an.inM[j] then return nil end -- the whole house stays inside the painted area
+				if not j then
+					return nil
+				end
+				if not an.inM[j] then
+					return nil
+				end -- the whole house stays inside the painted area
 				local c = an.cls[j]
-				if not s.surfaces[c] then return nil end
-				if an.dist.Buildings[j] < s.keepBuilding then return nil end
-				if not s.surfaces.Road and an.dist.Roads[j] < s.keepRoad then return nil end
-				if an.dist.Water[j] < s.keepWater then return nil end
-				mnY = math.min(mnY, an.y[j]); mxY = math.max(mxY, an.y[j])
+				if not s.surfaces[c] then
+					return nil
+				end
+				if an.dist.Buildings[j] < s.keepBuilding then
+					return nil
+				end
+				if not s.surfaces.Road and an.dist.Roads[j] < s.keepRoad then
+					return nil
+				end
+				if an.dist.Water[j] < s.keepWater then
+					return nil
+				end
+				mnY = math.min(mnY, an.y[j])
+				mxY = math.max(mxY, an.y[j])
 			end
 		end
-		if mxY - mnY > math.max(1.5, math.max(hx, hz) * 0.08) then return nil end
+		if mxY - mnY > math.max(1.5, math.max(hx, hz) * 0.08) then
+			return nil
+		end
 		y = mnY
 	else
 		yaw = g.yaw or pickYaw()
@@ -557,7 +790,9 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 			for k = 0, 3 do
 				local a = k * math.pi / 2 + yaw
 				local h2 = workspace:Raycast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
-				if h2 and h2.Position.Y < y then y = math.max(h2.Position.Y, y - rr * 1.5) end
+				if h2 and h2.Position.Y < y then
+					y = math.max(h2.Position.Y, y - rr * 1.5)
+				end
 			end
 		end
 	end
@@ -567,6 +802,11 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 	if s.tilt > 0 and not base and not (g.line and s.fit) then
 		cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 	end
+	if s.lean > 0 and not base and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
+		local wd = math.rad(ctx.area.windDir or 0)
+		local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd))) -- turns "up" toward the wind
+		cf = CFrame.new(cf.Position) * CFrame.fromAxisAngle(axis, math.rad(s.lean) * rng:NextNumber(0.7, 1.3)) * cf.Rotation
+	end
 
 	if l.type ~= "Flower" and not base then -- don't clip into the user's own geometry
 		local h = math.max(m.size.Y * sc - 1, 1)
@@ -575,10 +815,16 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 		local d = real and m.size.Z * sc or w
 		if g.stretch then -- as long as the piece really gets (squeeze stretches at most 15%)
 			local st = math.min(g.stretch, 1.15)
-			if alongXOf(s, m) then w *= st else d *= st end
+			if alongXOf(s, m) then
+				w *= st
+			else
+				d *= st
+			end
 		end
 		for _, p in workspace:GetPartBoundsInBox(cf * CFrame.new(0, 1 + h / 2, 0), Vector3.new(w * 0.95, h, d * 0.95), ctx.op) do
-			if p ~= hit.Instance then return nil end
+			if p ~= hit.Instance then
+				return nil
+			end
 		end
 	end
 
@@ -609,17 +855,32 @@ local function growGroup(ctx, l, lead, gid, want, rng)
 		local fits = basePiece.v.m.flatTop >= 0.45 and v.m.radius * math.min(sc, basePiece.sc) <= basePiece.r * 1.1
 		if s.stack > 0 and fits and not basePiece.stacked and rng:NextNumber() < s.stack then
 			local jitter = basePiece.r * 0.08
-			info = placeAt(ctx, l, nil, basePiece.x + rng:NextNumber(-jitter, jitter), basePiece.z + rng:NextNumber(-jitter, jitter), rng,
-				{ v = v, sc = math.min(sc, basePiece.sc), member = true, gid = gid, stackOn = basePiece })
+			info = placeAt(
+				ctx,
+				l,
+				nil,
+				basePiece.x + rng:NextNumber(-jitter, jitter),
+				basePiece.z + rng:NextNumber(-jitter, jitter),
+				rng,
+				{ v = v, sc = math.min(sc, basePiece.sc), member = true, gid = gid, stackOn = basePiece }
+			)
 		else
 			local ang = rng:NextNumber(0, math.pi * 2)
 			local d = (basePiece.r + v.m.radius * sc) * math.max(s.tight, 0.9)
-			info = placeAt(ctx, l, nil, basePiece.x + math.cos(ang) * d, basePiece.z + math.sin(ang) * d, rng,
-				{ v = v, sc = sc, member = true, gid = gid })
+			info = placeAt(
+				ctx,
+				l,
+				nil,
+				basePiece.x + math.cos(ang) * d,
+				basePiece.z + math.sin(ang) * d,
+				rng,
+				{ v = v, sc = sc, member = true, gid = gid }
+			)
 		end
-		if info then table.insert(members, info); got += 1 end
+		if info then
+			table.insert(members, info)
+			got += 1
+		end
 	end
 	return got
 end
-
-
