@@ -94,6 +94,8 @@ return function(App)
 		end
 	end
 	G.page = "Main" -- every session opens on the area's page
+	-- the logo: the mark (a sage tile of scattered dots on a curve) and the card with the name under it
+	App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 	local function saveG()
 		plugin:SetSetting(KEY, G)
 	end

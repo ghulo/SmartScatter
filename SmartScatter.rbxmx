@@ -18,10 +18,10 @@ if not RunService:IsEdit() then return end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 92
-local BUNDLED_VERSION = "9.32"
+local BUNDLED_BUILD = 93
+local BUNDLED_VERSION = "9.33"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
-local ICON = "rbxassetid://96252917185966"
+local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
 local SAVED_KEY = "SmartScatter_code"
 local TESTS_KEY = "SmartScatter_tests" -- the regression suite (a dev tool) lives in the mirror; kept across reloads
@@ -3952,6 +3952,8 @@ return function(App)
 		end
 	end
 	G.page = "Main" -- every session opens on the area's page
+	-- the logo: the mark (a sage tile of scattered dots on a curve) and the card with the name under it
+	App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 	local function saveG()
 		plugin:SetSetting(KEY, G)
 	end
@@ -7117,6 +7119,8 @@ return function(App)
 	-- First run (no areas yet): what the plugin does, and the two ways to start
 	--------------------------------------------------------------------------------
 	local function buildWelcome(parent)
+		new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(48, 48), Parent = parent })
+		gap(parent, 6)
 		local title = label("Fill your map by rules, not by hand.", 18, P.text, SANS_B, { Parent = parent })
 		title.TextWrapped = true
 		title.TextTruncate = Enum.TextTruncate.None
@@ -8500,7 +8504,12 @@ return function(App)
 			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 8), Parent = parent })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, { Parent = parent })
+		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = parent }, { hlist(10) })
+		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
+		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
+			Size = UDim2.new(1, -42, 1, 0),
+			Parent = about,
+		})
 	end
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
@@ -10660,6 +10669,7 @@ return function(App)
 	local STEPS = {
 		{
 			chapter = "Welcome",
+			image = "mark",
 			title = "Welcome to Smart Scatter",
 			text = "It fills your map by rules instead of by hand. You mark where things go, pick your models, and it places "
 				.. "them: trees keep off roads and roofs, rocks cluster, lamps line a road, fences meet round bends.\n\n"
@@ -10779,6 +10789,7 @@ return function(App)
 		},
 		{
 			chapter = "Finish",
+			image = "card",
 			title = "Have fun building",
 			text = "Smart Scatter is made by Ghulo.\n\n" .. "Replay this tour any time from Settings.",
 		},
@@ -10918,6 +10929,19 @@ return function(App)
 			}, { corner(3) }))
 		end
 		z(label(string.upper(step.chapter) .. "  ·  " .. i .. " of " .. #STEPS, 10, P.faint, SANS_B, { Parent = card }))
+		if step.image == "mark" then
+			z(new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(56, 56), Parent = card }))
+		elseif step.image == "card" then -- the logo card (1064×1296), centred
+			local holder = z(box({ Size = UDim2.new(1, 0, 0, 160), Parent = card }))
+			z(new("ImageLabel", {
+				Image = App.LOGO.card,
+				BackgroundTransparency = 1,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0),
+				Size = UDim2.fromOffset(131, 160),
+				Parent = holder,
+			}))
+		end
 		local t = z(label(step.title, 17, P.text, SANS_B, { Parent = card }))
 		t.TextWrapped = true
 		t.TextTruncate = Enum.TextTruncate.None

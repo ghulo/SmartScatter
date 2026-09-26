@@ -1832,6 +1832,7 @@ return function(App)
 	local STEPS = {
 		{
 			chapter = "Welcome",
+			image = "mark",
 			title = "Welcome to Smart Scatter",
 			text = "It fills your map by rules instead of by hand. You mark where things go, pick your models, and it places "
 				.. "them: trees keep off roads and roofs, rocks cluster, lamps line a road, fences meet round bends.\n\n"
@@ -1951,6 +1952,7 @@ return function(App)
 		},
 		{
 			chapter = "Finish",
+			image = "card",
 			title = "Have fun building",
 			text = "Smart Scatter is made by Ghulo.\n\n" .. "Replay this tour any time from Settings.",
 		},
@@ -2090,6 +2092,19 @@ return function(App)
 			}, { corner(3) }))
 		end
 		z(label(string.upper(step.chapter) .. "  ·  " .. i .. " of " .. #STEPS, 10, P.faint, SANS_B, { Parent = card }))
+		if step.image == "mark" then
+			z(new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(56, 56), Parent = card }))
+		elseif step.image == "card" then -- the logo card (1064×1296), centred
+			local holder = z(box({ Size = UDim2.new(1, 0, 0, 160), Parent = card }))
+			z(new("ImageLabel", {
+				Image = App.LOGO.card,
+				BackgroundTransparency = 1,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0),
+				Size = UDim2.fromOffset(131, 160),
+				Parent = holder,
+			}))
+		end
 		local t = z(label(step.title, 17, P.text, SANS_B, { Parent = card }))
 		t.TextWrapped = true
 		t.TextTruncate = Enum.TextTruncate.None

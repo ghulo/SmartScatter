@@ -560,6 +560,8 @@ return function(App)
 	-- First run (no areas yet): what the plugin does, and the two ways to start
 	--------------------------------------------------------------------------------
 	local function buildWelcome(parent)
+		new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(48, 48), Parent = parent })
+		gap(parent, 6)
 		local title = label("Fill your map by rules, not by hand.", 18, P.text, SANS_B, { Parent = parent })
 		title.TextWrapped = true
 		title.TextTruncate = Enum.TextTruncate.None

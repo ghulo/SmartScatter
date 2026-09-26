@@ -102,7 +102,12 @@ return function(App)
 			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 8), Parent = parent })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, { Parent = parent })
+		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = parent }, { hlist(10) })
+		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
+		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
+			Size = UDim2.new(1, -42, 1, 0),
+			Parent = about,
+		})
 	end
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
