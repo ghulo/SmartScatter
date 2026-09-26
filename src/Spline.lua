@@ -5,7 +5,7 @@
 
 return function(App)
 	local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
-	local new, PAINT_COLOR, refreshParams = App.new, App.PAINT_COLOR, App.refreshParams
+	local new, refreshParams = App.new, App.refreshParams
 	local rebuildOverlay, saveArea, canGenerate, runGenerate = App.rebuildOverlay, App.saveArea, App.canGenerate, App.runGenerate
 	local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
 	local gizmoFolder, setLabel, mouseHit = App.gizmoFolder, App.setLabel, App.mouseHit
@@ -20,7 +20,7 @@ return function(App)
 	local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt -- points are { cv = curve, i = index }
 	local welded = {}
 	local HANDLE_PX, CURVE_PX, WELD = 14, 10, 0.05
-	local VIEW = App.VIEW -- the viewport palette (Overlay)
+	local VIEW = App.VIEW -- the viewport palette (Base; follows the accent theme)
 	local hoverHandle, dragHandle -- "in" / "out": the selected point's curve handles
 	local drawing -- hold-and-drag stroke: { cv, prepend, anchor, spacing, pts }
 	local joinSnap
@@ -105,7 +105,7 @@ return function(App)
 		local ok, w = pcall(function() -- one adornment draws every curve; falls back to pooled boxes on older Studio builds
 			return new(
 				"WireframeHandleAdornment",
-				{ Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = PAINT_COLOR, Parent = sv.folder }
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
 			)
 		end)
 		if ok and w then
@@ -113,6 +113,11 @@ return function(App)
 			sv.edge = new(
 				"WireframeHandleAdornment",
 				{ Adornee = T, AlwaysOnTop = true, Thickness = 1.5, ZIndex = 2, Transparency = 0.45, Color3 = VIEW.paper, Parent = sv.folder }
+			)
+			-- the neon glow under the curve: the same lines, wide and faint
+			sv.halo = new(
+				"WireframeHandleAdornment",
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 9, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
 			)
 		end
 		for _, k in { "hOut", "hIn" } do
@@ -128,7 +133,7 @@ return function(App)
 			AlwaysOnTop = true,
 			ZIndex = 5,
 			Transparency = 0.25,
-			Color3 = PAINT_COLOR,
+			Color3 = VIEW.accent,
 			Visible = false,
 			Parent = sv.folder,
 		})
@@ -245,9 +250,11 @@ return function(App)
 		if sv.wire then
 			sv.wire:Clear()
 			sv.edge:Clear()
+			sv.halo:Clear()
 			for _, L in lines do
 				for k = 1, #L - 1 do
 					sv.wire:AddLine(L[k], L[k + 1])
+					sv.halo:AddLine(L[k], L[k + 1])
 				end
 			end
 		else
@@ -259,7 +266,7 @@ return function(App)
 					if not seg then
 						seg = new(
 							"BoxHandleAdornment",
-							{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 3, Color3 = PAINT_COLOR, Parent = sv.folder }
+							{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
 						)
 						sv.segs[n] = seg
 					end
@@ -467,7 +474,7 @@ return function(App)
 		App.gz.dot.Visible = hit ~= nil and not hoverPt
 		if hit then
 			App.gz.dot.CFrame = CFrame.new(hit.Position)
-			App.gz.dot.Color3 = PAINT_COLOR
+			App.gz.dot.Color3 = VIEW.accent
 			App.gz.anchor.CFrame = CFrame.new(hit.Position)
 		end
 		setLabel(hit and text or "")

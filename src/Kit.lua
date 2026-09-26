@@ -6,6 +6,7 @@
 return function(App)
 	local RunService, FAST, tween, G, saveG, P, SANS = App.RunService, App.FAST, App.tween, App.G, App.saveG, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
+	local TweenService = game:GetService("TweenService")
 
 	--------------------------------------------------------------------------------
 	-- UI kit
@@ -206,6 +207,134 @@ return function(App)
 		return f
 	end
 
+	--------------------------------------------------------------------------------
+	-- Light and motion: neon glow, depth, press-in and a moving sheen. Every control uses these, so the whole
+	-- panel lights and moves the same way. Plugin UI can't blur, so glass is layers: a shade, a top light, a glow.
+	--------------------------------------------------------------------------------
+	-- a ring just outside obj's edge (a child frame, so it moves and hides with obj; it never takes clicks).
+	-- obj's own padding is undone, so the ring hugs its real edge.
+	local function ring(obj, radius, out, thickness, color, dy)
+		local p = obj:FindFirstChildOfClass("UIPadding")
+		local l, r = p and p.PaddingLeft.Offset or 0, p and p.PaddingRight.Offset or 0
+		local t, bt = p and p.PaddingTop.Offset or 0, p and p.PaddingBottom.Offset or 0
+		local f = new("Frame", {
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(-out - l, -out - t + (dy or 0)),
+			Size = UDim2.new(1, out * 2 + l + r, 1, out * 2 + t + bt),
+			Active = false,
+			ZIndex = obj.ZIndex,
+			Parent = obj,
+		}, { corner(radius + out) })
+		local st = stroke(color)
+		st.Thickness = thickness
+		st.Transparency = 1
+		st.Parent = f
+		return st
+	end
+	-- a soft neon glow round obj (the accent, or color): two rings, bright close in, faint further out. Returns a
+	-- controller: :set(on, instant) lights it or puts it out; :pulse(on) breathes while something runs.
+	local GLOW = { { 1, 2, 0.45 }, { 4, 5, 0.86 } } -- { out, thickness, transparency when fully lit }
+	local function glow(obj, radius, strength, color)
+		strength = strength or 1
+		local rings, lit, pulses = {}, false, {}
+		for i, g in GLOW do
+			rings[i] = { st = ring(obj, radius or 8, g[1], g[2], color or P.accent), rest = 1 - (1 - g[3]) * strength }
+		end
+		local c = {}
+		function c:set(on, instant)
+			lit = on
+			for _, r in rings do
+				local t = on and r.rest or 1
+				if instant then
+					r.st.Transparency = t
+				else
+					tween(r.st, FAST, { Transparency = t })
+				end
+			end
+		end
+		function c:pulse(on)
+			for _, p in pulses do
+				p:Cancel()
+			end
+			table.clear(pulses)
+			if not on then
+				self:set(lit, false)
+				return
+			end
+			for _, r in rings do
+				r.st.Transparency = r.rest
+				local p = TweenService:Create(
+					r.st,
+					TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+					{ Transparency = (r.rest + 1) / 2 }
+				)
+				p:Play()
+				table.insert(pulses, p)
+			end
+		end
+		return c
+	end
+	-- depth: a soft dark ring offset downward, so a card sits a little above what's behind it
+	local function shadow(obj, radius)
+		local st = ring(obj, radius or 12, 1, 3, Color3.new(0, 0, 0), 2)
+		st.Transparency = settings().Studio.Theme.Name == "Light" and 0.93 or 0.75
+		return st
+	end
+	-- press-in: the control shrinks a touch while held
+	local function pressable(b, amount)
+		local sc = new("UIScale", { Parent = b })
+		b.MouseButton1Down:Connect(function()
+			tween(sc, FAST, { Scale = amount or 0.97 })
+		end)
+		for _, ev in { b.MouseButton1Up, b.MouseLeave } do
+			ev:Connect(function()
+				tween(sc, App.MED, { Scale = 1 })
+			end)
+		end
+		return sc
+	end
+	-- a band of light sweeping across obj, over and over, while :play(true)
+	local function sweep(obj, strength)
+		local f = new("Frame", {
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 0,
+			Size = UDim2.fromScale(1, 1),
+			Visible = false,
+			Active = false,
+			ZIndex = obj.ZIndex + 1,
+			Parent = obj,
+		}, { corner(8) })
+		local a = 1 - (strength or 0.35)
+		local g = new("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.4, 1),
+				NumberSequenceKeypoint.new(0.5, a),
+				NumberSequenceKeypoint.new(0.6, 1),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Offset = Vector2.new(-1, 0),
+			Parent = f,
+		})
+		local run
+		local c = {}
+		function c:play(on)
+			if run then
+				run:Cancel()
+				run = nil
+			end
+			f.Visible = on
+			if on then
+				g.Offset = Vector2.new(-1, 0)
+				run = TweenService:Create(g, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1), {
+					Offset = Vector2.new(1, 0),
+				})
+				run:Play()
+			end
+		end
+		return c
+	end
+
 	local function hoverable(b, rest, over)
 		b.MouseEnter:Connect(function()
 			if b:GetAttribute("active") ~= true then
@@ -244,6 +373,10 @@ return function(App)
 			shade(b, filled and 0.1 or 0.06)
 			topLight(b, filled and 0.3 or 0.06, 6)
 		end
+		if filled then
+			glow(b, 8, 0.55):set(true, true)
+		end
+		pressable(b)
 		b.MouseEnter:Connect(function()
 			if filled then
 				b.BackgroundColor3 = P.accent:Lerp(Color3.new(1, 1, 1), 0.1)
@@ -563,8 +696,10 @@ return function(App)
 			{ corner(11) }
 		)
 		local dot = box({ BackgroundTransparency = 0, BackgroundColor3 = P.knob, Size = UDim2.fromOffset(18, 18), Parent = b }, { corner(9) })
+		local lit = glow(b, 11, 0.7)
 		local function refresh(animate)
 			local on = get()
+			lit:set(on, not animate)
 			local props = { Position = on and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2) }
 			if animate then
 				tween(dot, FAST, props)
@@ -582,7 +717,7 @@ return function(App)
 			end
 		end)
 		refresh(false)
-		return b
+		return b, lit
 	end
 
 	local function switchRow(text, get, set, onChange, hint)
@@ -751,6 +886,7 @@ return function(App)
 		local pillStroke = stroke(P.accentLine)
 		pillStroke.Transparency = 1
 		pillStroke.Parent = pill
+		local pillGlow = glow(pill, 7, 0.45)
 		local row = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = inner }, { hlist(0) })
 		local btns = {}
 		local shown, init = false, false
@@ -774,6 +910,7 @@ return function(App)
 				tween(pill, FAST, { BackgroundTransparency = 1 })
 				tween(pillStroke, FAST, { Transparency = 1 })
 			end
+			pillGlow:set(idx ~= nil, not init)
 			shown, init = idx ~= nil, true
 			for o, b in btns do
 				local on = cur == o
@@ -916,6 +1053,10 @@ return function(App)
 	local function navRow(parent, iconName, title, sub, onClick, disabled)
 		local b, t, subLabel, chev, ic = rowHead(parent, iconName, title, sub, sub and 58 or 44)
 		b:SetAttribute("disabled", disabled == true)
+		shadow(b, 10)
+		if not disabled then
+			pressable(b, 0.985)
+		end
 		if disabled then
 			t.TextColor3 = P.faint
 			if subLabel then
@@ -1042,7 +1183,11 @@ return function(App)
 		opts = opts or {}
 		local card = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = parent }, { corner(14), stroke(P.line) })
 		shade(card, 0.07)
-		topLight(card, 0.08, 16)
+		topLight(card, 0.12, 16)
+		shadow(card, 14)
+		if n and not done then -- the step to do now
+			glow(card, 14, 0.35):set(true, true)
+		end
 		local inner = col({ Parent = card }, { pad(14, 14, 14, 14), vlist(12) })
 		local head = col({ Parent = inner })
 		local badge = box({
@@ -1099,6 +1244,7 @@ return function(App)
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(size, size),
 		}, { corner(9), stroke(on and P.accentLine or P.line) })
+		pressable(b, 0.94)
 		local ic = icon(iconName, math.floor(size * 0.44), on and P.accent or P.dim)
 		ic.AnchorPoint = Vector2.new(0.5, 0.5)
 		ic.Position = UDim2.fromScale(0.5, 0.5)
@@ -1124,6 +1270,27 @@ return function(App)
 		return b, ic
 	end
 
+	-- where a list is empty: the logo, a title, a line saying what to do, and (optionally) the button that does it
+	local function emptyState(parent, title, text, actionText, onAction)
+		local f = col({ Parent = parent }, {
+			pad(8, 8, 18, 18),
+			new("UIListLayout", {
+				Padding = UDim.new(0, 8),
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(40, 40), Parent = f })
+		label(title, 14, P.text, SANS_B, { Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
+		local t = para(text, { Parent = f })
+		t.TextColor3, t.TextXAlignment = P.dim, Enum.TextXAlignment.Center
+		if actionText then
+			box({ Size = UDim2.new(1, 0, 0, 2), Parent = f })
+			button(actionText, "accent", onAction, { Parent = f })
+		end
+		return f
+	end
+
 	-- a small selectable tile in a grid (surfaces, marks, road styles). isOn (optional): whether it shows as picked.
 	-- Returns the tile and its refresh.
 	local function chip(parent, text, isOn, onClick, swatch)
@@ -1144,8 +1311,11 @@ return function(App)
 				Parent = b,
 			}, { corner(4) })
 		end
+		local lit = glow(b, 8, 0.45)
+		pressable(b)
 		local function look()
 			local on = isOn ~= nil and isOn() == true
+			lit:set(on)
 			b.Font = on and SANS_B or SANS_M
 			b.BackgroundColor3 = on and P.accentSoft or P.raised
 			b.TextColor3 = on and P.accent or (isOn and P.dim or P.text)
@@ -1215,8 +1385,11 @@ return function(App)
 	App.sheen = sheen
 	App.fadeLine = fadeLine
 	App.shade = shade
+	App.glow = glow
+	App.shadow = shadow
+	App.pressable = pressable
+	App.sweep = sweep
 	App.topLight = topLight
-	App.showTipFor = showTip
 	App.hideTip = hideTip
 	App.button = button
 	App.buttonRow = buttonRow
@@ -1236,6 +1409,7 @@ return function(App)
 	App.keyChips = keyChips
 	App.pageHead = pageHead
 	App.chip = chip
+	App.emptyState = emptyState
 	App.chipGrid = chipGrid
 	App.iconButton = iconButton
 end

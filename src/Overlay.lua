@@ -22,18 +22,7 @@ return function(App)
 	App.dirtyRows = {} -- [cz] = true
 	local cellInfo = {} -- [cz][cx] = { y =, cls = } quick ground probe cache
 	local MAX_OVERLAY = 80000
-	-- viewport colours: the panel's palette, fixed (the viewport isn't themed). Sage = where things go.
-	local VIEW = {
-		accent = Color3.fromHex("8FBA97"), -- painted ground, the brush, curves
-		edge = Color3.fromHex("C9E2CD"), -- the painted area's outline
-		muted = Color3.fromHex("A6A199"), -- roads and paths inside the area (only some objects go there)
-		blocked = Color3.fromHex("D08A78"), -- roofs and water: nothing is placed there; keep-clear zones
-		ink = Color3.fromHex("1A1917"), -- outlines of handles
-		paper = Color3.fromHex("F2EFEA"), -- handle fill
-		corner = Color3.fromHex("E3B26A"), -- sharp path points
-		less = Color3.fromHex("3B3934"), -- painted "less" of an object
-	}
-	local PAINT_COLOR = VIEW.accent
+	local VIEW = App.VIEW -- the viewport's colours (Base; they follow the accent theme)
 
 	local function templates()
 		local t = {}
@@ -82,19 +71,18 @@ return function(App)
 		end
 		rowParts, App.dirtyRows = {}, {}
 	end
-	local NEUTRAL, LESS_COLOR = VIEW.muted, VIEW.less
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
 	local BLOCKED = { Building = true, Water = true }
 	local function cellColor(cx, cz, zone)
 		if App.paintLayer and LAYER_MODES[App.mode] then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
-				return NEUTRAL:Lerp(PAINT_COLOR, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
+				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
 			end
 			if v < 0.999 then
-				return NEUTRAL:Lerp(LESS_COLOR, math.clamp(0.4 + (1 - v) * 0.6, 0, 1))
+				return VIEW.muted:Lerp(VIEW.less, math.clamp(0.4 + (1 - v) * 0.6, 0, 1))
 			end
-			return NEUTRAL
+			return VIEW.muted
 		end
 		if zone then -- a keep-clear zone: one colour
 			return VIEW.blocked
@@ -117,6 +105,8 @@ return function(App)
 			and Engine.hasCell(a, cx, cz - 1)
 		)
 	end
+	local edgeStrips = setmetatable({}, { __mode = "k" }) -- the outline's strips (they breathe while you paint)
+	local EDGE_REST = 0.25
 	local function buildRow(cz)
 		local old = rowParts[cz]
 		if old then
@@ -163,24 +153,25 @@ return function(App)
 				j += 1
 			end
 			local n = j - i + 1
-			table.insert(
-				parts,
-				new("Part", {
-					Anchored = true,
-					CanCollide = false,
-					CanQuery = false,
-					CanTouch = false,
-					CastShadow = false,
-					Locked = true,
-					Archivable = false,
-					Material = Enum.Material.SmoothPlastic,
-					Transparency = edge and 0.25 or 0.62,
-					Color = col,
-					Size = Vector3.new(n * c - 0.3, edge and 0.16 or 0.1, c - 0.3),
-					CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.2, (cz + 0.5) * c),
-					Parent = overlayFolder,
-				})
-			)
+			local strip = new("Part", {
+				Anchored = true,
+				CanCollide = false,
+				CanQuery = false,
+				CanTouch = false,
+				CastShadow = false,
+				Locked = true,
+				Archivable = false,
+				Material = Enum.Material.SmoothPlastic,
+				Transparency = edge and EDGE_REST or 0.62,
+				Color = col,
+				Size = Vector3.new(n * c - 0.3, edge and 0.16 or 0.1, c - 0.3),
+				CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.2, (cz + 0.5) * c),
+				Parent = overlayFolder,
+			})
+			table.insert(parts, strip)
+			if edge then
+				edgeStrips[strip] = true
+			end
 			i = j + 1
 		end
 		rowParts[cz] = parts
@@ -212,9 +203,22 @@ return function(App)
 			end
 		end
 	end
-	track(RunService.Heartbeat:Connect(function()
+	-- while you paint the area, its outline breathes (a dozen updates a second, only the outline's strips)
+	local breath, breathing = 0, false
+	track(RunService.Heartbeat:Connect(function(dt)
 		if next(App.dirtyRows) then
 			flushRows(0.004) -- a few ms a frame, so a big redraw never stalls Studio
+		end
+		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil
+		if paint or breathing then
+			breath += dt
+			if breath >= 0.08 or not paint then
+				local t = paint and EDGE_REST - 0.12 + 0.12 * math.sin(os.clock() * 3.2) or EDGE_REST
+				breath, breathing = 0, paint
+				for strip in edgeStrips do
+					strip.Transparency = t
+				end
+			end
 		end
 	end))
 
@@ -241,13 +245,10 @@ return function(App)
 
 	-- used by later modules
 	App.toggleBtn = toggleBtn
-	App.PAINT_COLOR = PAINT_COLOR
-	App.VIEW = VIEW
 	App.templates = templates
 	App.refreshParams = refreshParams
 	App.probe = probe
 	App.clearOverlay = clearOverlay
-	App.NEUTRAL = NEUTRAL
 	App.flushRows = flushRows
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay

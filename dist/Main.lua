@@ -85,6 +85,7 @@ return function(App)
 		shadows = true,
 		query = true,
 		chunks = false,
+		accent = "Sage", -- the accent theme (ACCENTS below)
 		ghost = false, -- preview as boxes: one see-through box per copy, for quick tuning of big areas
 		tool = "Brush",
 		shape = "Circle",
@@ -141,8 +142,28 @@ return function(App)
 	-- dark text on the accent. A light variant follows Studio's light theme.
 	--------------------------------------------------------------------------------
 	local P = {} -- filled in place by makePalette, so every module can keep this one table
+	-- the viewport's colours (painted ground, brush, paths): fixed per accent, the viewport isn't themed. Also
+	-- filled in place, so the overlay and the path editor keep one table.
+	local VIEW = {}
 	local function hex(h)
 		return Color3.fromHex(h)
+	end
+	-- accent themes: the one colour everything active wears. dark / light: the accent on each Studio theme;
+	-- glow: its lighter tint (outlines in the viewport, neon edges)
+	local ACCENTS = {
+		{ name = "Sage", dark = "8FBA97", light = "4C8558", glow = "C9E2CD" },
+		{ name = "Aqua", dark = "7CC7C4", light = "2E7D7A", glow = "C4EAE8" },
+		{ name = "Amber", dark = "E3B26A", light = "98661C", glow = "F3DDB6" },
+		{ name = "Violet", dark = "A99BE8", light = "6453C0", glow = "DAD3F7" },
+		{ name = "Rose", dark = "E59AAA", light = "B0485F", glow = "F5D2DA" },
+	}
+	local function accentOf(name)
+		for _, a in ACCENTS do
+			if a.name == name then
+				return a
+			end
+		end
+		return ACCENTS[1]
 	end
 	local function makePalette()
 		local pal
@@ -154,16 +175,10 @@ return function(App)
 				header = hex("201F1C"), -- footer strip
 				field = hex("1F1E1B"), -- inputs
 				hover = hex("3B3934"),
-				selected = hex("2C3A2F"),
-				rowSel = hex("2C3A2F"),
 				line = hex("33312D"), -- borders and hairlines
 				text = hex("F2EFEA"),
 				dim = hex("A6A199"),
 				faint = hex("7C766C"),
-				accent = hex("8FBA97"),
-				onAccent = hex("16221A"),
-				accentSoft = hex("2E3A30"),
-				accentLine = hex("4F6A55"),
 				knob = hex("FFFFFF"),
 				track = hex("45423D"), -- switch / slider track when off
 				danger = hex("D08A78"),
@@ -177,27 +192,42 @@ return function(App)
 				header = hex("EFECE7"),
 				field = hex("FFFFFF"),
 				hover = hex("E3DFD8"),
-				selected = hex("E1ECE2"),
-				rowSel = hex("E1ECE2"),
 				line = hex("DDD8CF"),
 				text = hex("23211D"),
 				dim = hex("5E5950"),
 				faint = hex("8A8479"),
-				accent = hex("4C8558"),
-				onAccent = hex("FFFFFF"),
-				accentSoft = hex("E1ECE2"),
-				accentLine = hex("A9C8AE"),
 				knob = hex("FFFFFF"),
 				track = hex("CFCAC1"),
 				danger = hex("B5533F"),
 				tip = hex("FFFFFF"),
 			}
 		end
+		-- the accent theme: the accent itself, its soft fills and lines, text on it
+		local a, dark = accentOf(G.accent), settings().Studio.Theme.Name ~= "Light"
+		local acc = hex(dark and a.dark or a.light)
+		pal.accent = acc
+		pal.onAccent = dark and acc:Lerp(Color3.new(0, 0, 0), 0.82) or Color3.new(1, 1, 1)
+		pal.accentSoft = acc:Lerp(pal.card, dark and 0.8 or 0.86)
+		pal.accentLine = acc:Lerp(pal.card, dark and 0.55 or 0.5)
+		pal.glow = hex(a.glow)
 		for k, v in pal do
 			P[k] = v
 		end
-		-- one accent everywhere: the old per-step colours all read as the accent
-		P.green, P.orange, P.violet = P.accent, P.accent, P.accent
+		local viewAccent = hex(a.dark) -- the viewport always gets the bright version
+		for k, v in
+			{
+				accent = viewAccent, -- painted ground, the brush, curves
+				edge = hex(a.glow), -- the painted area's outline
+				muted = hex("A6A199"), -- roads and paths inside the area (only some objects go there)
+				blocked = hex("D08A78"), -- roofs and water: nothing is placed there; keep-clear zones
+				ink = hex("1A1917"), -- outlines of handles
+				paper = hex("F2EFEA"), -- handle fill
+				corner = hex("E3B26A"), -- sharp path points
+				less = hex("3B3934"), -- painted "less" of an object
+			}
+		do
+			VIEW[k] = v
+		end
 	end
 	makePalette()
 
@@ -223,6 +253,8 @@ return function(App)
 	App.num = num
 	App.P = P
 	App.makePalette = makePalette
+	App.VIEW = VIEW
+	App.ACCENTS = ACCENTS
 	App.SANS = SANS
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
@@ -239,6 +271,7 @@ MODULES[2] = (function()
 return function(App)
 	local RunService, FAST, tween, G, saveG, P, SANS = App.RunService, App.FAST, App.tween, App.G, App.saveG, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
+	local TweenService = game:GetService("TweenService")
 
 	--------------------------------------------------------------------------------
 	-- UI kit
@@ -439,6 +472,134 @@ return function(App)
 		return f
 	end
 
+	--------------------------------------------------------------------------------
+	-- Light and motion: neon glow, depth, press-in and a moving sheen. Every control uses these, so the whole
+	-- panel lights and moves the same way. Plugin UI can't blur, so glass is layers: a shade, a top light, a glow.
+	--------------------------------------------------------------------------------
+	-- a ring just outside obj's edge (a child frame, so it moves and hides with obj; it never takes clicks).
+	-- obj's own padding is undone, so the ring hugs its real edge.
+	local function ring(obj, radius, out, thickness, color, dy)
+		local p = obj:FindFirstChildOfClass("UIPadding")
+		local l, r = p and p.PaddingLeft.Offset or 0, p and p.PaddingRight.Offset or 0
+		local t, bt = p and p.PaddingTop.Offset or 0, p and p.PaddingBottom.Offset or 0
+		local f = new("Frame", {
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(-out - l, -out - t + (dy or 0)),
+			Size = UDim2.new(1, out * 2 + l + r, 1, out * 2 + t + bt),
+			Active = false,
+			ZIndex = obj.ZIndex,
+			Parent = obj,
+		}, { corner(radius + out) })
+		local st = stroke(color)
+		st.Thickness = thickness
+		st.Transparency = 1
+		st.Parent = f
+		return st
+	end
+	-- a soft neon glow round obj (the accent, or color): two rings, bright close in, faint further out. Returns a
+	-- controller: :set(on, instant) lights it or puts it out; :pulse(on) breathes while something runs.
+	local GLOW = { { 1, 2, 0.45 }, { 4, 5, 0.86 } } -- { out, thickness, transparency when fully lit }
+	local function glow(obj, radius, strength, color)
+		strength = strength or 1
+		local rings, lit, pulses = {}, false, {}
+		for i, g in GLOW do
+			rings[i] = { st = ring(obj, radius or 8, g[1], g[2], color or P.accent), rest = 1 - (1 - g[3]) * strength }
+		end
+		local c = {}
+		function c:set(on, instant)
+			lit = on
+			for _, r in rings do
+				local t = on and r.rest or 1
+				if instant then
+					r.st.Transparency = t
+				else
+					tween(r.st, FAST, { Transparency = t })
+				end
+			end
+		end
+		function c:pulse(on)
+			for _, p in pulses do
+				p:Cancel()
+			end
+			table.clear(pulses)
+			if not on then
+				self:set(lit, false)
+				return
+			end
+			for _, r in rings do
+				r.st.Transparency = r.rest
+				local p = TweenService:Create(
+					r.st,
+					TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+					{ Transparency = (r.rest + 1) / 2 }
+				)
+				p:Play()
+				table.insert(pulses, p)
+			end
+		end
+		return c
+	end
+	-- depth: a soft dark ring offset downward, so a card sits a little above what's behind it
+	local function shadow(obj, radius)
+		local st = ring(obj, radius or 12, 1, 3, Color3.new(0, 0, 0), 2)
+		st.Transparency = settings().Studio.Theme.Name == "Light" and 0.93 or 0.75
+		return st
+	end
+	-- press-in: the control shrinks a touch while held
+	local function pressable(b, amount)
+		local sc = new("UIScale", { Parent = b })
+		b.MouseButton1Down:Connect(function()
+			tween(sc, FAST, { Scale = amount or 0.97 })
+		end)
+		for _, ev in { b.MouseButton1Up, b.MouseLeave } do
+			ev:Connect(function()
+				tween(sc, App.MED, { Scale = 1 })
+			end)
+		end
+		return sc
+	end
+	-- a band of light sweeping across obj, over and over, while :play(true)
+	local function sweep(obj, strength)
+		local f = new("Frame", {
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 0,
+			Size = UDim2.fromScale(1, 1),
+			Visible = false,
+			Active = false,
+			ZIndex = obj.ZIndex + 1,
+			Parent = obj,
+		}, { corner(8) })
+		local a = 1 - (strength or 0.35)
+		local g = new("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.4, 1),
+				NumberSequenceKeypoint.new(0.5, a),
+				NumberSequenceKeypoint.new(0.6, 1),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Offset = Vector2.new(-1, 0),
+			Parent = f,
+		})
+		local run
+		local c = {}
+		function c:play(on)
+			if run then
+				run:Cancel()
+				run = nil
+			end
+			f.Visible = on
+			if on then
+				g.Offset = Vector2.new(-1, 0)
+				run = TweenService:Create(g, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1), {
+					Offset = Vector2.new(1, 0),
+				})
+				run:Play()
+			end
+		end
+		return c
+	end
+
 	local function hoverable(b, rest, over)
 		b.MouseEnter:Connect(function()
 			if b:GetAttribute("active") ~= true then
@@ -477,6 +638,10 @@ return function(App)
 			shade(b, filled and 0.1 or 0.06)
 			topLight(b, filled and 0.3 or 0.06, 6)
 		end
+		if filled then
+			glow(b, 8, 0.55):set(true, true)
+		end
+		pressable(b)
 		b.MouseEnter:Connect(function()
 			if filled then
 				b.BackgroundColor3 = P.accent:Lerp(Color3.new(1, 1, 1), 0.1)
@@ -796,8 +961,10 @@ return function(App)
 			{ corner(11) }
 		)
 		local dot = box({ BackgroundTransparency = 0, BackgroundColor3 = P.knob, Size = UDim2.fromOffset(18, 18), Parent = b }, { corner(9) })
+		local lit = glow(b, 11, 0.7)
 		local function refresh(animate)
 			local on = get()
+			lit:set(on, not animate)
 			local props = { Position = on and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2) }
 			if animate then
 				tween(dot, FAST, props)
@@ -815,7 +982,7 @@ return function(App)
 			end
 		end)
 		refresh(false)
-		return b
+		return b, lit
 	end
 
 	local function switchRow(text, get, set, onChange, hint)
@@ -984,6 +1151,7 @@ return function(App)
 		local pillStroke = stroke(P.accentLine)
 		pillStroke.Transparency = 1
 		pillStroke.Parent = pill
+		local pillGlow = glow(pill, 7, 0.45)
 		local row = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = inner }, { hlist(0) })
 		local btns = {}
 		local shown, init = false, false
@@ -1007,6 +1175,7 @@ return function(App)
 				tween(pill, FAST, { BackgroundTransparency = 1 })
 				tween(pillStroke, FAST, { Transparency = 1 })
 			end
+			pillGlow:set(idx ~= nil, not init)
 			shown, init = idx ~= nil, true
 			for o, b in btns do
 				local on = cur == o
@@ -1149,6 +1318,10 @@ return function(App)
 	local function navRow(parent, iconName, title, sub, onClick, disabled)
 		local b, t, subLabel, chev, ic = rowHead(parent, iconName, title, sub, sub and 58 or 44)
 		b:SetAttribute("disabled", disabled == true)
+		shadow(b, 10)
+		if not disabled then
+			pressable(b, 0.985)
+		end
 		if disabled then
 			t.TextColor3 = P.faint
 			if subLabel then
@@ -1275,7 +1448,11 @@ return function(App)
 		opts = opts or {}
 		local card = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = parent }, { corner(14), stroke(P.line) })
 		shade(card, 0.07)
-		topLight(card, 0.08, 16)
+		topLight(card, 0.12, 16)
+		shadow(card, 14)
+		if n and not done then -- the step to do now
+			glow(card, 14, 0.35):set(true, true)
+		end
 		local inner = col({ Parent = card }, { pad(14, 14, 14, 14), vlist(12) })
 		local head = col({ Parent = inner })
 		local badge = box({
@@ -1332,6 +1509,7 @@ return function(App)
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(size, size),
 		}, { corner(9), stroke(on and P.accentLine or P.line) })
+		pressable(b, 0.94)
 		local ic = icon(iconName, math.floor(size * 0.44), on and P.accent or P.dim)
 		ic.AnchorPoint = Vector2.new(0.5, 0.5)
 		ic.Position = UDim2.fromScale(0.5, 0.5)
@@ -1357,6 +1535,27 @@ return function(App)
 		return b, ic
 	end
 
+	-- where a list is empty: the logo, a title, a line saying what to do, and (optionally) the button that does it
+	local function emptyState(parent, title, text, actionText, onAction)
+		local f = col({ Parent = parent }, {
+			pad(8, 8, 18, 18),
+			new("UIListLayout", {
+				Padding = UDim.new(0, 8),
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(40, 40), Parent = f })
+		label(title, 14, P.text, SANS_B, { Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Center, Parent = f })
+		local t = para(text, { Parent = f })
+		t.TextColor3, t.TextXAlignment = P.dim, Enum.TextXAlignment.Center
+		if actionText then
+			box({ Size = UDim2.new(1, 0, 0, 2), Parent = f })
+			button(actionText, "accent", onAction, { Parent = f })
+		end
+		return f
+	end
+
 	-- a small selectable tile in a grid (surfaces, marks, road styles). isOn (optional): whether it shows as picked.
 	-- Returns the tile and its refresh.
 	local function chip(parent, text, isOn, onClick, swatch)
@@ -1377,8 +1576,11 @@ return function(App)
 				Parent = b,
 			}, { corner(4) })
 		end
+		local lit = glow(b, 8, 0.45)
+		pressable(b)
 		local function look()
 			local on = isOn ~= nil and isOn() == true
+			lit:set(on)
 			b.Font = on and SANS_B or SANS_M
 			b.BackgroundColor3 = on and P.accentSoft or P.raised
 			b.TextColor3 = on and P.accent or (isOn and P.dim or P.text)
@@ -1448,8 +1650,11 @@ return function(App)
 	App.sheen = sheen
 	App.fadeLine = fadeLine
 	App.shade = shade
+	App.glow = glow
+	App.shadow = shadow
+	App.pressable = pressable
+	App.sweep = sweep
 	App.topLight = topLight
-	App.showTipFor = showTip
 	App.hideTip = hideTip
 	App.button = button
 	App.buttonRow = buttonRow
@@ -1469,6 +1674,7 @@ return function(App)
 	App.keyChips = keyChips
 	App.pageHead = pageHead
 	App.chip = chip
+	App.emptyState = emptyState
 	App.chipGrid = chipGrid
 	App.iconButton = iconButton
 end
@@ -1500,18 +1706,7 @@ return function(App)
 	App.dirtyRows = {} -- [cz] = true
 	local cellInfo = {} -- [cz][cx] = { y =, cls = } quick ground probe cache
 	local MAX_OVERLAY = 80000
-	-- viewport colours: the panel's palette, fixed (the viewport isn't themed). Sage = where things go.
-	local VIEW = {
-		accent = Color3.fromHex("8FBA97"), -- painted ground, the brush, curves
-		edge = Color3.fromHex("C9E2CD"), -- the painted area's outline
-		muted = Color3.fromHex("A6A199"), -- roads and paths inside the area (only some objects go there)
-		blocked = Color3.fromHex("D08A78"), -- roofs and water: nothing is placed there; keep-clear zones
-		ink = Color3.fromHex("1A1917"), -- outlines of handles
-		paper = Color3.fromHex("F2EFEA"), -- handle fill
-		corner = Color3.fromHex("E3B26A"), -- sharp path points
-		less = Color3.fromHex("3B3934"), -- painted "less" of an object
-	}
-	local PAINT_COLOR = VIEW.accent
+	local VIEW = App.VIEW -- the viewport's colours (Base; they follow the accent theme)
 
 	local function templates()
 		local t = {}
@@ -1560,19 +1755,18 @@ return function(App)
 		end
 		rowParts, App.dirtyRows = {}, {}
 	end
-	local NEUTRAL, LESS_COLOR = VIEW.muted, VIEW.less
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
 	local BLOCKED = { Building = true, Water = true }
 	local function cellColor(cx, cz, zone)
 		if App.paintLayer and LAYER_MODES[App.mode] then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
-				return NEUTRAL:Lerp(PAINT_COLOR, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
+				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
 			end
 			if v < 0.999 then
-				return NEUTRAL:Lerp(LESS_COLOR, math.clamp(0.4 + (1 - v) * 0.6, 0, 1))
+				return VIEW.muted:Lerp(VIEW.less, math.clamp(0.4 + (1 - v) * 0.6, 0, 1))
 			end
-			return NEUTRAL
+			return VIEW.muted
 		end
 		if zone then -- a keep-clear zone: one colour
 			return VIEW.blocked
@@ -1595,6 +1789,8 @@ return function(App)
 			and Engine.hasCell(a, cx, cz - 1)
 		)
 	end
+	local edgeStrips = setmetatable({}, { __mode = "k" }) -- the outline's strips (they breathe while you paint)
+	local EDGE_REST = 0.25
 	local function buildRow(cz)
 		local old = rowParts[cz]
 		if old then
@@ -1641,24 +1837,25 @@ return function(App)
 				j += 1
 			end
 			local n = j - i + 1
-			table.insert(
-				parts,
-				new("Part", {
-					Anchored = true,
-					CanCollide = false,
-					CanQuery = false,
-					CanTouch = false,
-					CastShadow = false,
-					Locked = true,
-					Archivable = false,
-					Material = Enum.Material.SmoothPlastic,
-					Transparency = edge and 0.25 or 0.62,
-					Color = col,
-					Size = Vector3.new(n * c - 0.3, edge and 0.16 or 0.1, c - 0.3),
-					CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.2, (cz + 0.5) * c),
-					Parent = overlayFolder,
-				})
-			)
+			local strip = new("Part", {
+				Anchored = true,
+				CanCollide = false,
+				CanQuery = false,
+				CanTouch = false,
+				CastShadow = false,
+				Locked = true,
+				Archivable = false,
+				Material = Enum.Material.SmoothPlastic,
+				Transparency = edge and EDGE_REST or 0.62,
+				Color = col,
+				Size = Vector3.new(n * c - 0.3, edge and 0.16 or 0.1, c - 0.3),
+				CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.2, (cz + 0.5) * c),
+				Parent = overlayFolder,
+			})
+			table.insert(parts, strip)
+			if edge then
+				edgeStrips[strip] = true
+			end
 			i = j + 1
 		end
 		rowParts[cz] = parts
@@ -1690,9 +1887,22 @@ return function(App)
 			end
 		end
 	end
-	track(RunService.Heartbeat:Connect(function()
+	-- while you paint the area, its outline breathes (a dozen updates a second, only the outline's strips)
+	local breath, breathing = 0, false
+	track(RunService.Heartbeat:Connect(function(dt)
 		if next(App.dirtyRows) then
 			flushRows(0.004) -- a few ms a frame, so a big redraw never stalls Studio
+		end
+		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil
+		if paint or breathing then
+			breath += dt
+			if breath >= 0.08 or not paint then
+				local t = paint and EDGE_REST - 0.12 + 0.12 * math.sin(os.clock() * 3.2) or EDGE_REST
+				breath, breathing = 0, paint
+				for strip in edgeStrips do
+					strip.Transparency = t
+				end
+			end
 		end
 	end))
 
@@ -1719,13 +1929,10 @@ return function(App)
 
 	-- used by later modules
 	App.toggleBtn = toggleBtn
-	App.PAINT_COLOR = PAINT_COLOR
-	App.VIEW = VIEW
 	App.templates = templates
 	App.refreshParams = refreshParams
 	App.probe = probe
 	App.clearOverlay = clearOverlay
-	App.NEUTRAL = NEUTRAL
 	App.flushRows = flushRows
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
@@ -2495,10 +2702,10 @@ return function(App)
 				onClick()
 			end)
 		end
-		item("area", "Scatter area", "Paint ground, fill it with objects", newArea, P.green)
+		item("area", "Scatter area", "Paint ground, fill it with objects", newArea, P.accent)
 		item("spline", "Path", "Draw a curve: roads, fences, lamps", function()
 			App.newSplineFn()
-		end, P.orange)
+		end, P.accent)
 		item("clear", "Keep-clear zone", "Paint where nothing may go: spawns, doors", function()
 			newArea({ kind = "Clear" })
 		end, P.danger)
@@ -2619,9 +2826,15 @@ return function(App)
 		}, { corner(10) })
 		App.shade(b, 0.12) -- lit from the top, like the design's glossy button
 		App.topLight(b, 0.35, 8)
+		App.pressable(b, 0.98)
+		local lit = App.glow(b, 10, 0.7)
+		lit:set(true, true)
 		local function rest()
 			return b:GetAttribute("secondary") and P.raised or P.accent
 		end
+		b:GetAttributeChangedSignal("secondary"):Connect(function() -- a secondary button ("Done") doesn't glow
+			lit:set(not b:GetAttribute("secondary"))
+		end)
 		b.MouseEnter:Connect(function()
 			b.BackgroundColor3 = rest():Lerp(Color3.new(1, 1, 1), 0.1)
 		end)
@@ -2756,8 +2969,11 @@ return function(App)
 			local t = label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
 			hintOn(b, hint)
 			b.MouseButton1Click:Connect(onClick)
+			App.pressable(b, 0.96)
+			local lit = App.glow(b, 8, 0.6)
 			local c = { hot = false }
 			c.paint = function(on)
+				lit:set(on)
 				b.BackgroundColor3 = on and color:Lerp(P.card, 0.85) or (c.hot and P.hover or P.raised)
 				st.Color = on and color:Lerp(P.card, 0.5) or P.line
 				local fg = on and color or (c.hot and P.text or P.dim)
@@ -3316,13 +3532,18 @@ return function(App)
 				corner(6).Parent = tag
 				pad(8, 8, 0, 0).Parent = tag
 			end
+			App.shadow(b, 14)
+			App.pressable(b, 0.985)
+			local lit = App.glow(b, 14, 0.5) -- lights up under the mouse
 			b.MouseEnter:Connect(function()
 				st.Color = P.accentLine
 				b.BackgroundColor3 = P.card:Lerp(P.hover, 0.4)
+				lit:set(true)
 			end)
 			b.MouseLeave:Connect(function()
 				st.Color = P.line
 				b.BackgroundColor3 = P.card
+				lit:set(false)
 			end)
 			b.MouseButton1Click:Connect(onClick)
 			return b
@@ -3506,7 +3727,7 @@ return function(App)
 	local pad, vlist, hlist, box, col, label, para = App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 	local hintOn, slider, switch, switchRow, segmented, section = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented, App.section
 	local recolorOverlay, canGenerate, requestLive, commit = App.recolorOverlay, App.canGenerate, App.requestLive, App.commit
-	local newArea, eachThumb, thumbnail, primaryButton = App.newArea, App.eachThumb, App.thumbnail, App.primaryButton
+	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
 	local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 	local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
 
@@ -4114,31 +4335,43 @@ return function(App)
 	-- The list
 	--------------------------------------------------------------------------------
 	-- one object: thumbnail, name, what it is and how many were placed, on/off. Click to open its settings.
-	local function layerRow(l, parent)
+	local function layerRow(l, parent) -- an object in the list: thumbnail, name, what it is, its share, on/off
 		local r = new("TextButton", {
 			Text = "",
 			AutoButtonColor = false,
 			BackgroundColor3 = P.card,
-			Size = UDim2.new(1, 0, 0, 52),
+			Size = UDim2.new(1, 0, 0, 60),
 			Parent = parent,
-		}, { corner(10), stroke(P.line) })
+		}, { corner(12), stroke(P.line) })
 		App.shade(r, 0.05)
+		App.topLight(r, 0.06, 12)
+		App.shadow(r, 12)
+		App.pressable(r, 0.985)
 		r.MouseEnter:Connect(function()
 			r.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
 		end)
 		r.MouseLeave:Connect(function()
 			r.BackgroundColor3 = P.card
 		end)
-		local th = thumbnail(l.inst, 36)
+		local th = thumbnail(l.inst, 44)
 		th.Position = UDim2.fromOffset(8, 8)
 		th.Parent = r
 		local name = label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, l.s.enabled and P.text or P.faint, SANS_B, {
-			Position = UDim2.fromOffset(54, 8),
-			Size = UDim2.new(1, -104, 0, 18),
+			Position = UDim2.fromOffset(62, 9),
+			Size = UDim2.new(1, -112, 0, 18),
 			Parent = r,
 		})
-		local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(54, 26), Size = UDim2.new(1, -104, 0, 16), Parent = r })
-		rowRefs[l] = { kind = kind, name = name }
+		local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(62, 27), Size = UDim2.new(1, -112, 0, 16), Parent = r })
+		-- its share of what's placed in the area: a thin accent bar under the text (widths set by refreshCounts)
+		local barTrack = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.raised,
+			Position = UDim2.fromOffset(62, 47),
+			Size = UDim2.new(1, -112, 0, 3),
+			Parent = r,
+		}, { corner(2) })
+		local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1), Parent = barTrack }, { corner(2) })
+		rowRefs[l] = { kind = kind, name = name, bar = bar }
 		local sw = switch(function()
 			return l.s.enabled
 		end, function(v)
@@ -4294,7 +4527,7 @@ return function(App)
 		section(parent, "presets", "Presets", false, function(b)
 			local list = Engine.listPresets()
 			if #list == 0 then
-				para("None yet. Save this area's objects to reuse them elsewhere.", { Parent = b })
+				App.emptyState(b, "No presets yet", "Save this area's objects below to reuse them in any area.")
 			end
 			for _, v in list do
 				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
@@ -4433,13 +4666,13 @@ return function(App)
 				"Select models, or a folder of them, in the Explorer. Each becomes an object you can tune."
 			)
 		else
-			para("Select models (or a folder of them) in the Explorer, then add them here. Each one becomes an object you can tune.", {
-				Parent = list,
-			})
-			gap(list, 4)
-			local add = primaryButton("Add selected models", addSelected)
-			add.Parent = list
-			hintOn(add, "Keep the source models outside the area, e.g. in ServerStorage. Each becomes an object you can tune.")
+			App.emptyState(
+				list,
+				"No objects yet",
+				"Select models (or a folder of them) in the Explorer, then add them. Keep the originals outside the area, e.g. in ServerStorage.",
+				"Add selected models",
+				addSelected
+			)
 		end
 		gap(list, 4)
 		buildBiomes(list, #App.area.layers == 0)
@@ -4513,7 +4746,15 @@ return function(App)
 	App.refreshCounts = function()
 		App.refreshPerf()
 		App.checkShape()
+		local most = 1 -- the bars are relative to the object placed most
+		for l in rowRefs do
+			most = math.max(most, (l.s.enabled and App.lastCounts[l]) or 0)
+		end
 		for l, r in rowRefs do
+			if r.bar then
+				local share = l.s.enabled and (App.lastCounts[l] or 0) / most or 0
+				tween(r.bar, App.MED, { Size = UDim2.fromScale(share, 1) })
+			end
 			local n = App.lastCounts[l]
 			local what = Engine.isLine(l) and ("Along " .. (l.s.follow == "Spline" and "path" or string.lower(l.s.follow))) or l.type
 			local placed = (n and l.s.enabled) and ("  ·  " .. num(n) .. " placed") or ""
@@ -4552,7 +4793,7 @@ end)()
 -- #module Shell
 MODULES[8] = (function()
 --[[
-	Smart Scatter — Shell: the Settings page, the footer, status line and the whole-panel rebuild.
+	Smart Scatter — Shell: the Settings page, the footer, toasts and the whole-panel rebuild.
 	Part of Main; loaded in order by the bundle. Shared state and cross-module functions live on App.
 ]]
 
@@ -4566,10 +4807,25 @@ return function(App)
 	local runGenerate, requestLive, commit, thumbCache = App.runGenerate, App.requestLive, App.commit, App.thumbCache
 	local eachThumb, heading, buildHeader, buildArea = App.eachThumb, App.heading, App.buildHeader, App.buildArea
 
+	local applyTheme -- (below)
 	local function buildGlobal(parent)
 		App.pageHead(parent, App.area and App.area.folder.Name or "Back", "Settings", function()
 			App.goPage("Main")
 		end)
+		heading(parent, "Look", 14)
+		local swatches = App.chipGrid(parent, 5, 32)
+		for _, a in App.ACCENTS do
+			App.chip(swatches, a.name, function()
+				return G.accent == a.name
+			end, function()
+				if G.accent ~= a.name then
+					G.accent = a.name
+					saveG()
+					task.defer(applyTheme) -- after this click finishes (the page it's on is rebuilt)
+				end
+			end, Color3.fromHex(a.dark))
+		end
+		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
 		heading(parent, "Scatter", 14)
 		slider(
 			"Overall density",
@@ -4680,9 +4936,10 @@ return function(App)
 		App.ui.perf.TextColor3 = heavy and P.danger or P.dim
 	end
 
-	-- the footer: Live update, Shuffle and Clear, and a status line. With Live update off, a Generate button on top.
+	-- the footer: Live update, Shuffle and Clear; with Live update off, a Generate button on top. Messages show as
+	-- toasts above it. A thin bar along its top edge shows a running job.
 	local function footHeight()
-		return G.live and 84 or 134
+		return G.live and 58 or 108
 	end
 	local function buildFooter(parent)
 		local h = footHeight()
@@ -4696,6 +4953,17 @@ return function(App)
 		})
 		App.ui.foot = foot
 		App.fadeLine(foot, nil, 0.16)
+		-- progress of a running job: the accent filling along the top edge, with light sweeping through it
+		local track = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 3, Parent = foot })
+		App.ui.progress = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.accent,
+			Size = UDim2.fromScale(0, 1),
+			Visible = false,
+			ZIndex = 3,
+			Parent = track,
+		})
+		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
 		App.sheen(foot, 0.025, 40)
 		local inner = box({ Position = UDim2.fromOffset(14, 13), Size = UDim2.new(1, -28, 1, -23), Parent = foot })
 		local y = 0
@@ -4711,6 +4979,10 @@ return function(App)
 				TextTruncate = Enum.TextTruncate.AtEnd,
 				Parent = inner,
 			}, { corner(10) })
+			App.shade(App.ui.genBtn, 0.12)
+			App.topLight(App.ui.genBtn, 0.35, 8)
+			App.glow(App.ui.genBtn, 10, 0.7):set(true, true)
+			App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
 			local press = new("UIScale", { Parent = App.ui.genBtn })
 			-- progress while a job runs: a light sweep across the button
 			App.ui.genBar = box({
@@ -4753,7 +5025,7 @@ return function(App)
 
 		-- live updates on the left, shuffle and clear on the right
 		local r = box({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, y), Parent = inner })
-		local sw = switch(function()
+		local sw, swGlow = switch(function()
 			return G.live
 		end, function(v)
 			G.live = v
@@ -4766,6 +5038,7 @@ return function(App)
 		end)
 		sw.Position = UDim2.fromOffset(0, 4)
 		sw.Parent = r
+		App.ui.liveGlow = swGlow -- breathes while a job runs
 		label("Live update", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(46, 0), Size = UDim2.fromOffset(90, 30), Parent = r })
 		hintOn(sw, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
 		local links = box({
@@ -4802,50 +5075,45 @@ return function(App)
 			end, { Parent = links }),
 			"Removes everything placed in this area. The painted ground, path and objects stay; Generate brings it all back."
 		)
-		App.ui.status = label("", 11, P.faint, SANS, {
-			Position = UDim2.fromOffset(0, y + 40),
-			Size = UDim2.new(1, 0, 0, 16),
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			Parent = inner,
-		})
-		-- a long message is cut to one line; hovering shows all of it
-		App.ui.status.MouseEnter:Connect(function()
-			local full = App.ui.status:GetAttribute("full")
-			if full and App.ui.status.TextFits == false and App.showTipFor then
-				App.showTipFor(App.ui.status, full)
-			end
-		end)
-		App.ui.status.MouseLeave:Connect(function()
-			if App.hideTip then
-				App.hideTip()
-			end
-		end)
 	end
 
-	-- phase = "Scanning" / "Placing" with progress 0-1, or nil when the job is over
+	-- phase = "Scanning" / "Placing" with progress 0-1, or nil when the job is over: the bar along the footer's top
+	-- edge, the Live update switch breathing, and (with Live update off) the Generate button counting
+	local running = false
 	App.showProgress = function(phase, progress)
-		local btn, bar = App.ui.genBtn, App.ui.genBar
-		if not btn or not bar then
-			if App.ui.status then
-				App.ui.status.Text = phase and string.format("%s…  %d%%", phase, math.floor((progress or 0) * 100 + 0.5)) or ""
-				App.ui.status.TextColor3 = P.dim
-				if not phase then
-					App.refreshCounts()
-				end
+		local bar, btn = App.ui.progress, App.ui.genBtn
+		local on = phase ~= nil
+		if on ~= running then -- start or end: light effects switch once, not every tick
+			running = on
+			if bar then
+				bar.Visible = on
+				App.ui.progressSweep:play(on)
 			end
-			return
+			if App.ui.liveGlow then
+				App.ui.liveGlow:pulse(on)
+			end
+			if App.ui.genSweep then
+				App.ui.genSweep:play(on)
+			end
+			if btn and App.ui.genBar then
+				App.ui.genBar.Visible = on
+			end
 		end
-		if not phase then
-			bar.Visible = false
+		if not on then
 			App.refreshCounts()
 			return
 		end
-		bar.Visible = true
-		bar.Size = UDim2.fromScale(math.clamp(progress or 0, 0.02, 1), 1)
-		btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor((progress or 0) * 100 + 0.5))
-		btn.Font = SANS_B
-		btn.BackgroundColor3 = P.accent
-		btn.TextColor3 = P.onAccent
+		local p = math.clamp(progress or 0, 0.02, 1)
+		if bar then
+			bar.Size = UDim2.fromScale(p, 1)
+		end
+		if btn and App.ui.genBar then
+			App.ui.genBar.Size = UDim2.fromScale(p, 1)
+			btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor(p * 100 + 0.5))
+			btn.Font = SANS_B
+			btn.BackgroundColor3 = P.accent
+			btn.TextColor3 = P.onAccent
+		end
 	end
 
 	-- a short confirmation on the button after a finished run
@@ -4865,24 +5133,74 @@ return function(App)
 		end)
 	end
 
-	local lastStatus = ""
-	-- tone: nil (normal) or "error" (red, and it stays readable in full on hover)
+	-- Messages: a toast, a small glassy pill that slides up above the footer and fades after a while. One at a time;
+	-- a new message replaces the text in place. tone: nil or "error" (red dot and glow, stays longer).
+	local toastToken = 0
 	App.status = function(msg, tone)
-		if App.ui.status and msg ~= lastStatus then
-			App.ui.status.TextTransparency = 0.7
-			tween(App.ui.status, MED, { TextTransparency = 0 })
+		local t = App.ui.toast
+		if not t then
+			return
 		end
-		lastStatus = msg
-		if App.ui.status then
-			App.ui.status.Text = msg ~= "" and msg or ("Smart Scatter · v" .. tostring(App.ctx.version or "dev"))
-			App.ui.status.TextColor3 = tone == "error" and P.danger or msg ~= "" and P.dim or P.faint
-			App.ui.status:SetAttribute("full", msg)
+		toastToken += 1
+		local my = toastToken
+		if msg == "" then
+			tween(t.group, FAST, { GroupTransparency = 1 })
+			return
 		end
+		local err = tone == "error"
+		t.text.Text = msg
+		t.dot.BackgroundColor3 = err and P.danger or P.accent
+		t.glow:set(err)
+		if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
+			t.group.Position = UDim2.new(0.5, 0, 1, -footHeight() - 2)
+			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -footHeight() - 10) })
+		end
+		task.delay((err and 7 or 3.5) + #msg * 0.02, function()
+			if my == toastToken and App.ui.toast == t then
+				tween(t.group, MED, { GroupTransparency = 1 })
+			end
+		end)
+	end
+	local function buildToast(parent)
+		local group = new("CanvasGroup", {
+			BackgroundTransparency = 1,
+			GroupTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -footHeight() - 10),
+			Size = UDim2.new(1, -24, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			ZIndex = 60,
+			Parent = parent,
+		})
+		local pill = col({
+			BackgroundTransparency = 0.04,
+			BackgroundColor3 = P.card,
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.fromScale(0.5, 0),
+			Size = UDim2.new(1, -8, 0, 0),
+			ZIndex = 60,
+			Parent = group,
+		}, { corner(12), App.stroke(P.line), pad(34, 14, 9, 9) })
+		App.shade(pill, 0.06)
+		App.topLight(pill, 0.1, 12)
+		local dot = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.accent,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, -20, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			ZIndex = 61,
+			Parent = pill,
+		}, { corner(4) })
+		local text = para("", { ZIndex = 61, Parent = pill })
+		text.TextColor3 = P.text
+		App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
 	end
 
 	local builtPage
 	App.rebuildAll = function()
 		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
+		local turned = builtPage ~= nil and builtPage ~= G.page -- another page: it slides in
 		builtPage = G.page
 		if App.root then
 			App.root:Destroy()
@@ -4907,6 +5225,7 @@ return function(App)
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			Parent = App.root,
 		}, { pad(14, 12, 8, 24), vlist(2) })
+		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
 		App.scroll.MouseEnter:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
 		end)
@@ -4933,9 +5252,13 @@ return function(App)
 			buildArea(App.scroll)
 		end
 		buildFooter(App.root)
+		buildToast(App.root)
 		App.refreshScan()
 		App.refreshObjects()
-		App.status("") -- when it can't run, the Generate button already says why
+		if turned then
+			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
+			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
+		end
 		if App.tour and App.renderTour then
 			App.renderTour()
 		end
@@ -4948,10 +5271,17 @@ return function(App)
 		end
 	end
 
-	track(settings().Studio.ThemeChanged:Connect(function()
+	-- a new accent, or Studio switched light / dark: the panel and everything drawn in the viewport take it on
+	function applyTheme()
 		makePalette()
 		App.rebuildAll()
-	end))
+		rebuildOverlay()
+		if App.removeSplineViz then
+			App.removeSplineViz()
+			App.drawSpline()
+		end
+	end
+	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
 end)()
 

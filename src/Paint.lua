@@ -6,8 +6,8 @@
 return function(App)
 	local beginRec, endRec, plugin, Engine, track, G, saveG = App.beginRec, App.endRec, App.plugin, App.Engine, App.track, App.G, App.saveG
 	local LAYER_MODES, P, SANS_M, new, corner, stroke, pad = App.LAYER_MODES, App.P, App.SANS_M, App.new, App.corner, App.stroke, App.pad
-	local refreshSliders, PAINT_COLOR, refreshParams, probe = App.refreshSliders, App.PAINT_COLOR, App.refreshParams, App.probe
-	local NEUTRAL, flushRows, rebuildOverlay, saveArea = App.NEUTRAL, App.flushRows, App.rebuildOverlay, App.saveArea
+	local refreshSliders, VIEW, refreshParams, probe = App.refreshSliders, App.VIEW, App.refreshParams, App.probe
+	local flushRows, rebuildOverlay, saveArea = App.flushRows, App.rebuildOverlay, App.saveArea
 	local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
 
 	--------------------------------------------------------------------------------
@@ -63,6 +63,11 @@ return function(App)
 			"CylinderHandleAdornment",
 			{ Adornee = T, Height = 0.05, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
 		)
+		-- the neon halo: a wider, faint ring just outside the brush's edge
+		App.gz.halo = new(
+			"CylinderHandleAdornment",
+			{ Adornee = T, Height = 0.06, Transparency = 0.72, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
+		)
 		App.gz.sq = new("BoxHandleAdornment", { Adornee = T, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder })
 		App.gz.dot =
 			new("SphereHandleAdornment", { Adornee = T, Radius = 0.3, Transparency = 0, AlwaysOnTop = true, ZIndex = 3, Parent = App.gz.folder })
@@ -117,15 +122,15 @@ return function(App)
 	end
 	local function toolColor()
 		if App.mode == "Clear" then
-			return NEUTRAL
+			return VIEW.muted
 		end
 		if App.mode == "Less" then
 			return P.danger
 		end
 		if LAYER_MODES[App.mode] then
-			return PAINT_COLOR
+			return VIEW.accent
 		end
-		return erasing() and P.danger or PAINT_COLOR
+		return erasing() and VIEW.blocked or VIEW.accent
 	end
 	-- polyline preview from a pool of thin boxes
 	local function drawPath(pts, closed, color)
@@ -194,6 +199,7 @@ return function(App)
 		local col = toolColor()
 		App.gz.ring.Visible = brush and G.shape == "Circle"
 		App.gz.disc.Visible = App.gz.ring.Visible
+		App.gz.halo.Visible = App.gz.ring.Visible
 		App.gz.sq.Visible = brush and G.shape == "Square"
 		App.gz.dot.Visible = show
 		App.gz.bb.Enabled = show
@@ -207,9 +213,12 @@ return function(App)
 		App.gz.ring.CFrame = flat * CFrame.Angles(math.pi / 2, 0, 0)
 		App.gz.disc.Radius = R
 		App.gz.disc.CFrame = App.gz.ring.CFrame
+		local glowW = math.max(0.5, R * 0.05)
+		App.gz.halo.Radius, App.gz.halo.InnerRadius = R + glowW, R
+		App.gz.halo.CFrame = App.gz.ring.CFrame
 		App.gz.sq.Size = Vector3.new(R * 2, 0.08, R * 2)
 		App.gz.sq.CFrame = CFrame.new(p) -- the square brush is aligned to the world grid, like the cells it paints
-		for _, a in { App.gz.ring, App.gz.disc, App.gz.sq, App.gz.dot } do
+		for _, a in { App.gz.ring, App.gz.disc, App.gz.halo, App.gz.sq, App.gz.dot } do
 			a.Color3 = col
 		end
 		App.gz.dot.CFrame = CFrame.new(p)

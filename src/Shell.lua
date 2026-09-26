@@ -1,5 +1,5 @@
 --[[
-	Smart Scatter — Shell: the Settings page, the footer, status line and the whole-panel rebuild.
+	Smart Scatter — Shell: the Settings page, the footer, toasts and the whole-panel rebuild.
 	Part of Main; loaded in order by the bundle. Shared state and cross-module functions live on App.
 ]]
 
@@ -13,10 +13,25 @@ return function(App)
 	local runGenerate, requestLive, commit, thumbCache = App.runGenerate, App.requestLive, App.commit, App.thumbCache
 	local eachThumb, heading, buildHeader, buildArea = App.eachThumb, App.heading, App.buildHeader, App.buildArea
 
+	local applyTheme -- (below)
 	local function buildGlobal(parent)
 		App.pageHead(parent, App.area and App.area.folder.Name or "Back", "Settings", function()
 			App.goPage("Main")
 		end)
+		heading(parent, "Look", 14)
+		local swatches = App.chipGrid(parent, 5, 32)
+		for _, a in App.ACCENTS do
+			App.chip(swatches, a.name, function()
+				return G.accent == a.name
+			end, function()
+				if G.accent ~= a.name then
+					G.accent = a.name
+					saveG()
+					task.defer(applyTheme) -- after this click finishes (the page it's on is rebuilt)
+				end
+			end, Color3.fromHex(a.dark))
+		end
+		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
 		heading(parent, "Scatter", 14)
 		slider(
 			"Overall density",
@@ -127,9 +142,10 @@ return function(App)
 		App.ui.perf.TextColor3 = heavy and P.danger or P.dim
 	end
 
-	-- the footer: Live update, Shuffle and Clear, and a status line. With Live update off, a Generate button on top.
+	-- the footer: Live update, Shuffle and Clear; with Live update off, a Generate button on top. Messages show as
+	-- toasts above it. A thin bar along its top edge shows a running job.
 	local function footHeight()
-		return G.live and 84 or 134
+		return G.live and 58 or 108
 	end
 	local function buildFooter(parent)
 		local h = footHeight()
@@ -143,6 +159,17 @@ return function(App)
 		})
 		App.ui.foot = foot
 		App.fadeLine(foot, nil, 0.16)
+		-- progress of a running job: the accent filling along the top edge, with light sweeping through it
+		local track = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 3, Parent = foot })
+		App.ui.progress = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.accent,
+			Size = UDim2.fromScale(0, 1),
+			Visible = false,
+			ZIndex = 3,
+			Parent = track,
+		})
+		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
 		App.sheen(foot, 0.025, 40)
 		local inner = box({ Position = UDim2.fromOffset(14, 13), Size = UDim2.new(1, -28, 1, -23), Parent = foot })
 		local y = 0
@@ -158,6 +185,10 @@ return function(App)
 				TextTruncate = Enum.TextTruncate.AtEnd,
 				Parent = inner,
 			}, { corner(10) })
+			App.shade(App.ui.genBtn, 0.12)
+			App.topLight(App.ui.genBtn, 0.35, 8)
+			App.glow(App.ui.genBtn, 10, 0.7):set(true, true)
+			App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
 			local press = new("UIScale", { Parent = App.ui.genBtn })
 			-- progress while a job runs: a light sweep across the button
 			App.ui.genBar = box({
@@ -200,7 +231,7 @@ return function(App)
 
 		-- live updates on the left, shuffle and clear on the right
 		local r = box({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, y), Parent = inner })
-		local sw = switch(function()
+		local sw, swGlow = switch(function()
 			return G.live
 		end, function(v)
 			G.live = v
@@ -213,6 +244,7 @@ return function(App)
 		end)
 		sw.Position = UDim2.fromOffset(0, 4)
 		sw.Parent = r
+		App.ui.liveGlow = swGlow -- breathes while a job runs
 		label("Live update", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(46, 0), Size = UDim2.fromOffset(90, 30), Parent = r })
 		hintOn(sw, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
 		local links = box({
@@ -249,50 +281,45 @@ return function(App)
 			end, { Parent = links }),
 			"Removes everything placed in this area. The painted ground, path and objects stay; Generate brings it all back."
 		)
-		App.ui.status = label("", 11, P.faint, SANS, {
-			Position = UDim2.fromOffset(0, y + 40),
-			Size = UDim2.new(1, 0, 0, 16),
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			Parent = inner,
-		})
-		-- a long message is cut to one line; hovering shows all of it
-		App.ui.status.MouseEnter:Connect(function()
-			local full = App.ui.status:GetAttribute("full")
-			if full and App.ui.status.TextFits == false and App.showTipFor then
-				App.showTipFor(App.ui.status, full)
-			end
-		end)
-		App.ui.status.MouseLeave:Connect(function()
-			if App.hideTip then
-				App.hideTip()
-			end
-		end)
 	end
 
-	-- phase = "Scanning" / "Placing" with progress 0-1, or nil when the job is over
+	-- phase = "Scanning" / "Placing" with progress 0-1, or nil when the job is over: the bar along the footer's top
+	-- edge, the Live update switch breathing, and (with Live update off) the Generate button counting
+	local running = false
 	App.showProgress = function(phase, progress)
-		local btn, bar = App.ui.genBtn, App.ui.genBar
-		if not btn or not bar then
-			if App.ui.status then
-				App.ui.status.Text = phase and string.format("%s…  %d%%", phase, math.floor((progress or 0) * 100 + 0.5)) or ""
-				App.ui.status.TextColor3 = P.dim
-				if not phase then
-					App.refreshCounts()
-				end
+		local bar, btn = App.ui.progress, App.ui.genBtn
+		local on = phase ~= nil
+		if on ~= running then -- start or end: light effects switch once, not every tick
+			running = on
+			if bar then
+				bar.Visible = on
+				App.ui.progressSweep:play(on)
 			end
-			return
+			if App.ui.liveGlow then
+				App.ui.liveGlow:pulse(on)
+			end
+			if App.ui.genSweep then
+				App.ui.genSweep:play(on)
+			end
+			if btn and App.ui.genBar then
+				App.ui.genBar.Visible = on
+			end
 		end
-		if not phase then
-			bar.Visible = false
+		if not on then
 			App.refreshCounts()
 			return
 		end
-		bar.Visible = true
-		bar.Size = UDim2.fromScale(math.clamp(progress or 0, 0.02, 1), 1)
-		btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor((progress or 0) * 100 + 0.5))
-		btn.Font = SANS_B
-		btn.BackgroundColor3 = P.accent
-		btn.TextColor3 = P.onAccent
+		local p = math.clamp(progress or 0, 0.02, 1)
+		if bar then
+			bar.Size = UDim2.fromScale(p, 1)
+		end
+		if btn and App.ui.genBar then
+			App.ui.genBar.Size = UDim2.fromScale(p, 1)
+			btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor(p * 100 + 0.5))
+			btn.Font = SANS_B
+			btn.BackgroundColor3 = P.accent
+			btn.TextColor3 = P.onAccent
+		end
 	end
 
 	-- a short confirmation on the button after a finished run
@@ -312,24 +339,74 @@ return function(App)
 		end)
 	end
 
-	local lastStatus = ""
-	-- tone: nil (normal) or "error" (red, and it stays readable in full on hover)
+	-- Messages: a toast, a small glassy pill that slides up above the footer and fades after a while. One at a time;
+	-- a new message replaces the text in place. tone: nil or "error" (red dot and glow, stays longer).
+	local toastToken = 0
 	App.status = function(msg, tone)
-		if App.ui.status and msg ~= lastStatus then
-			App.ui.status.TextTransparency = 0.7
-			tween(App.ui.status, MED, { TextTransparency = 0 })
+		local t = App.ui.toast
+		if not t then
+			return
 		end
-		lastStatus = msg
-		if App.ui.status then
-			App.ui.status.Text = msg ~= "" and msg or ("Smart Scatter · v" .. tostring(App.ctx.version or "dev"))
-			App.ui.status.TextColor3 = tone == "error" and P.danger or msg ~= "" and P.dim or P.faint
-			App.ui.status:SetAttribute("full", msg)
+		toastToken += 1
+		local my = toastToken
+		if msg == "" then
+			tween(t.group, FAST, { GroupTransparency = 1 })
+			return
 		end
+		local err = tone == "error"
+		t.text.Text = msg
+		t.dot.BackgroundColor3 = err and P.danger or P.accent
+		t.glow:set(err)
+		if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
+			t.group.Position = UDim2.new(0.5, 0, 1, -footHeight() - 2)
+			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -footHeight() - 10) })
+		end
+		task.delay((err and 7 or 3.5) + #msg * 0.02, function()
+			if my == toastToken and App.ui.toast == t then
+				tween(t.group, MED, { GroupTransparency = 1 })
+			end
+		end)
+	end
+	local function buildToast(parent)
+		local group = new("CanvasGroup", {
+			BackgroundTransparency = 1,
+			GroupTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1, -footHeight() - 10),
+			Size = UDim2.new(1, -24, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			ZIndex = 60,
+			Parent = parent,
+		})
+		local pill = col({
+			BackgroundTransparency = 0.04,
+			BackgroundColor3 = P.card,
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.fromScale(0.5, 0),
+			Size = UDim2.new(1, -8, 0, 0),
+			ZIndex = 60,
+			Parent = group,
+		}, { corner(12), App.stroke(P.line), pad(34, 14, 9, 9) })
+		App.shade(pill, 0.06)
+		App.topLight(pill, 0.1, 12)
+		local dot = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.accent,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, -20, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			ZIndex = 61,
+			Parent = pill,
+		}, { corner(4) })
+		local text = para("", { ZIndex = 61, Parent = pill })
+		text.TextColor3 = P.text
+		App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
 	end
 
 	local builtPage
 	App.rebuildAll = function()
 		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
+		local turned = builtPage ~= nil and builtPage ~= G.page -- another page: it slides in
 		builtPage = G.page
 		if App.root then
 			App.root:Destroy()
@@ -354,6 +431,7 @@ return function(App)
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			Parent = App.root,
 		}, { pad(14, 12, 8, 24), vlist(2) })
+		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
 		App.scroll.MouseEnter:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
 		end)
@@ -380,9 +458,13 @@ return function(App)
 			buildArea(App.scroll)
 		end
 		buildFooter(App.root)
+		buildToast(App.root)
 		App.refreshScan()
 		App.refreshObjects()
-		App.status("") -- when it can't run, the Generate button already says why
+		if turned then
+			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
+			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
+		end
 		if App.tour and App.renderTour then
 			App.renderTour()
 		end
@@ -395,8 +477,15 @@ return function(App)
 		end
 	end
 
-	track(settings().Studio.ThemeChanged:Connect(function()
+	-- a new accent, or Studio switched light / dark: the panel and everything drawn in the viewport take it on
+	function applyTheme()
 		makePalette()
 		App.rebuildAll()
-	end))
+		rebuildOverlay()
+		if App.removeSplineViz then
+			App.removeSplineViz()
+			App.drawSpline()
+		end
+	end
+	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end

@@ -15,8 +15,8 @@ MODULES[9] = (function()
 return function(App)
 	local beginRec, endRec, plugin, Engine, track, G, saveG = App.beginRec, App.endRec, App.plugin, App.Engine, App.track, App.G, App.saveG
 	local LAYER_MODES, P, SANS_M, new, corner, stroke, pad = App.LAYER_MODES, App.P, App.SANS_M, App.new, App.corner, App.stroke, App.pad
-	local refreshSliders, PAINT_COLOR, refreshParams, probe = App.refreshSliders, App.PAINT_COLOR, App.refreshParams, App.probe
-	local NEUTRAL, flushRows, rebuildOverlay, saveArea = App.NEUTRAL, App.flushRows, App.rebuildOverlay, App.saveArea
+	local refreshSliders, VIEW, refreshParams, probe = App.refreshSliders, App.VIEW, App.refreshParams, App.probe
+	local flushRows, rebuildOverlay, saveArea = App.flushRows, App.rebuildOverlay, App.saveArea
 	local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
 
 	--------------------------------------------------------------------------------
@@ -72,6 +72,11 @@ return function(App)
 			"CylinderHandleAdornment",
 			{ Adornee = T, Height = 0.05, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
 		)
+		-- the neon halo: a wider, faint ring just outside the brush's edge
+		App.gz.halo = new(
+			"CylinderHandleAdornment",
+			{ Adornee = T, Height = 0.06, Transparency = 0.72, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
+		)
 		App.gz.sq = new("BoxHandleAdornment", { Adornee = T, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder })
 		App.gz.dot =
 			new("SphereHandleAdornment", { Adornee = T, Radius = 0.3, Transparency = 0, AlwaysOnTop = true, ZIndex = 3, Parent = App.gz.folder })
@@ -126,15 +131,15 @@ return function(App)
 	end
 	local function toolColor()
 		if App.mode == "Clear" then
-			return NEUTRAL
+			return VIEW.muted
 		end
 		if App.mode == "Less" then
 			return P.danger
 		end
 		if LAYER_MODES[App.mode] then
-			return PAINT_COLOR
+			return VIEW.accent
 		end
-		return erasing() and P.danger or PAINT_COLOR
+		return erasing() and VIEW.blocked or VIEW.accent
 	end
 	-- polyline preview from a pool of thin boxes
 	local function drawPath(pts, closed, color)
@@ -203,6 +208,7 @@ return function(App)
 		local col = toolColor()
 		App.gz.ring.Visible = brush and G.shape == "Circle"
 		App.gz.disc.Visible = App.gz.ring.Visible
+		App.gz.halo.Visible = App.gz.ring.Visible
 		App.gz.sq.Visible = brush and G.shape == "Square"
 		App.gz.dot.Visible = show
 		App.gz.bb.Enabled = show
@@ -216,9 +222,12 @@ return function(App)
 		App.gz.ring.CFrame = flat * CFrame.Angles(math.pi / 2, 0, 0)
 		App.gz.disc.Radius = R
 		App.gz.disc.CFrame = App.gz.ring.CFrame
+		local glowW = math.max(0.5, R * 0.05)
+		App.gz.halo.Radius, App.gz.halo.InnerRadius = R + glowW, R
+		App.gz.halo.CFrame = App.gz.ring.CFrame
 		App.gz.sq.Size = Vector3.new(R * 2, 0.08, R * 2)
 		App.gz.sq.CFrame = CFrame.new(p) -- the square brush is aligned to the world grid, like the cells it paints
-		for _, a in { App.gz.ring, App.gz.disc, App.gz.sq, App.gz.dot } do
+		for _, a in { App.gz.ring, App.gz.disc, App.gz.halo, App.gz.sq, App.gz.dot } do
 			a.Color3 = col
 		end
 		App.gz.dot.CFrame = CFrame.new(p)
@@ -849,7 +858,7 @@ MODULES[10] = (function()
 
 return function(App)
 	local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
-	local new, PAINT_COLOR, refreshParams = App.new, App.PAINT_COLOR, App.refreshParams
+	local new, refreshParams = App.new, App.refreshParams
 	local rebuildOverlay, saveArea, canGenerate, runGenerate = App.rebuildOverlay, App.saveArea, App.canGenerate, App.runGenerate
 	local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
 	local gizmoFolder, setLabel, mouseHit = App.gizmoFolder, App.setLabel, App.mouseHit
@@ -864,7 +873,7 @@ return function(App)
 	local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt -- points are { cv = curve, i = index }
 	local welded = {}
 	local HANDLE_PX, CURVE_PX, WELD = 14, 10, 0.05
-	local VIEW = App.VIEW -- the viewport palette (Overlay)
+	local VIEW = App.VIEW -- the viewport palette (Base; follows the accent theme)
 	local hoverHandle, dragHandle -- "in" / "out": the selected point's curve handles
 	local drawing -- hold-and-drag stroke: { cv, prepend, anchor, spacing, pts }
 	local joinSnap
@@ -949,7 +958,7 @@ return function(App)
 		local ok, w = pcall(function() -- one adornment draws every curve; falls back to pooled boxes on older Studio builds
 			return new(
 				"WireframeHandleAdornment",
-				{ Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = PAINT_COLOR, Parent = sv.folder }
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
 			)
 		end)
 		if ok and w then
@@ -957,6 +966,11 @@ return function(App)
 			sv.edge = new(
 				"WireframeHandleAdornment",
 				{ Adornee = T, AlwaysOnTop = true, Thickness = 1.5, ZIndex = 2, Transparency = 0.45, Color3 = VIEW.paper, Parent = sv.folder }
+			)
+			-- the neon glow under the curve: the same lines, wide and faint
+			sv.halo = new(
+				"WireframeHandleAdornment",
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 9, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
 			)
 		end
 		for _, k in { "hOut", "hIn" } do
@@ -972,7 +986,7 @@ return function(App)
 			AlwaysOnTop = true,
 			ZIndex = 5,
 			Transparency = 0.25,
-			Color3 = PAINT_COLOR,
+			Color3 = VIEW.accent,
 			Visible = false,
 			Parent = sv.folder,
 		})
@@ -1089,9 +1103,11 @@ return function(App)
 		if sv.wire then
 			sv.wire:Clear()
 			sv.edge:Clear()
+			sv.halo:Clear()
 			for _, L in lines do
 				for k = 1, #L - 1 do
 					sv.wire:AddLine(L[k], L[k + 1])
+					sv.halo:AddLine(L[k], L[k + 1])
 				end
 			end
 		else
@@ -1103,7 +1119,7 @@ return function(App)
 					if not seg then
 						seg = new(
 							"BoxHandleAdornment",
-							{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 3, Color3 = PAINT_COLOR, Parent = sv.folder }
+							{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
 						)
 						sv.segs[n] = seg
 					end
@@ -1311,7 +1327,7 @@ return function(App)
 		App.gz.dot.Visible = hit ~= nil and not hoverPt
 		if hit then
 			App.gz.dot.CFrame = CFrame.new(hit.Position)
-			App.gz.dot.Color3 = PAINT_COLOR
+			App.gz.dot.Color3 = VIEW.accent
 			App.gz.anchor.CFrame = CFrame.new(hit.Position)
 		end
 		setLabel(hit and text or "")

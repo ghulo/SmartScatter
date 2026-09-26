@@ -76,6 +76,7 @@ return function(App)
 		shadows = true,
 		query = true,
 		chunks = false,
+		accent = "Sage", -- the accent theme (ACCENTS below)
 		ghost = false, -- preview as boxes: one see-through box per copy, for quick tuning of big areas
 		tool = "Brush",
 		shape = "Circle",
@@ -132,8 +133,28 @@ return function(App)
 	-- dark text on the accent. A light variant follows Studio's light theme.
 	--------------------------------------------------------------------------------
 	local P = {} -- filled in place by makePalette, so every module can keep this one table
+	-- the viewport's colours (painted ground, brush, paths): fixed per accent, the viewport isn't themed. Also
+	-- filled in place, so the overlay and the path editor keep one table.
+	local VIEW = {}
 	local function hex(h)
 		return Color3.fromHex(h)
+	end
+	-- accent themes: the one colour everything active wears. dark / light: the accent on each Studio theme;
+	-- glow: its lighter tint (outlines in the viewport, neon edges)
+	local ACCENTS = {
+		{ name = "Sage", dark = "8FBA97", light = "4C8558", glow = "C9E2CD" },
+		{ name = "Aqua", dark = "7CC7C4", light = "2E7D7A", glow = "C4EAE8" },
+		{ name = "Amber", dark = "E3B26A", light = "98661C", glow = "F3DDB6" },
+		{ name = "Violet", dark = "A99BE8", light = "6453C0", glow = "DAD3F7" },
+		{ name = "Rose", dark = "E59AAA", light = "B0485F", glow = "F5D2DA" },
+	}
+	local function accentOf(name)
+		for _, a in ACCENTS do
+			if a.name == name then
+				return a
+			end
+		end
+		return ACCENTS[1]
 	end
 	local function makePalette()
 		local pal
@@ -145,16 +166,10 @@ return function(App)
 				header = hex("201F1C"), -- footer strip
 				field = hex("1F1E1B"), -- inputs
 				hover = hex("3B3934"),
-				selected = hex("2C3A2F"),
-				rowSel = hex("2C3A2F"),
 				line = hex("33312D"), -- borders and hairlines
 				text = hex("F2EFEA"),
 				dim = hex("A6A199"),
 				faint = hex("7C766C"),
-				accent = hex("8FBA97"),
-				onAccent = hex("16221A"),
-				accentSoft = hex("2E3A30"),
-				accentLine = hex("4F6A55"),
 				knob = hex("FFFFFF"),
 				track = hex("45423D"), -- switch / slider track when off
 				danger = hex("D08A78"),
@@ -168,27 +183,42 @@ return function(App)
 				header = hex("EFECE7"),
 				field = hex("FFFFFF"),
 				hover = hex("E3DFD8"),
-				selected = hex("E1ECE2"),
-				rowSel = hex("E1ECE2"),
 				line = hex("DDD8CF"),
 				text = hex("23211D"),
 				dim = hex("5E5950"),
 				faint = hex("8A8479"),
-				accent = hex("4C8558"),
-				onAccent = hex("FFFFFF"),
-				accentSoft = hex("E1ECE2"),
-				accentLine = hex("A9C8AE"),
 				knob = hex("FFFFFF"),
 				track = hex("CFCAC1"),
 				danger = hex("B5533F"),
 				tip = hex("FFFFFF"),
 			}
 		end
+		-- the accent theme: the accent itself, its soft fills and lines, text on it
+		local a, dark = accentOf(G.accent), settings().Studio.Theme.Name ~= "Light"
+		local acc = hex(dark and a.dark or a.light)
+		pal.accent = acc
+		pal.onAccent = dark and acc:Lerp(Color3.new(0, 0, 0), 0.82) or Color3.new(1, 1, 1)
+		pal.accentSoft = acc:Lerp(pal.card, dark and 0.8 or 0.86)
+		pal.accentLine = acc:Lerp(pal.card, dark and 0.55 or 0.5)
+		pal.glow = hex(a.glow)
 		for k, v in pal do
 			P[k] = v
 		end
-		-- one accent everywhere: the old per-step colours all read as the accent
-		P.green, P.orange, P.violet = P.accent, P.accent, P.accent
+		local viewAccent = hex(a.dark) -- the viewport always gets the bright version
+		for k, v in
+			{
+				accent = viewAccent, -- painted ground, the brush, curves
+				edge = hex(a.glow), -- the painted area's outline
+				muted = hex("A6A199"), -- roads and paths inside the area (only some objects go there)
+				blocked = hex("D08A78"), -- roofs and water: nothing is placed there; keep-clear zones
+				ink = hex("1A1917"), -- outlines of handles
+				paper = hex("F2EFEA"), -- handle fill
+				corner = hex("E3B26A"), -- sharp path points
+				less = hex("3B3934"), -- painted "less" of an object
+			}
+		do
+			VIEW[k] = v
+		end
 	end
 	makePalette()
 
@@ -214,6 +244,8 @@ return function(App)
 	App.num = num
 	App.P = P
 	App.makePalette = makePalette
+	App.VIEW = VIEW
+	App.ACCENTS = ACCENTS
 	App.SANS = SANS
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B

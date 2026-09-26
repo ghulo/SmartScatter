@@ -10,7 +10,7 @@ return function(App)
 	local pad, vlist, hlist, box, col, label, para = App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 	local hintOn, slider, switch, switchRow, segmented, section = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented, App.section
 	local recolorOverlay, canGenerate, requestLive, commit = App.recolorOverlay, App.canGenerate, App.requestLive, App.commit
-	local newArea, eachThumb, thumbnail, primaryButton = App.newArea, App.eachThumb, App.thumbnail, App.primaryButton
+	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
 	local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 	local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
 
@@ -618,31 +618,43 @@ return function(App)
 	-- The list
 	--------------------------------------------------------------------------------
 	-- one object: thumbnail, name, what it is and how many were placed, on/off. Click to open its settings.
-	local function layerRow(l, parent)
+	local function layerRow(l, parent) -- an object in the list: thumbnail, name, what it is, its share, on/off
 		local r = new("TextButton", {
 			Text = "",
 			AutoButtonColor = false,
 			BackgroundColor3 = P.card,
-			Size = UDim2.new(1, 0, 0, 52),
+			Size = UDim2.new(1, 0, 0, 60),
 			Parent = parent,
-		}, { corner(10), stroke(P.line) })
+		}, { corner(12), stroke(P.line) })
 		App.shade(r, 0.05)
+		App.topLight(r, 0.06, 12)
+		App.shadow(r, 12)
+		App.pressable(r, 0.985)
 		r.MouseEnter:Connect(function()
 			r.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
 		end)
 		r.MouseLeave:Connect(function()
 			r.BackgroundColor3 = P.card
 		end)
-		local th = thumbnail(l.inst, 36)
+		local th = thumbnail(l.inst, 44)
 		th.Position = UDim2.fromOffset(8, 8)
 		th.Parent = r
 		local name = label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, l.s.enabled and P.text or P.faint, SANS_B, {
-			Position = UDim2.fromOffset(54, 8),
-			Size = UDim2.new(1, -104, 0, 18),
+			Position = UDim2.fromOffset(62, 9),
+			Size = UDim2.new(1, -112, 0, 18),
 			Parent = r,
 		})
-		local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(54, 26), Size = UDim2.new(1, -104, 0, 16), Parent = r })
-		rowRefs[l] = { kind = kind, name = name }
+		local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(62, 27), Size = UDim2.new(1, -112, 0, 16), Parent = r })
+		-- its share of what's placed in the area: a thin accent bar under the text (widths set by refreshCounts)
+		local barTrack = box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.raised,
+			Position = UDim2.fromOffset(62, 47),
+			Size = UDim2.new(1, -112, 0, 3),
+			Parent = r,
+		}, { corner(2) })
+		local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1), Parent = barTrack }, { corner(2) })
+		rowRefs[l] = { kind = kind, name = name, bar = bar }
 		local sw = switch(function()
 			return l.s.enabled
 		end, function(v)
@@ -798,7 +810,7 @@ return function(App)
 		section(parent, "presets", "Presets", false, function(b)
 			local list = Engine.listPresets()
 			if #list == 0 then
-				para("None yet. Save this area's objects to reuse them elsewhere.", { Parent = b })
+				App.emptyState(b, "No presets yet", "Save this area's objects below to reuse them in any area.")
 			end
 			for _, v in list do
 				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
@@ -937,13 +949,13 @@ return function(App)
 				"Select models, or a folder of them, in the Explorer. Each becomes an object you can tune."
 			)
 		else
-			para("Select models (or a folder of them) in the Explorer, then add them here. Each one becomes an object you can tune.", {
-				Parent = list,
-			})
-			gap(list, 4)
-			local add = primaryButton("Add selected models", addSelected)
-			add.Parent = list
-			hintOn(add, "Keep the source models outside the area, e.g. in ServerStorage. Each becomes an object you can tune.")
+			App.emptyState(
+				list,
+				"No objects yet",
+				"Select models (or a folder of them) in the Explorer, then add them. Keep the originals outside the area, e.g. in ServerStorage.",
+				"Add selected models",
+				addSelected
+			)
 		end
 		gap(list, 4)
 		buildBiomes(list, #App.area.layers == 0)
@@ -1017,7 +1029,15 @@ return function(App)
 	App.refreshCounts = function()
 		App.refreshPerf()
 		App.checkShape()
+		local most = 1 -- the bars are relative to the object placed most
+		for l in rowRefs do
+			most = math.max(most, (l.s.enabled and App.lastCounts[l]) or 0)
+		end
 		for l, r in rowRefs do
+			if r.bar then
+				local share = l.s.enabled and (App.lastCounts[l] or 0) / most or 0
+				tween(r.bar, App.MED, { Size = UDim2.fromScale(share, 1) })
+			end
 			local n = App.lastCounts[l]
 			local what = Engine.isLine(l) and ("Along " .. (l.s.follow == "Spline" and "path" or string.lower(l.s.follow))) or l.type
 			local placed = (n and l.s.enabled) and ("  ·  " .. num(n) .. " placed") or ""

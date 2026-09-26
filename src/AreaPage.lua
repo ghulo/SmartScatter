@@ -46,8 +46,11 @@ return function(App)
 			local t = label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
 			hintOn(b, hint)
 			b.MouseButton1Click:Connect(onClick)
+			App.pressable(b, 0.96)
+			local lit = App.glow(b, 8, 0.6)
 			local c = { hot = false }
 			c.paint = function(on)
+				lit:set(on)
 				b.BackgroundColor3 = on and color:Lerp(P.card, 0.85) or (c.hot and P.hover or P.raised)
 				st.Color = on and color:Lerp(P.card, 0.5) or P.line
 				local fg = on and color or (c.hot and P.text or P.dim)
@@ -606,13 +609,18 @@ return function(App)
 				corner(6).Parent = tag
 				pad(8, 8, 0, 0).Parent = tag
 			end
+			App.shadow(b, 14)
+			App.pressable(b, 0.985)
+			local lit = App.glow(b, 14, 0.5) -- lights up under the mouse
 			b.MouseEnter:Connect(function()
 				st.Color = P.accentLine
 				b.BackgroundColor3 = P.card:Lerp(P.hover, 0.4)
+				lit:set(true)
 			end)
 			b.MouseLeave:Connect(function()
 				st.Color = P.line
 				b.BackgroundColor3 = P.card
+				lit:set(false)
 			end)
 			b.MouseButton1Click:Connect(onClick)
 			return b
