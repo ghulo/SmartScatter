@@ -215,17 +215,36 @@ return function(App)
 				parent
 		end
 		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
+		-- patterns: the noise every object in the area thickens and thins with (Engine.PATTERNS)
+		label("Pattern", 13, P.text, SANS, { Parent = parent })
+		local patterns = chipGrid(parent, 3, 30)
+		for i, name in Engine.PATTERNS do
+			local c = chip(patterns, name, function()
+				return (App.area and App.area.pattern or "Groves") == name
+			end, function()
+				if App.area and App.area.pattern ~= name then
+					App.area.pattern = name
+					if (App.area.patches or 0) <= 0 then
+						App.area.patches = 0.6 -- picking a pattern means wanting to see it
+					end
+					commit()
+					App.rebuildAll()
+				end
+			end)
+			c.LayoutOrder = i
+			hintOn(c, Engine.PATTERN_HINT[name])
+		end
 		areaSlider(
 			"patches",
-			"Groves and clearings",
+			"Pattern strength",
 			0,
 			1,
 			"%.0f%%",
 			0.05,
-			"Natural patches for the whole area: every object thickens in the same groves and thins out in the same clearings.",
+			"How much the pattern shapes the area: every object thickens and thins in the same places. 0% is off.",
 			0
 		)
-		areaSlider("patchSize", "Patch size", 16, 240, "%.0f studs", 4, "How big the groves and clearings are.", 60)
+		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
 		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
 		-- surface filter
 		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })

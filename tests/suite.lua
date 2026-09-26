@@ -1049,6 +1049,78 @@ local ok, err = pcall(function()
 			and kind("Sign Post") == "Along"
 		check("names are matched as words", okNames, "palisade/streetlamp/fences are lines; campfire/trailhead are not")
 	end
+	-- 13b. every area pattern gives real variation, stays within 0-1, and the strength blends it in
+	do
+		local worst = {}
+		for _, name in E.PATTERNS do
+			local a = { patches = 1, pattern = name, patchSize = 40, seed = 4242, windDir = 30 }
+			local lo, hi, bad = math.huge, -math.huge, 0
+			for x = 0, 400, 7 do
+				for z = 0, 400, 7 do
+					local v = E.patchAt(a, x, z)
+					lo, hi = math.min(lo, v), math.max(hi, v)
+					if v < 0 or v > 1 or v ~= v then
+						bad += 1
+					end
+				end
+			end
+			if bad > 0 or hi - lo < 0.6 then
+				table.insert(worst, string.format("%s %.2f-%.2f (%d bad)", name, lo, hi, bad))
+			end
+		end
+		local half = E.patchAt({ patches = 0.5, pattern = "Islands", patchSize = 40, seed = 4242 }, 13, 29)
+		check(
+			"area patterns vary, stay in range and blend by strength",
+			#worst == 0 and half >= 0.5 and half <= 1,
+			#worst == 0 and (#E.PATTERNS .. " patterns ok") or table.concat(worst, ", ")
+		)
+	end
+	-- 13c. real footprints: long models keep their true outline, so they pack closer than their circle but never
+	-- overlap
+	do
+		isolate()
+		local log = model("TestLog", { { Name = "Trunk", Size = Vector3.new(10, 1.5, 2), CFrame = CFrame.new(0, 0.75, 0) } })
+		table.insert(templates, log)
+		local l = E.makeLayer(log, "Rock")
+		l.s.density, l.s.spacing, l.s.cluster, l.s.tilt, l.s.align = 6, 1, 0, 0, 0
+		l.s.scaleMin, l.s.scaleMax = 1, 1
+		local a = newArea("SS_Test_Logs", { l })
+		paintRect(a, -60, 60, 0, 120)
+		run(a)
+		local logs = {}
+		for _, m in placed(a.folder) do
+			local cf = m:GetPivot()
+			table.insert(logs, { p = Vector2.new(cf.X, cf.Z), ax = Vector2.new(cf.RightVector.X, cf.RightVector.Z).Unit, m = m })
+		end
+		-- two rectangles overlap unless one of their four axes separates them
+		local function halfOn(g, axis) -- half the log (10 x 2) measured along an axis
+			local side = Vector2.new(-g.ax.Y, g.ax.X)
+			return 5 * math.abs(g.ax:Dot(axis)) + 1 * math.abs(side:Dot(axis))
+		end
+		local overlaps, closest = 0, math.huge
+		for i = 1, #logs do
+			for j = i + 1, #logs do
+				local A, B = logs[i], logs[j]
+				local d = B.p - A.p
+				closest = math.min(closest, d.Magnitude)
+				local apart = false
+				for _, axis in { A.ax, Vector2.new(-A.ax.Y, A.ax.X), B.ax, Vector2.new(-B.ax.Y, B.ax.X) } do
+					if math.abs(d:Dot(axis)) > halfOn(A, axis) + halfOn(B, axis) - 0.05 then
+						apart = true
+						break
+					end
+				end
+				if not apart then
+					overlaps += 1
+				end
+			end
+		end
+		check(
+			"long models use their real outline: closer than their circle, never overlapping",
+			#logs >= 5 and overlaps == 0 and closest < 9, -- as circles, two logs would stay 10 studs apart
+			string.format("%d logs, %d overlapping, closest %.1f studs apart (a circle would keep 10+)", #logs, overlaps, closest)
+		)
+	end
 	-- 14. removed copies stay gone, and a patch rebuild leaves everything outside the patch alone
 	do
 		local a = newArea("SS_Test_Patch", { E.makeLayer(rock, "Rock") })

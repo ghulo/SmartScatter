@@ -1520,6 +1520,7 @@ return function(E, I)
 			size = folder:GetAttribute("SS_Size") or 1, -- "Size of everything": multiplies every object's size range
 			patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
 			patchSize = folder:GetAttribute("SS_PatchSize") or 60,
+			pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
 			windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
 			layers = {},
 		}
@@ -1785,6 +1786,7 @@ return function(E, I)
 		f:SetAttribute("SS_Size", (a.size and a.size ~= 1) and a.size or nil)
 		f:SetAttribute("SS_Patches", (a.patches or 0) > 0 and a.patches or nil)
 		f:SetAttribute("SS_PatchSize", (a.patchSize and a.patchSize ~= 60) and a.patchSize or nil)
+		f:SetAttribute("SS_Pattern", (a.pattern and a.pattern ~= "Groves") and a.pattern or nil)
 		f:SetAttribute("SS_Wind", (a.windDir or 0) ~= 0 and a.windDir or nil)
 		f:SetAttribute("SS_Mask", encodeMask(a.rows))
 		local sp = a.spline
@@ -2734,13 +2736,62 @@ return function(E, I)
 		return t
 	end
 
+	local function n2(x, z, o) -- Roblox's noise, -0.5..0.5 in practice, stretched to 0-1
+		return math.clamp(0.5 + math.noise(x, z, o) * 1.6, 0, 1)
+	end
+	local function smooth(t)
+		return t * t * (3 - 2 * t)
+	end
+	E.PATTERNS = { "Groves", "Natural", "Islands", "Veins", "Spots", "Bands" }
+	E.PATTERN_HINT = {
+		Groves = "Soft, even rolling patches.",
+		Natural = "Patches with smaller patches inside them, like a real forest floor.",
+		Islands = "Clear-cut clusters with open ground between them.",
+		Veins = "Winding lines of growth, like streams or hedgerows.",
+		Spots = "Round clusters spread evenly over the area.",
+		Bands = "Wavy rows across the area, along the wind direction.",
+	}
+	local PATTERN = {
+		Groves = function(x, z, f, o)
+			return n2(x / f, z / f, o)
+		end,
+		Natural = function(x, z, f, o) -- three octaves: big shapes, then detail inside them
+			local v = n2(x / f, z / f, o) * 0.6 + n2(x * 2.1 / f, z * 2.1 / f, o + 17) * 0.28
+			return math.clamp(v + n2(x * 4.3 / f, z * 4.3 / f, o + 31) * 0.12, 0, 1)
+		end,
+		Islands = function(x, z, f, o) -- the same noise, cut sharply at the middle
+			return smooth(math.clamp((n2(x / f, z / f, o) - 0.42) / 0.16, 0, 1))
+		end,
+		Veins = function(x, z, f, o) -- ridges: high only where the noise crosses its middle
+			local r = 1 - math.abs(n2(x / f, z / f, o) - 0.5) * 2
+			return smooth(math.clamp((r - 0.55) / 0.4, 0, 1))
+		end,
+		Spots = function(x, z, f, o) -- distance to the nearest point of a jittered grid (cellular noise)
+			local cx, cz, best = math.floor(x / f), math.floor(z / f), math.huge
+			for dx = -1, 1 do
+				for dz = -1, 1 do
+					local gx, gz = cx + dx, cz + dz
+					local px = (gx + 0.5 + math.noise(gx * 0.37, gz * 0.37, o) * 1.2) * f
+					local pz = (gz + 0.5 + math.noise(gx * 0.37, gz * 0.37, o + 5) * 1.2) * f
+					best = math.min(best, (Vector2.new(x - px, z - pz)).Magnitude)
+				end
+			end
+			return smooth(math.clamp(1 - best / (f * 0.45), 0, 1))
+		end,
+		Bands = function(x, z, f, o, a) -- rows across the wind direction, bent a little by noise
+			local w = math.rad(a.windDir or 0)
+			local along = x * math.cos(w) - z * math.sin(w)
+			local wave = math.sin((along / f + math.noise(x / (f * 2), z / (f * 2), o) * 0.8) * math.pi * 2)
+			return smooth(math.clamp(0.5 + wave * 0.9, 0, 1))
+		end,
+	}
 	local function patchAt(a, x, z)
 		local k = a.patches or 0
 		if k <= 0 then
 			return 1
 		end
-		local f = math.max(a.patchSize or 60, 8)
-		local v = math.clamp(0.5 + math.noise(x / f, z / f, (a.seed % 991) * 0.37) * 1.6, 0, 1)
+		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
+		local v = fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
 		return 1 - k + k * v
 	end
 	E.patchAt = patchAt
@@ -2888,23 +2939,54 @@ return function(E, I)
 			self.maxReach = rch
 		end
 	end
-	local function minDist(o, it)
+	local LONG = 1.3 -- one side this much longer than the other counts as long
+	local function footprint(item, m, sc)
+		local hx, hz = m.size.X * sc / 2, m.size.Z * sc / 2
+		if math.max(hx, hz) >= math.min(hx, hz) * LONG then
+			item.hx, item.hz = hx, hz
+		end
+	end
+	local function extent(it, ux, uz)
+		if not it.hx then
+			return it.r
+		end
+		if not it.yaw then
+			return math.min(it.hx, it.hz)
+		end
+		local c, s = math.cos(it.yaw), math.sin(it.yaw)
+		return it.hx * math.abs(ux * c - uz * s) + it.hz * math.abs(ux * s + uz * c)
+	end
+	local function minDist(o, it, ro, ri)
 		if o.type == it.type then
 			if it.g and o.g == it.g then -- same pile: allowed to touch; pieces of one fence are already laid end to end
-				return it.fit and 0 or (o.r + it.r) * 0.9
+				return it.fit and 0 or (ro + ri) * 0.9
 			end
-			return o.r * o.sp + it.r * it.sp
+			return ro * o.sp + ri * it.sp
 		elseif o.type == "Building" or it.type == "Building" then -- keep canopies off roofs
-			return o.type == "Building" and (o.r + it.r * 0.6 * it.cs) or (it.r + o.r * 0.6 * o.cs)
+			return o.type == "Building" and (ro + ri * 0.6 * it.cs) or (ri + ro * 0.6 * o.cs)
 		elseif o.line and it.line then -- two objects lined up along a path: side by side, never inside each other
-			return (o.r + it.r) * 0.85
+			return (ro + ri) * 0.85
 		end
-		return o.r * CORE[o.type] * o.cs + it.r * CORE[it.type] * it.cs
+		return ro * CORE[o.type] * o.cs + ri * CORE[it.type] * it.cs
 	end
 	local function tooClose(o, it)
-		local md = minDist(o, it)
-		local dx, dz = o.x - it.x, o.z - it.z
-		return dx * dx + dz * dz < md * md
+		local dx, dz = it.x - o.x, it.z - o.z
+		local d = math.sqrt(dx * dx + dz * dz)
+		local ko, ki = minDist(o, it, 1, 0), minDist(o, it, 0, 1) -- the rules are linear in each reach
+		if d > 1e-6 and d >= (ko * extent(o, dx / d, dz / d) + ki * extent(it, dx / d, dz / d)) then
+			return false
+		end
+		for _, t in { o, it } do
+			if t.hx and t.yaw then
+				local c, s = math.cos(t.yaw), math.sin(t.yaw)
+				for _, a in { { c, -s }, { s, c } } do
+					if math.abs(dx * a[1] + dz * a[2]) >= ko * extent(o, a[1], a[2]) + ki * extent(it, a[1], a[2]) then
+						return false
+					end
+				end
+			end
+		end
+		return true
 	end
 	function Hash:conflicts(it)
 		for _, o in self.big do
@@ -3253,6 +3335,9 @@ return function(E, I)
 		clone:SetAttribute("SS_X", x)
 		clone:SetAttribute("SS_Z", z)
 		clone:SetAttribute("SS_R", item.r)
+		if item.hx and item.yaw then -- its outline, for the next runs that keep it
+			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
+		end
 		clone:SetAttribute("SS_Sp", s.spacing)
 		clone:SetAttribute("SS_Cs", s.clearance)
 		if gid then
@@ -3487,6 +3572,9 @@ return function(E, I)
 			fit = g.stretch ~= nil,
 			lk = l._h,
 		}
+		if not g.line and not g.stackOn then
+			footprint(item, m, sc)
+		end
 
 		local base = g.stackOn
 		local hit, y
@@ -3593,6 +3681,13 @@ return function(E, I)
 						y = math.max(h2.Position.Y, y - rr * 1.5)
 					end
 				end
+			end
+		end
+
+		if item.hx then -- now it's turned: its real outline must fit where only its narrow side was tried
+			item.yaw = yaw
+			if not base and not g.post and ctx.hash:conflicts(item) then
+				return nil
 			end
 		end
 
@@ -4734,7 +4829,11 @@ return function(E, I)
 	local placeLine = I.placeLine
 
 	local function itemOf(inst)
+		local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
 		return {
+			hx = fp and fp.X,
+			yaw = fp and fp.Y,
+			hz = fp and fp.Z,
 			x = inst:GetAttribute("SS_X") or 0,
 			z = inst:GetAttribute("SS_Z") or 0,
 			r = inst:GetAttribute("SS_R") or 1,

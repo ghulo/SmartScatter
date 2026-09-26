@@ -49,24 +49,62 @@ return function(E, I)
 			self.maxReach = rch
 		end
 	end
-	-- the least distance the rules allow between two items
-	local function minDist(o, it)
+	-- Real footprints: a long or wide model (a log, a bench, a house) keeps its true outline instead of the circle
+	-- round it, so it can sit as close as its shape allows. it.hx / it.hz: half its size across and along; it.yaw:
+	-- how it's turned (unknown while its spot is still being tried: then only its narrow side counts, and the spot
+	-- is checked again once it's turned). Round things (and older copies) are circles of radius it.r.
+	local LONG = 1.3 -- one side this much longer than the other counts as long
+	local function footprint(item, m, sc)
+		local hx, hz = m.size.X * sc / 2, m.size.Z * sc / 2
+		if math.max(hx, hz) >= math.min(hx, hz) * LONG then
+			item.hx, item.hz = hx, hz
+		end
+	end
+	-- how far the item reaches from its centre along the unit axis (ux, uz), either way
+	local function extent(it, ux, uz)
+		if not it.hx then
+			return it.r
+		end
+		if not it.yaw then
+			return math.min(it.hx, it.hz)
+		end
+		local c, s = math.cos(it.yaw), math.sin(it.yaw)
+		return it.hx * math.abs(ux * c - uz * s) + it.hz * math.abs(ux * s + uz * c)
+	end
+	-- the least distance the rules allow between two items, ro / ri: how far each reaches toward the other
+	local function minDist(o, it, ro, ri)
 		if o.type == it.type then
 			if it.g and o.g == it.g then -- same pile: allowed to touch; pieces of one fence are already laid end to end
-				return it.fit and 0 or (o.r + it.r) * 0.9
+				return it.fit and 0 or (ro + ri) * 0.9
 			end
-			return o.r * o.sp + it.r * it.sp
+			return ro * o.sp + ri * it.sp
 		elseif o.type == "Building" or it.type == "Building" then -- keep canopies off roofs
-			return o.type == "Building" and (o.r + it.r * 0.6 * it.cs) or (it.r + o.r * 0.6 * o.cs)
+			return o.type == "Building" and (ro + ri * 0.6 * it.cs) or (ri + ro * 0.6 * o.cs)
 		elseif o.line and it.line then -- two objects lined up along a path: side by side, never inside each other
-			return (o.r + it.r) * 0.85
+			return (ro + ri) * 0.85
 		end
-		return o.r * CORE[o.type] * o.cs + it.r * CORE[it.type] * it.cs
+		return ro * CORE[o.type] * o.cs + ri * CORE[it.type] * it.cs
 	end
+	-- Too close when no axis separates the two shapes, each grown by what its rule asks (separating axes: the sides
+	-- of any turned outline, and the line between the centres). For two circles that's plain distance.
 	local function tooClose(o, it)
-		local md = minDist(o, it)
-		local dx, dz = o.x - it.x, o.z - it.z
-		return dx * dx + dz * dz < md * md
+		local dx, dz = it.x - o.x, it.z - o.z
+		local d = math.sqrt(dx * dx + dz * dz)
+		local ko, ki = minDist(o, it, 1, 0), minDist(o, it, 0, 1) -- the rules are linear in each reach
+		if d > 1e-6 and d >= (ko * extent(o, dx / d, dz / d) + ki * extent(it, dx / d, dz / d)) then
+			return false
+		end
+		for _, t in { o, it } do
+			if t.hx and t.yaw then
+				local c, s = math.cos(t.yaw), math.sin(t.yaw)
+				for _, a in { { c, -s }, { s, c } } do
+					if math.abs(dx * a[1] + dz * a[2]) >= ko * extent(o, a[1], a[2]) + ki * extent(it, a[1], a[2]) then
+						return false
+					end
+				end
+			end
+		end
+		return true
 	end
 	function Hash:conflicts(it)
 		for _, o in self.big do
@@ -445,6 +483,9 @@ return function(E, I)
 		clone:SetAttribute("SS_X", x)
 		clone:SetAttribute("SS_Z", z)
 		clone:SetAttribute("SS_R", item.r)
+		if item.hx and item.yaw then -- its outline, for the next runs that keep it
+			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
+		end
 		clone:SetAttribute("SS_Sp", s.spacing)
 		clone:SetAttribute("SS_Cs", s.clearance)
 		if gid then
@@ -700,6 +741,9 @@ return function(E, I)
 			fit = g.stretch ~= nil,
 			lk = l._h,
 		}
+		if not g.line and not g.stackOn then
+			footprint(item, m, sc)
+		end
 
 		local base = g.stackOn
 		local hit, y
@@ -810,6 +854,13 @@ return function(E, I)
 						y = math.max(h2.Position.Y, y - rr * 1.5)
 					end
 				end
+			end
+		end
+
+		if item.hx then -- now it's turned: its real outline must fit where only its narrow side was tried
+			item.yaw = yaw
+			if not base and not g.post and ctx.hash:conflicts(item) then
+				return nil
 			end
 		end
 

@@ -121,15 +121,66 @@ return function(E, I)
 		return t
 	end
 
-	-- Groves and clearings shared by every object in the area: smooth noise over the ground, so the forest, its
-	-- bushes and its rocks all thin out in the same clearings. a.patches: strength 0-1 (0 = off); a.patchSize: studs.
+	-- Patterns shared by every object in the area: noise over the ground, so the forest, its bushes and its rocks all
+	-- thicken in the same places and thin out in the same places. Each returns 0-1 at (x, z) for a feature size f and
+	-- an offset o (the area's seed, so two areas never look alike).
+	local function n2(x, z, o) -- Roblox's noise, -0.5..0.5 in practice, stretched to 0-1
+		return math.clamp(0.5 + math.noise(x, z, o) * 1.6, 0, 1)
+	end
+	local function smooth(t)
+		return t * t * (3 - 2 * t)
+	end
+	E.PATTERNS = { "Groves", "Natural", "Islands", "Veins", "Spots", "Bands" }
+	E.PATTERN_HINT = {
+		Groves = "Soft, even rolling patches.",
+		Natural = "Patches with smaller patches inside them, like a real forest floor.",
+		Islands = "Clear-cut clusters with open ground between them.",
+		Veins = "Winding lines of growth, like streams or hedgerows.",
+		Spots = "Round clusters spread evenly over the area.",
+		Bands = "Wavy rows across the area, along the wind direction.",
+	}
+	local PATTERN = {
+		Groves = function(x, z, f, o)
+			return n2(x / f, z / f, o)
+		end,
+		Natural = function(x, z, f, o) -- three octaves: big shapes, then detail inside them
+			local v = n2(x / f, z / f, o) * 0.6 + n2(x * 2.1 / f, z * 2.1 / f, o + 17) * 0.28
+			return math.clamp(v + n2(x * 4.3 / f, z * 4.3 / f, o + 31) * 0.12, 0, 1)
+		end,
+		Islands = function(x, z, f, o) -- the same noise, cut sharply at the middle
+			return smooth(math.clamp((n2(x / f, z / f, o) - 0.42) / 0.16, 0, 1))
+		end,
+		Veins = function(x, z, f, o) -- ridges: high only where the noise crosses its middle
+			local r = 1 - math.abs(n2(x / f, z / f, o) - 0.5) * 2
+			return smooth(math.clamp((r - 0.55) / 0.4, 0, 1))
+		end,
+		Spots = function(x, z, f, o) -- distance to the nearest point of a jittered grid (cellular noise)
+			local cx, cz, best = math.floor(x / f), math.floor(z / f), math.huge
+			for dx = -1, 1 do
+				for dz = -1, 1 do
+					local gx, gz = cx + dx, cz + dz
+					local px = (gx + 0.5 + math.noise(gx * 0.37, gz * 0.37, o) * 1.2) * f
+					local pz = (gz + 0.5 + math.noise(gx * 0.37, gz * 0.37, o + 5) * 1.2) * f
+					best = math.min(best, (Vector2.new(x - px, z - pz)).Magnitude)
+				end
+			end
+			return smooth(math.clamp(1 - best / (f * 0.45), 0, 1))
+		end,
+		Bands = function(x, z, f, o, a) -- rows across the wind direction, bent a little by noise
+			local w = math.rad(a.windDir or 0)
+			local along = x * math.cos(w) - z * math.sin(w)
+			local wave = math.sin((along / f + math.noise(x / (f * 2), z / (f * 2), o) * 0.8) * math.pi * 2)
+			return smooth(math.clamp(0.5 + wave * 0.9, 0, 1))
+		end,
+	}
+	-- a.patches: strength 0-1 (0 = off); a.pattern: one of E.PATTERNS; a.patchSize: feature size in studs
 	local function patchAt(a, x, z)
 		local k = a.patches or 0
 		if k <= 0 then
 			return 1
 		end
-		local f = math.max(a.patchSize or 60, 8)
-		local v = math.clamp(0.5 + math.noise(x / f, z / f, (a.seed % 991) * 0.37) * 1.6, 0, 1)
+		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
+		local v = fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
 		return 1 - k + k * v
 	end
 	E.patchAt = patchAt

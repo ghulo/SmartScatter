@@ -1,6 +1,6 @@
 {
- "version": "9.45",
- "build": 107,
+ "version": "9.47",
+ "build": 109,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -24,7 +24,7 @@
   },
   "App/Panel/AreaPage": {
    "path": "modules/App/Panel/AreaPage.lua",
-   "sum": 787198195
+   "sum": 431444368
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
@@ -60,7 +60,7 @@
   },
   "Engine/Areas": {
    "path": "modules/Engine/Areas.lua",
-   "sum": 136185935
+   "sum": 168473297
   },
   "Engine/Assets": {
    "path": "modules/Engine/Assets.lua",
@@ -68,7 +68,7 @@
   },
   "Engine/Generate": {
    "path": "modules/Engine/Generate.lua",
-   "sum": 53447526
+   "sum": 451493447
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
@@ -80,11 +80,11 @@
   },
   "Engine/Placement": {
    "path": "modules/Engine/Placement.lua",
-   "sum": 577801528
+   "sum": 603846972
   },
   "Engine/Planning": {
    "path": "modules/Engine/Planning.lua",
-   "sum": 868204487
+   "sum": 222215329
   },
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",

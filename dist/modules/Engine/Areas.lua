@@ -354,6 +354,7 @@ return function(E, I)
 			size = folder:GetAttribute("SS_Size") or 1, -- "Size of everything": multiplies every object's size range
 			patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
 			patchSize = folder:GetAttribute("SS_PatchSize") or 60,
+			pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
 			windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
 			layers = {},
 		}
@@ -629,6 +630,7 @@ return function(E, I)
 		f:SetAttribute("SS_Size", (a.size and a.size ~= 1) and a.size or nil)
 		f:SetAttribute("SS_Patches", (a.patches or 0) > 0 and a.patches or nil)
 		f:SetAttribute("SS_PatchSize", (a.patchSize and a.patchSize ~= 60) and a.patchSize or nil)
+		f:SetAttribute("SS_Pattern", (a.pattern and a.pattern ~= "Groves") and a.pattern or nil)
 		f:SetAttribute("SS_Wind", (a.windDir or 0) ~= 0 and a.windDir or nil)
 		f:SetAttribute("SS_Mask", encodeMask(a.rows))
 		local sp = a.spline

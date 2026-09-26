@@ -19,7 +19,11 @@ return function(E, I)
 	-- stroke), so every other layer keeps its copies outside it and only the patch is placed again.
 	-- Returns { [layer] = count }, total.
 	local function itemOf(inst)
+		local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
 		return {
+			hx = fp and fp.X,
+			yaw = fp and fp.Y,
+			hz = fp and fp.Z,
 			x = inst:GetAttribute("SS_X") or 0,
 			z = inst:GetAttribute("SS_Z") or 0,
 			r = inst:GetAttribute("SS_R") or 1,
