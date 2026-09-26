@@ -1,61 +1,80 @@
-"""Bundle Loader + Engine + Main into SmartScatter.rbxmx (a local plugin file)."""
-import sys, pathlib, datetime
+"""Build Smart Scatter: python3 build.py <version> <build number>
 
-here = pathlib.Path(__file__).parent
+Writes
+  SmartScatter.rbxmx   the plugin file: the loader Script with the App and Engine module trees inside
+  dist/                the online release every installed copy updates from (push it to where update_url.txt points):
+    release.json + modules/…     the module tree, for loaders from 9.45 on
+    manifest.json + *.lua        the same code flattened into Engine / Main / Main_2…, for older loaders
+The build number must be higher than the last release's, or installed copies won't take it."""
+import json
+import pathlib
+import shutil
+import sys
+import datetime
+
+here = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(here / "tools"))
+import tree as T  # noqa: E402
+
 version = sys.argv[1] if len(sys.argv) > 1 else datetime.datetime.now().strftime("%y.%m%d.%H%M")
 build = sys.argv[2] if len(sys.argv) > 2 else "1"
 
-import subprocess
-# Engine.lua and Main.lua are generated from src/engine/*.lua and src/*.lua: rebuild both so the file is never stale
-for tool in ("bundle_engine.py", "bundle.py"):
-    if subprocess.run([sys.executable, str(here / "tools" / tool)]).returncode != 0:
-        sys.exit("build stopped: " + tool + " failed")
-if subprocess.run([sys.executable, str(here / "tools" / "lint_dupes.py"), str(here / "Engine.lua")]).returncode != 0:
-    sys.exit("build stopped: Engine.lua defines the same name twice")
+t = T.tree()
+T.check(t)
 
-def cdata(src: str) -> str:
+# ── the plugin file ─────────────────────────────────────────────────────────────
+url_file = here / "update_url.txt"
+update_url = T.read(url_file).strip() if url_file.exists() else ""
+loader = T.read(here / "Loader.lua").replace("__VERSION__", version).replace("__BUILD__", build).replace("__UPDATE_URL__", update_url)
+
+
+def cdata(src):
     return "<![CDATA[" + src.replace("]]>", "]]]]><![CDATA[>") + "]]>"
 
-def item(cls, ref, name, src, children=""):
-    return (f'<Item class="{cls}" referent="{ref}"><Properties>'
-            f'<string name="Name">{name}</string>'
-            f'<ProtectedString name="Source">{cdata(src)}</ProtectedString>'
-            f'</Properties>{children}</Item>')
 
-# where releases are published: update_url.txt (one line, no trailing slash), e.g. a GitHub raw URL of the dist folder
-url_file = here / "update_url.txt"
-update_url = url_file.read_text(encoding="utf-8").replace("\r\n", "\n").strip() if url_file.exists() else ""
-loader = ((here / "Loader.lua").read_text(encoding="utf-8").replace("\r\n", "\n").replace("__VERSION__", version).replace("__BUILD__", build)
-          .replace("__UPDATE_URL__", update_url))
-engine = (here / "Engine.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
-main = (here / "Main.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
-parts = sorted([p for p in here.glob("Main_[0-9]*.lua") if p.stem[5:].isdigit()], key=lambda p: int(p.stem.split("_")[1]))
+refs = iter(range(1, 100000))
 
-xml = ('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
-       'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+
+def item(cls, name, src=None, children=""):
+    props = '<string name="Name">%s</string>' % name
+    if src is not None:
+        props += '<ProtectedString name="Source">%s</ProtectedString>' % cdata(src)
+    return '<Item class="%s" referent="RBX%d"><Properties>%s</Properties>%s</Item>' % (cls, next(refs), props, children)
+
+
+def node(path):
+    """a path of the tree as an Item: a ModuleScript if it has a source, else a Folder; children below it"""
+    kids = sorted({p[len(path) + 1:].split("/")[0] for p in t if p.startswith(path + "/")})
+    inner = "".join(node(path + "/" + k) for k in kids)
+    name = path.split("/")[-1]
+    return item("ModuleScript", name, t[path], inner) if path in t else item("Folder", name, None, inner)
+
+
+xml = ('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
        'xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">'
-       + item("Script", "RBX0", "SmartScatter", loader,
-              item("ModuleScript", "RBX1", "Engine", engine) + item("ModuleScript", "RBX2", "Main", main)
-              + "".join(item("ModuleScript", "RBX%d" % (3 + k), p.stem, p.read_text(encoding="utf-8").replace("\r\n", "\n")) for k, p in enumerate(parts)))
-       + '</roblox>')
-out = here / "SmartScatter.rbxmx"
-out.write_bytes((xml).encode("utf-8"))
-print(out, len(xml), "bytes, version", version)
+       + item("Script", "SmartScatter", loader, "".join(node(e) for e in T.ENTRIES)) + "</roblox>")
+(here / "SmartScatter.rbxmx").write_bytes(xml.encode("utf-8"))
+print("SmartScatter.rbxmx", len(xml), "bytes, version", version, "build", build, "-", len(t), "modules")
 
-# the release: what installed copies download (upload the dist folder to where update_url.txt points)
-import json
-def checksum(text):
-    h = 0
-    for c in text.encode():
-        h = (h * 31 + c) % 1000000007
-    return h
+# ── the release ─────────────────────────────────────────────────────────────────
 dist = here / "dist"
-dist.mkdir(exist_ok=True)
-for old in dist.glob("*.lua"):
-    old.unlink()
+if dist.exists():
+    shutil.rmtree(dist)
+(dist / "modules").mkdir(parents=True)
+modules = {}
+for path, src in t.items():
+    f = dist / "modules" / (path + ".lua")
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(src.encode("utf-8"))
+    modules[path] = {"path": "modules/" + path + ".lua", "sum": T.checksum(src)}
+(dist / "release.json").write_bytes(json.dumps({"version": version, "build": int(build), "modules": modules}, indent=1).encode("utf-8"))
+
+legacy = {"Engine": T.flatten(t, "Engine")[0]}
+for k, s in enumerate(T.flatten(t, "App", "Main_%d"), start=1):
+    legacy["Main" if k == 1 else "Main_%d" % k] = s
 files = {}
-for name, src in [("Engine", engine), ("Main", main)] + [(p.stem, p.read_text(encoding="utf-8").replace("\r\n", "\n")) for p in parts]:
-    (dist / (name + ".lua")).write_bytes((src).encode("utf-8"))
-    files[name] = {"path": name + ".lua", "sum": checksum(src)}
-(dist / "manifest.json").write_bytes((json.dumps({"version": version, "build": int(build), "files": files}, indent=1)).encode("utf-8"))
-print("release in", dist, "build", build, "->", update_url or "(no update_url.txt: online updates off)")
+for name, src in legacy.items():
+    (dist / (name + ".lua")).write_bytes(src.encode("utf-8"))
+    files[name] = {"path": name + ".lua", "sum": T.checksum(src)}
+(dist / "manifest.json").write_bytes(json.dumps({"version": version, "build": int(build), "files": files}, indent=1).encode("utf-8"))
+print("release in dist/:", len(modules), "modules +", len(legacy), "flattened scripts ->", update_url or "(no update_url.txt: online updates off)")

@@ -5,7 +5,20 @@
 	Returns one line per check: PASS/FAIL, the numbers, and a final summary.
 ]]
 local SRC = game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")
-local E = loadstring(SRC.Engine.Source)()
+-- a fresh engine: a module tree is required from a copy (require caches by instance; the live copy isn't
+-- archivable, so it's copied by hand), a flattened one (older loaders) is compiled from its source
+local function fresh(m)
+	local c = Instance.new(m.ClassName)
+	c.Name = m.Name
+	if m:IsA("ModuleScript") then
+		c.Source = m.Source
+	end
+	for _, k in m:GetChildren() do
+		fresh(k).Parent = c
+	end
+	return c
+end
+local E = #SRC.Engine:GetChildren() > 0 and require(fresh(SRC.Engine)) or loadstring(SRC.Engine.Source)()
 local O = Vector3.new(6000, 0, 6000) -- the test world's origin, far away from anything real
 local results, fails = {}, 0
 local function check(name, ok, detail)
@@ -130,10 +143,19 @@ local function placed(folder)
 	end
 	return t
 end
+local made = {} -- every area a test made (removed at the end)
 local function newArea(name, layers)
 	local a = E.createArea(name, {})
 	a.layers = layers
+	a.seed = 4242 -- the same layout every run, so a result never depends on luck
 	return a
+end
+-- clears what the earlier tests placed: other areas' copies count for spacing, so a test that needs open ground
+-- starts from it
+local function isolate()
+	for _, other in made do
+		E.clearOutputs(other)
+	end
 end
 local function paintRect(a, x0, z0, x1, z1)
 	E.fillPolygon(a, { { O.X + x0, O.Z + z0 }, { O.X + x1, O.Z + z0 }, { O.X + x1, O.Z + z1 }, { O.X + x0, O.Z + z1 } }, true)
@@ -146,7 +168,6 @@ local function splineAlong(xs, zf)
 	end
 	return pts
 end
-local made = {}
 local function run(a)
 	table.insert(made, a)
 	local t0 = os.clock()
@@ -289,8 +310,9 @@ local ok, err = pcall(function()
 		)
 	end
 
-	-- 3. trees along both sides of a winding path over the hill
+	-- 3. trees along both sides of a winding path over the hill (the first test's forest covers this ground)
 	do
+		isolate()
 		local l = E.makeLayer(tree, "Tree")
 		l.s.place, l.s.follow, l.s.side, l.s.offset, l.s.interval, l.s.jitter = "Along", "Spline", "Both", 12, 10, 0
 		local a = newArea("SS_Test_Along", { l })
@@ -787,6 +809,7 @@ local ok, err = pcall(function()
 	-- 12. piles: a pointed model (a pine) set to Prop, with groups and stacking on, must never be stacked on another's
 	-- tip (they floated); a flat-topped crate may still stack
 	do
+		isolate()
 		local pine = model("TestPine", {
 			{ Name = "Trunk", Size = Vector3.new(1, 3, 1), CFrame = CFrame.new(0, 1.5, 0) },
 			{ Name = "Low", Size = Vector3.new(7, 3, 7), CFrame = CFrame.new(0, 4.5, 0) },
@@ -798,9 +821,9 @@ local ok, err = pcall(function()
 		table.insert(templates, crate)
 		local lp, lc = E.makeLayer(pine, "Tree"), E.makeLayer(crate, "Prop")
 		E.setType(lp, "Prop")
-		lp.s.stack, lc.s.stack, lp.s.density, lc.s.density = 0.6, 0.6, 3, 3
+		lp.s.stack, lc.s.stack, lp.s.density, lc.s.density = 0.6, 0.6, 8, 8 -- enough copies to make piles
 		local a = newArea("SS_Test_Piles", { lp, lc })
-		paintRect(a, -40, -60, -5, -20)
+		paintRect(a, -70, -80, -5, -20)
 		run(a)
 		local function bottom(m)
 			local low = math.huge
@@ -960,8 +983,12 @@ local ok, err = pcall(function()
 			{ Name = "Body", Size = Vector3.new(3, 3, 3), CFrame = CFrame.new(0, 1.5, 0), Color = Color3.fromRGB(90, 150, 80) },
 			{ Name = "Apple", Size = Vector3.new(0.6, 0.6, 0.6), CFrame = CFrame.new(1, 3, 0), Color = Color3.fromRGB(200, 40, 40) },
 		})
+		local skin = Instance.new("MeshPart") -- SurfaceAppearance only goes on a MeshPart
+		skin.Name, skin.Size, skin.Anchored = "Skin", Vector3.new(2, 2, 2), true
+		skin.CFrame = m.Body.CFrame
+		skin.Parent = m
 		local sa = Instance.new("SurfaceAppearance")
-		sa.Parent = m.Body
+		sa.Parent = skin
 		local decal = Instance.new("Decal")
 		decal.Parent = m.Body
 		table.insert(templates, m)
@@ -976,7 +1003,10 @@ local ok, err = pcall(function()
 			local body = c:FindFirstChild("Body")
 			if body then
 				colours[body.Color:ToHex()] = true
-				local s2 = body:FindFirstChildOfClass("SurfaceAppearance")
+			end
+			local skinned = c:FindFirstChild("Skin")
+			if skinned then
+				local s2 = skinned:FindFirstChildOfClass("SurfaceAppearance")
 				if s2 then
 					local ok, col = pcall(function()
 						return s2.Color:ToHex()
@@ -1072,28 +1102,16 @@ end
 
 -- ── clean up everything ──────────────────────────────────────────────────────
 for _, a in made do
-	if a.folder then
+	if a.folder and a.folder.Parent then
+		E.clearOutputs(a) -- its copies, and its road surface outside the area
 		a.folder:Destroy()
 	end
 end
-for _, n in
-	{
-		"SS_Test_Scatter",
-		"SS_Test_Fence",
-		"SS_Test_Along",
-		"SS_Test_Road",
-		"SS_Test_Lost",
-		"SS_Test_Edit",
-		"SS_Test_Axis",
-		"SS_Test_Lamps",
-		"SS_Test_Piles",
-		"SS_Test_Patch",
-	}
-do
-	local f = E.getOut():FindFirstChild(n)
-	while f do
+-- anything a test area left behind, even from a run that stopped halfway (its roads go with it)
+for _, f in E.getOut():GetChildren() do
+	if string.sub(f.Name, 1, 8) == "SS_Test_" then
+		E.clearOutputs(E.loadArea(f))
 		f:Destroy()
-		f = E.getOut():FindFirstChild(n)
 	end
 end
 workspace.Terrain:FillBlock(CFrame.new(O + Vector3.new(140, -60, 0)), Vector3.new(300, 290, 260), Enum.Material.Air)

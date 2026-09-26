@@ -19,34 +19,62 @@ round bends, and everything updates live as you tweak it.
 Get it from the Creator Store, or download `SmartScatter.rbxmx` from the latest release and put it in your
 Studio plugins folder (Plugins → Plugins Folder).
 
-The plugin updates itself: when Studio starts (and every half hour) it checks this repository's `dist` folder and,
+The plugin updates itself: when Studio starts (and every five minutes) it checks this repository's `dist` folder and,
 if there's a newer build, downloads it. Studio asks once for permission to reach `raw.githubusercontent.com`;
 allow it to receive updates. Nothing else is sent anywhere.
 
 ## Development
 
-The plugin is generated from the sources in `src/`:
+### Layout
 
-| Path | What it is |
-|---|---|
-| `Loader.lua` | the installed script: picks the newest code (bundled, saved update, or online release) and runs it |
-| `src/engine/NN_*.lua` | the placement engine, concatenated in order into `Engine.lua` |
-| `src/*.lua` | the panel, one module each (`return function(App) … end`), bundled into `Main.lua` (+ `Main_2.lua`) |
-| `tests/suite.lua` | the regression suite: paste into Studio's command bar with the plugin running |
-| `tools/` | bundlers, checks and the live-push tool used during development |
+```
+Loader.lua                the installed Script: picks the newest code (bundled, saved update, online release,
+                          or the live copy in the open place) and runs it
+src/
+  Engine/                 placement, no UI            each module: return function(E, I) … end
+    init.lua                entry: constants + ORDER
+    Scan · Assets · Areas · Paths · Planning · Placement · Lines · Generate
+  App/                    the plugin's panel and tools  each module: return function(App) … end
+    init.lua                entry: ORDER + runner
+    Core/                   State · Kit (UI kit) · Generation (jobs, areas) · Lifecycle (undo, cleanup; runs last)
+    Viewport/               Overlay · Paint · Spline
+    Panel/                  Header · AreaPage · ObjectsPage · Settings · Tour
+tests/suite.lua           regression suite: builds its own world far away, checks every placement path, cleans up
+tools/                    tree.py (the module tree + flattening), check.sh, push.py / push_patch.py (dev pushes),
+                          loader_test.py, lint_dupes.py
+```
+
+In Studio the plugin is the same tree: the Loader Script with the `App` and `Engine` ModuleScripts (folders inside).
+
+### How the pieces talk
+
+- **Engine**: modules run once, in `ORDER`. `E` is the API the plugin and the suite call; `I` holds what engine
+  modules share with each other (helpers, tables), exported at the end of the module that defines them
+  (`I.name = name`) and imported at the top of the ones that use them (`local name = I.name`). Nothing outside the
+  engine touches `I`.
+- **App**: modules run once, in `ORDER`, against one shared `App` table: a module reads what earlier ones put there
+  and adds its own. The module that returns a function hands back the cleanup.
+
+### Adding things
+
+- A new engine feature: put it in the module it belongs to; if a later module needs a helper, export it on `I`.
+- A new module: create the file in its folder and add its path to that entry's `ORDER`, after what it uses.
+  `tools/check.sh` fails if a file isn't listed, a listed file is missing, an import is unused or a global is unknown.
 
 Requirements: Python 3; for `tools/check.sh` also `stylua`, `luau-compile` and `luau-analyze` (set `SS_TOOLS` to the
 folder holding them).
 
 ```sh
-./tools/check.sh                 # format, compile and lint checks
-python3 build.py 9.29 89         # version, build number -> SmartScatter.rbxmx and dist/
+./tools/check.sh                 # format, module tree, compile and lint checks
+python3 build.py 9.45 107        # version, build number -> SmartScatter.rbxmx and dist/
 ```
 
 ### Releasing an update
 
 1. Bump the version and **build number** (the build must be higher than the last release) and run `build.py`.
-2. Commit and push `dist/` — every installed copy picks it up on its next check.
+2. Commit and push `dist/` — every installed copy picks it up on its next check. `dist/release.json` + `dist/modules/`
+   is the module tree (loaders from 9.45 on); `dist/manifest.json` + `Engine.lua` / `Main.lua` / `Main_2.lua` is the
+   same code flattened, for loaders installed before that.
 3. Attach `SmartScatter.rbxmx` to a GitHub release, and update the Creator Store copy now and then so new installs
    start recent.
 

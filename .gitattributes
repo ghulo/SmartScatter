@@ -1,0 +1,3 @@
+# the release files are checked byte for byte by installed copies: never convert their line endings
+dist/** -text
+*.lua text eol=lf

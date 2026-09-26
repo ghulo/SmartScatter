@@ -1,0 +1,496 @@
+--[[
+	Smart Scatter — Generation: generation (cached scan, live throttle), areas and model thumbnails.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local beginRec, endRec, Engine, G, num, P, new = App.beginRec, App.endRec, App.Engine, App.G, App.num, App.P, App.new
+	local corner, stroke, templates, rebuildOverlay = App.corner, App.stroke, App.templates, App.rebuildOverlay
+	local recolorOverlay = App.recolorOverlay
+
+	--------------------------------------------------------------------------------
+	-- Generation (cached scan, cooperative jobs)
+	--------------------------------------------------------------------------------
+
+	-- Has the world under the area changed since the last scan? A fingerprint of the parts in the scanned region
+	-- (where they are, how big, what they're made of) and a grid of terrain heights, plus Studio's own history: any
+	-- edit that isn't ours. Generate re-scans only when something changed; Rescan always does.
+	local CHS = App.ChangeHistoryService
+	local lastPrint, worldEdited = nil, true
+	local function edited()
+		worldEdited = true
+	end
+	App.track(CHS.OnUndo:Connect(edited))
+	App.track(CHS.OnRedo:Connect(edited))
+	pcall(function()
+		App.track(CHS.OnRecordingFinished:Connect(function(name)
+			if not (type(name) == "string" and string.find(name, "Smart Scatter", 1, true)) then
+				worldEdited = true
+			end
+		end))
+	end)
+	local function worldPrint()
+		local an = App.lastAnalysis
+		if not an then
+			return nil
+		end
+		local w, d = an.nx * an.G, an.nz * an.G
+		local centre = Vector3.new(an.x0 + w / 2, an.top - an.len / 2, an.z0 + d / 2)
+		local op = OverlapParams.new()
+		op.FilterType = Enum.RaycastFilterType.Exclude
+		local skip = { workspace.CurrentCamera, workspace.Terrain }
+		for _, name in { Engine.OUT, Engine.ROADS } do
+			local f = workspace:FindFirstChild(name)
+			if f then
+				table.insert(skip, f)
+			end
+		end
+		for _, t in templates() do
+			table.insert(skip, t)
+		end
+		op.FilterDescendantsInstances = skip
+		local sum, count = 0, 0
+		for _, p in workspace:GetPartBoundsInBox(CFrame.new(centre), Vector3.new(w, an.len, d), op) do
+			local pos, sz = p.Position, p.Size
+			sum += pos.X * 1.31 + pos.Y * 2.17 + pos.Z * 3.73 + sz.X * 5.39 + sz.Y * 7.13 + sz.Z * 11.97 + p.Material.Value * 0.013 + (p.CanCollide and 0.7 or 0) + p.Orientation.Y * 0.0071
+			count += 1
+		end
+		-- terrain: heights on a 16 x 16 grid over the region
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Include
+		rp.FilterDescendantsInstances = { workspace.Terrain }
+		local down = Vector3.new(0, -an.len, 0)
+		for i = 0, 15 do
+			for j = 0, 15 do
+				local hit = workspace:Raycast(Vector3.new(an.x0 + (i + 0.5) * w / 16, an.top, an.z0 + (j + 0.5) * d / 16), down, rp)
+				if hit then
+					sum += hit.Position.Y * (i * 16 + j + 1) * 0.001 + hit.Material.Value * 0.0003
+				end
+			end
+		end
+		return string.format("%d:%.3f", count, sum)
+	end
+	-- true when the next Generate has to read the ground again
+	App.worldChanged = function()
+		if worldEdited or not App.lastAnalysis or not lastPrint then
+			return true
+		end
+		return worldPrint() ~= lastPrint
+	end
+
+	local function saveArea()
+		if App.area then
+			Engine.saveArea(App.area)
+		end
+	end
+
+	local function canGenerate()
+		if not App.area then
+			return false, "Paint an area to get started."
+		end
+		if App.area.locked then
+			return false, "Area locked · unlock it in the area menu"
+		end
+		if App.area.count == 0 and not (App.area.spline and #App.area.spline.pts >= 2) then
+			return false, "Paint an area or draw a spline first."
+		end
+		local sp = App.area.spline
+		local road = sp and Engine.roadWidth(sp) > 0 and #sp.pts >= 2
+		if #App.area.layers == 0 and not road then
+			return false, "Add a layer to fill the area."
+		end
+		return true
+	end
+
+	-- a short, readable reason from an error ("Engine:890: attempt to index nil" -> "attempt to index nil (engine line 890)")
+	local function explainError(err)
+		local msg = tostring(err)
+		local where, line, rest = string.match(msg, "([%w_]+):(%d+): (.*)$")
+		if rest then
+			local part = string.find(where, "Engine", 1, true) and "engine" or "plugin"
+			msg = rest .. " (" .. part .. " line " .. line .. ")"
+		end
+		msg = string.gsub(msg, "%s+", " ")
+		if #msg > 90 then
+			msg = string.sub(msg, 1, 87) .. "..."
+		end
+		return msg .. "."
+	end
+
+	-- Generation runs as a job, time-sliced so Studio stays responsive, with its
+	-- progress on the Generate button. One job at a time: a newer request cancels a running live preview, and a
+	-- cancelled job changes nothing (the engine builds off-screen and swaps the result in at the end).
+	local ALL = {} -- `from` meaning "rebuild every layer"
+	local function mergeFrom(a, b)
+		b = b or ALL
+		if a == nil or a == b then
+			return b
+		end
+		return ALL
+	end
+	-- a job under ~80 ms finishes in the frame it started (feels instant); a longer one works 30 ms per frame,
+	-- so Studio still redraws and the Generate button can stop it
+	local FIRST_SLICE, SLICE = 0.08, 0.03
+	local HEAVY_PARTS = 25000 -- more than this is a slowdown on most machines: Live update stops and asks
+	local heavyAsked = setmetatable({}, { __mode = "k" }) -- [area folder] = true once the pop-up was shown
+	local job -- the running job: { live = bool, from = layer?, cancel = bool }
+	local liveFrom, liveLoop = nil, false
+
+	-- region: the patch a stroke changed (live only). A run that gets cancelled leaves its patch (or, for a full run,
+	-- everything: lostPatch = true) out of date, so the next run covers it too; a completed run clears it.
+	local lostPatch
+	local function joinBoxes(a, b)
+		if not (a and b) then
+			return a or b
+		end
+		return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
+	end
+	local function runGenerate(recorded, from, region)
+		if not canGenerate() then -- the Generate button shows why
+			return
+		end
+		local me = { live = not recorded, from = from }
+		while job do -- wait for the running job; a newer request of any kind retires a live preview
+			if job.live and job ~= me then
+				job.cancel = true
+			end
+			task.wait()
+		end
+		if not canGenerate() then -- the area was deleted, emptied or locked while this waited
+			return
+		end
+		job = me
+		-- (after the wait: the run just retired may have left something out of date) every layer there, or all
+		if lostPatch then
+			from = nil
+			region = lostPatch ~= true and region and joinBoxes(region, lostPatch) or nil
+		end
+		me.from, me.region = from, not recorded and region or nil
+		App.heavyWarning = nil
+		local area = App.area
+		local t0, slice = os.clock(), os.clock()
+		local budget = FIRST_SLICE
+		local phase = "Scanning"
+		local function tick(progress)
+			if me.cancel or App.area ~= area then
+				return false
+			end
+			if os.clock() - slice > budget then
+				budget = SLICE
+				if App.showProgress then
+					App.showProgress(phase, progress)
+				end
+				task.wait()
+				slice = os.clock()
+				if me.cancel or App.area ~= area then
+					return false
+				end
+			end
+			return true
+		end
+		local trace
+		local success, err = xpcall(function()
+			if App.analysisDirty or not App.lastAnalysis then
+				local an, aborted = Engine.analyze(area, templates(), tick)
+				if aborted then
+					return
+				end
+				App.lastAnalysis = an
+				App.analysisDirty = false
+				lastPrint, worldEdited = worldPrint(), false
+				from = nil
+				App.refreshScan()
+				recolorOverlay()
+			end
+			if from and not table.find(area.layers, from) then
+				from = nil
+			end
+			-- a live preview that would place enough to stall Studio waits for a real Generate instead
+			if me.live then
+				local copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+				if parts > HEAVY_PARTS then
+					App.heavyWarning = { copies = copies, parts = parts, area = area }
+					return
+				end
+			end
+			App.heavyWarning = nil
+			phase = "Placing"
+			local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
+				from = from,
+				region = me.region,
+				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = G.ghost },
+				tick = tick,
+			})
+			if counts then
+				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
+				me.done = true
+				lostPatch = nil
+			end
+		end, function(e)
+			trace = debug.traceback(tostring(e), 2)
+			return e
+		end)
+		job = nil
+		if not me.done and App.area == area then
+			lostPatch = (me.region and lostPatch ~= true) and joinBoxes(lostPatch, me.region) or true
+		end
+		if App.showProgress then
+			App.showProgress(nil)
+		end
+		if success and not me.done then -- cancelled, or paused as too heavy: nothing changed
+			local w = App.heavyWarning
+			if w then
+				App.status(string.format("Live update paused: about %s objects (%s parts) is too heavy.", num(w.copies), num(w.parts)), "error")
+				if not heavyAsked[w.area.folder] then -- asked once per area; after that the status line says it
+					heavyAsked[w.area.folder] = true
+					App.dialog(
+						"This would slow Studio down",
+						string.format(
+							"The area would get about %s objects (%s parts). Live update paused so Studio stays smooth.\n\n"
+								.. "Place it anyway, or lower the amount or Size of everything first.",
+							num(w.copies),
+							num(w.parts)
+						),
+						{
+							{
+								"Place anyway",
+								"accent",
+								function()
+									runGenerate(true)
+								end,
+							},
+							{ "Keep it off", nil, function() end },
+						}
+					)
+				end
+			end
+			return
+		end
+		local seconds = os.clock() - t0
+		App.failure = not success and explainError(err) or nil
+		if area and area.folder and area.folder.Parent then
+			-- the objects on screen are from the last run that worked; remember that across sessions too
+			if area.folder:GetAttribute("SS_Failed") ~= App.failure then
+				area.folder:SetAttribute("SS_Failed", App.failure)
+			end
+		end
+		if success then
+			local ms = seconds * 1000
+			local note, heavy = App.perfNote()
+			App.status(
+				string.format(
+					"%s objects · %s parts · %s%s",
+					num(App.lastTotal),
+					num(App.lastParts),
+					ms < 1000 and string.format("%d ms", math.floor(ms + 0.5)) or string.format("%.1f s", ms / 1000),
+					note ~= "" and ("  " .. note) or ""
+				),
+				heavy and "error" or nil
+			)
+		else
+			warn("[Smart Scatter] Generate failed. Please send this to the plugin author:\n" .. tostring(trace or err))
+			App.status("Generate failed: " .. App.failure .. " What you see is the last result that worked.", "error")
+		end
+		App.refreshCounts()
+		if success and recorded and App.flashDone then
+			App.flashDone(string.format("Done  ·  %s placed", num(App.lastTotal)))
+		end
+	end
+
+	-- stop whatever is generating (the Generate button while busy, switching areas)
+	local function cancelJob()
+		if job then
+			job.cancel = true
+		end
+	end
+	local function busy()
+		return job ~= nil
+	end
+
+	-- live preview: the newest settings win; a stale preview is dropped, not finished
+	local function requestLive(from)
+		if not G.live or not canGenerate() then
+			return
+		end
+		liveFrom = mergeFrom(liveFrom, from)
+		if job and job.live then
+			liveFrom = mergeFrom(liveFrom, job.from)
+			job.cancel = true
+		end
+		if liveLoop then
+			return
+		end
+		liveLoop = true
+		task.spawn(function()
+			while liveFrom ~= nil do
+				local f = liveFrom
+				liveFrom = nil
+				runGenerate(false, f ~= ALL and f or nil)
+			end
+			liveLoop = false
+		end)
+	end
+
+	-- a finished edit: saved as one undo step (the objects aren't part of it: undo rebuilds them from the saved
+	-- settings), then one run that also covers any preview still pending
+	local function commit(from)
+		local rec = beginRec("Smart Scatter: Change settings")
+		saveArea()
+		endRec(rec)
+		if not G.live then
+			return
+		end
+		local f = mergeFrom(liveFrom, from)
+		if job and job.live then
+			f = mergeFrom(f, job.from)
+		end
+		liveFrom = nil
+		task.spawn(function()
+			runGenerate(true, f ~= ALL and f or nil)
+		end)
+	end
+
+	--------------------------------------------------------------------------------
+	-- Areas
+	--------------------------------------------------------------------------------
+	local function switchArea(folder)
+		cancelJob()
+		App.area = folder and Engine.loadArea(folder) or nil
+		App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil -- its last Generate failed
+		App.expanded = nil
+		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
+		App.paintLayer = nil
+		if App.area then -- what's already placed, counted per layer from its output folder
+			for _, f in App.area.folder:GetChildren() do
+				local key = f:GetAttribute("SS_Key")
+				for _, l in App.area.layers do
+					if key == Engine.layerKey(l) or (not key and f.Name == l.inst.Name) then
+						local n = 0
+						for _, d in f:GetDescendants() do
+							if d:GetAttribute("SS_Type") then
+								n += 1
+							end
+							if d:IsA("BasePart") then
+								App.lastParts += 1
+							end
+						end
+						App.lastCounts[l] = n
+						App.lastTotal += n
+						break
+					end
+				end
+			end
+		end
+		if App.setMode and App.mode ~= "Off" and (not App.area or App.area.locked) then
+			App.setMode("Off") -- nothing to paint on, or not allowed to
+		end
+		rebuildOverlay(true)
+		if App.drawSpline then
+			App.drawSpline()
+		end
+		if App.rebuildAll then
+			App.rebuildAll()
+		end
+		if App.refreshCounts then
+			App.refreshCounts()
+		end
+	end
+
+	-- opts.keepMode: the caller is already switching modes (painting started with no area yet)
+	-- opts.kind: "Scatter" (default) or "Clear" (a keep-clear zone)
+	local function newArea(opts)
+		local clear = opts and opts.kind == "Clear"
+		local n = #Engine.listAreas() + 1
+		while Engine.getOut():FindFirstChild("Area " .. n) do
+			n += 1
+		end
+		local rec = beginRec(clear and "Smart Scatter: New Keep-clear Zone" or "Smart Scatter: New Area")
+		local a = Engine.createArea((clear and "Keep clear " or "Area ") .. n, nil)
+		a.folder:SetAttribute("SS_Kind", clear and "Clear" or "Scatter")
+		endRec(rec)
+		G.page = "Main"
+		switchArea(a.folder)
+		if not (opts and opts.keepMode) then
+			App.setMode("Paint")
+		end
+		App.status(clear and "Paint where nothing should go." or "Paint the ground where things should go.")
+	end
+
+	local function deleteArea()
+		if not App.area then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Delete Area")
+		local surface = Engine.roadOf(App.area)
+		if surface then
+			surface.Parent = nil -- its road goes with it
+		end
+		App.area.folder.Parent = nil
+		endRec(rec)
+		switchArea(Engine.listAreas()[1])
+		App.status("Area deleted. Ctrl+Z brings it back.")
+	end
+
+	--------------------------------------------------------------------------------
+	-- Thumbnails
+	--------------------------------------------------------------------------------
+	local thumbCache = {} -- [inst] = { [px] = ViewportFrame }
+	local function eachThumb(fn)
+		for _, bySize in thumbCache do
+			for _, vp in bySize do
+				fn(vp)
+			end
+		end
+	end
+	local function thumbnail(inst, px)
+		px = px or 36
+		thumbCache[inst] = thumbCache[inst] or {}
+		local vp = thumbCache[inst][px]
+		if vp then
+			return vp
+		end
+		vp = new("ViewportFrame", {
+			Size = UDim2.fromOffset(px, px),
+			BackgroundColor3 = P.raised,
+			Ambient = Color3.fromRGB(170, 168, 160),
+			LightColor = Color3.new(1, 1, 1),
+			LightDirection = Vector3.new(-1, -2, -0.6),
+		}, { corner(8), stroke(P.line) })
+		pcall(function()
+			local c = Engine.copyOf(inst)
+			if c:IsA("BasePart") then
+				local m = Instance.new("Model")
+				c.Parent = m
+				c = m
+			end
+			for _, d in c:GetDescendants() do
+				if d:IsA("LuaSourceContainer") then
+					d:Destroy()
+				end
+			end
+			c.Parent = vp
+			local cf, size = c:GetBoundingBox()
+			local cam = new("Camera", { FieldOfView = 35, Parent = vp })
+			vp.CurrentCamera = cam
+			local dist = (size.Magnitude / 2) / math.tan(math.rad(17.5)) * 1.02
+			cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(1, 0.6, 1).Unit * dist, cf.Position)
+		end)
+		thumbCache[inst][px] = vp
+		return vp
+	end
+
+	-- used by later modules
+	App.saveArea = saveArea
+	App.canGenerate = canGenerate
+	App.runGenerate = runGenerate
+	App.cancelJob = cancelJob
+	App.busy = busy
+	App.requestLive = requestLive
+	App.commit = commit
+	App.switchArea = switchArea
+	App.newArea = newArea
+	App.deleteArea = deleteArea
+	App.thumbCache = thumbCache
+	App.eachThumb = eachThumb
+	App.thumbnail = thumbnail
+end
