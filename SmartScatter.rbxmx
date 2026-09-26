@@ -18,8 +18,8 @@ if not RunService:IsEdit() then return end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 99
-local BUNDLED_VERSION = "9.39"
+local BUNDLED_BUILD = 101
+local BUNDLED_VERSION = "9.41"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1635,7 +1635,12 @@ function E.loadArea(folder)
 			for _, q in list do
 				if type(q) == "table" and #q >= 6 then
 					local n = Vector3.new(q[4], q[5], q[6])
-					local pt = { p = Vector3.new(q[1], q[2], q[3]), n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, sharp = q[7] == 1 or nil }
+					local pt = {
+						p = Vector3.new(q[1], q[2], q[3]),
+						n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis,
+						sharp = (q[7] or 0) % 2 == 1 or nil,
+						raised = (q[7] or 0) >= 2 or nil,
+					}
 					if tonumber(q[8]) and q[8] ~= 1 then
 						pt.w = q[8]
 					end
@@ -1877,7 +1882,7 @@ function E.saveArea(a)
 					math.floor(q.n.X * 1000 + 0.5) / 1000,
 					math.floor(q.n.Y * 1000 + 0.5) / 1000,
 					math.floor(q.n.Z * 1000 + 0.5) / 1000,
-					q.sharp and 1 or 0,
+					(q.sharp and 1 or 0) + (q.raised and 2 or 0), -- flags: 1 sharp, 2 raised
 					math.floor((q.w or 1) * 100 + 0.5) / 100,
 					math.floor((q.s or 1) * 100 + 0.5) / 100,
 				})
@@ -2303,7 +2308,7 @@ function E.indexAt(an, x, z)
 end
 --------------------------------------------------------------------------------
 -- Splines: a smooth 3D curve through clicked points (centripetal Catmull-Rom: no loops or overshoot).
--- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
+-- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, raised = bool? (Shift-lifted: kept off the ground), w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
 --   walls = bool (clicks may land on walls),
 --   branches = { { pts = { ... } }, ... } }  -- extra open curves that sprout from a point of the network
 --------------------------------------------------------------------------------
@@ -2346,16 +2351,19 @@ local function bezier(a, c1, c2, b, t)
 end
 
 -- dense polyline of the curve: P (positions), U (interpolated up/normal), S (control segment of each sample),
--- W and Z (per-point width and scale multipliers, eased between points)
+-- W and Z (per-point width and scale multipliers, eased between points), R (how raised, 0-1, eased between points)
 function E.splineCurve(sp, step)
 	local pts = sp.pts
 	local n = #pts
-	local P, U, S, W, Z = {}, {}, {}, {}, {}
+	local P, U, S, W, Z, R = {}, {}, {}, {}, {}, {}
 	if n == 0 then
-		return P, U, S, W, Z
+		return P, U, S, W, Z, R
+	end
+	local function raised(q)
+		return q.raised and 1 or 0
 	end
 	if n == 1 then
-		return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }
+		return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }, { raised(pts[1]) }
 	end
 	local closed = sp.closed and n >= 3
 	local function cp(i)
@@ -2381,7 +2389,7 @@ function E.splineCurve(sp, step)
 			c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
 			c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
 		end
-		local wa, wb, za, zb = a.w or 1, b.w or 1, a.s or 1, b.s or 1
+		local wa, wb, za, zb, ra, rb = a.w or 1, b.w or 1, a.s or 1, b.s or 1, raised(a), raised(b)
 		for k = 0, steps - 1 do
 			local t = k / steps
 			if c1 then
@@ -2396,6 +2404,7 @@ function E.splineCurve(sp, step)
 			local e = t * t * (3 - 2 * t)
 			table.insert(W, wa + (wb - wa) * e)
 			table.insert(Z, za + (zb - za) * e)
+			table.insert(R, ra + (rb - ra) * e)
 		end
 	end
 	local last = closed and pts[1] or pts[n]
@@ -2404,7 +2413,8 @@ function E.splineCurve(sp, step)
 	table.insert(S, segs)
 	table.insert(W, last.w or 1)
 	table.insert(Z, last.s or 1)
-	return P, U, S, W, Z
+	table.insert(R, raised(last))
+	return P, U, S, W, Z, R
 end
 
 -- true when p is inside solid terrain or inside a solid part (a ray started there can't see the surface around it)
@@ -2451,12 +2461,16 @@ local function project(pos, up, rp)
 end
 -- curve samples for placement: optionally snapped onto the surface under each sample (ground, walls, ceilings)
 function E.splineSamples(sp, rp)
-	local P, U, _, W, Z = E.splineCurve(sp, 0.75)
+	local P, U, _, W, Z, R = E.splineCurve(sp, 0.75)
 	if sp.snap then
 		-- straight down onto the ground (along the slope's normal would slide the curve sideways on a hillside);
-		-- a spline allowed on walls snaps along its own normals instead
+		-- a spline allowed on walls snaps along its own normals instead. Between Shift-raised points the curve
+		-- keeps its own height (a bridge), easing back onto the ground toward points that aren't raised.
 		for k = 1, #P do
-			P[k], U[k] = project(P[k], sp.walls and U[k] or Vector3.yAxis, rp)
+			local up = sp.walls and U[k] or Vector3.yAxis
+			local g, gn = project(P[k], up, rp)
+			local lift = math.max((P[k] - g):Dot(up), 0) * R[k]
+			P[k], U[k] = g + up * lift, lift > 0.05 and gn:Lerp(up, R[k]).Unit or gn
 		end
 	end
 	return { P = P, U = U, W = W, Z = Z, snap = sp.snap, rp = rp }
@@ -5537,6 +5551,7 @@ return function(App)
 	local G = {
 		radius = 24,
 		density = 1,
+		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
 		live = true,
 		overlay = true,
 		groups = {},
@@ -5851,6 +5866,11 @@ return function(App)
 		return seqN
 	end
 
+	-- every text size in the plugin goes through here, so the Text size setting scales all of it
+	local TEXT_SIZES = { [1] = "Small", [1.2] = "Normal", [1.4] = "Large" }
+	local function textSize(n)
+		return math.round(n * (App.G.textScale or 1.2))
+	end
 	local function new(cls, props, kids)
 		local o = Instance.new(cls)
 		if o:IsA("GuiObject") then
@@ -5861,6 +5881,8 @@ return function(App)
 		for k, v in props or {} do
 			if k == "Parent" then
 				parent = v
+			elseif k == "TextSize" then
+				o.TextSize = textSize(v)
 			else
 				o[k] = v
 			end
@@ -5916,7 +5938,7 @@ return function(App)
 			Font = font or SANS,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Center,
-			Size = UDim2.new(1, 0, 0, (size or 13) + 8),
+			Size = UDim2.new(1, 0, 0, textSize(size or 13) + 8),
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
 		for k, v in props or {} do
@@ -7285,6 +7307,8 @@ return function(App)
 
 	-- used by later modules
 	App.new = new
+	App.textSize = textSize
+	App.TEXT_SIZES = TEXT_SIZES
 	App.corner = corner
 	App.stroke = stroke
 	App.pad = pad
@@ -10444,6 +10468,29 @@ return function(App)
 		buildLost(list)
 		if #App.area.layers > 0 then
 			slider(
+				"Amount of everything",
+				0.1,
+				3,
+				function()
+					return G.density
+				end,
+				function(v)
+					G.density = v
+				end,
+				"%.2f×",
+				0.05,
+				function()
+					requestLive()
+				end,
+				function()
+					saveG()
+					commit()
+				end,
+				"Scales how many of every object get placed, on top of each one's own amount.",
+				1
+			).Parent =
+				list
+			slider(
 				"Size of everything",
 				0.3,
 				3,
@@ -10694,30 +10741,20 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		heading(parent, "Scatter", 14)
-		slider(
-			"Overall density",
-			0.1,
-			3,
-			function()
-				return G.density
-			end,
-			function(v)
-				G.density = v
-			end,
-			"%.2f×",
-			0.05,
-			function()
-				requestLive()
-			end,
-			function()
-				saveG()
-				commit()
-			end,
-			"Scales every layer at once.",
-			1
-		).Parent =
+		heading(parent, "Text size", 14)
+		App.segmented({ "Small", "Normal", "Large" }, function()
+			return App.TEXT_SIZES[G.textScale] or "Normal"
+		end, function(v)
+			for scale, name in App.TEXT_SIZES do
+				if name == v then
+					G.textScale = scale
+				end
+			end
+			saveG()
+			task.defer(App.rebuildAll) -- after this click finishes (the page it's on is rebuilt)
+		end).Parent =
 			parent
+		App.explain(parent, "How big the plugin's text is.")
 		heading(parent, "Viewport", 12)
 		switchRow("Show overlay", function()
 			return G.overlay
@@ -12710,6 +12747,9 @@ return function(App)
 						local t = (q.p - ray.Origin):Dot(nrm) / denom
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
+							-- raised off the ground: the curve keeps this height instead of snapping down
+							local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
 				end
@@ -12719,6 +12759,7 @@ return function(App)
 				if hit then
 					q.p = hit.Position
 					q.n = hit.Normal
+					q.raised = nil -- back on a surface
 				end
 				snapTo = findSnap(dragPt)
 				if snapTo then -- magnet: sit exactly on the point or curve it would join
@@ -12735,7 +12776,7 @@ return function(App)
 				for _, w in welded do -- joined points travel together
 					local o = w.cv.pts[w.i]
 					if o then
-						o.p, o.n = q.p, q.n
+						o.p, o.n, o.raised = q.p, q.n, q.raised
 					end
 				end
 				App.drawSpline()
@@ -13265,7 +13306,7 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Settings",
-			text = "Overall density, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
+			text = "Text size, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
 				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
 				.. "Every shortcut is listed here too.",
 			target = function()
@@ -13440,7 +13481,7 @@ return function(App)
 		t.AutomaticSize = Enum.AutomaticSize.Y
 		t.Size = UDim2.new(1, 0, 0, 0)
 		local body = z(para(type(step.text) == "function" and step.text() or step.text, { Parent = card }))
-		body.TextSize = 13
+		body.TextSize = App.textSize(13)
 		body.TextColor3 = P.dim
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = card })
 		local row = z(box({ Size = UDim2.new(1, 0, 0, 32), Parent = card }))

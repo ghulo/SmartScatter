@@ -549,6 +549,9 @@ return function(App)
 						local t = (q.p - ray.Origin):Dot(nrm) / denom
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
+							-- raised off the ground: the curve keeps this height instead of snapping down
+							local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
 				end
@@ -558,6 +561,7 @@ return function(App)
 				if hit then
 					q.p = hit.Position
 					q.n = hit.Normal
+					q.raised = nil -- back on a surface
 				end
 				snapTo = findSnap(dragPt)
 				if snapTo then -- magnet: sit exactly on the point or curve it would join
@@ -574,7 +578,7 @@ return function(App)
 				for _, w in welded do -- joined points travel together
 					local o = w.cv.pts[w.i]
 					if o then
-						o.p, o.n = q.p, q.n
+						o.p, o.n, o.raised = q.p, q.n, q.raised
 					end
 				end
 				App.drawSpline()

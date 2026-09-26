@@ -1369,7 +1369,12 @@ function E.loadArea(folder)
 			for _, q in list do
 				if type(q) == "table" and #q >= 6 then
 					local n = Vector3.new(q[4], q[5], q[6])
-					local pt = { p = Vector3.new(q[1], q[2], q[3]), n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, sharp = q[7] == 1 or nil }
+					local pt = {
+						p = Vector3.new(q[1], q[2], q[3]),
+						n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis,
+						sharp = (q[7] or 0) % 2 == 1 or nil,
+						raised = (q[7] or 0) >= 2 or nil,
+					}
 					if tonumber(q[8]) and q[8] ~= 1 then
 						pt.w = q[8]
 					end
@@ -1611,7 +1616,7 @@ function E.saveArea(a)
 					math.floor(q.n.X * 1000 + 0.5) / 1000,
 					math.floor(q.n.Y * 1000 + 0.5) / 1000,
 					math.floor(q.n.Z * 1000 + 0.5) / 1000,
-					q.sharp and 1 or 0,
+					(q.sharp and 1 or 0) + (q.raised and 2 or 0), -- flags: 1 sharp, 2 raised
 					math.floor((q.w or 1) * 100 + 0.5) / 100,
 					math.floor((q.s or 1) * 100 + 0.5) / 100,
 				})
@@ -2037,7 +2042,7 @@ function E.indexAt(an, x, z)
 end
 --------------------------------------------------------------------------------
 -- Splines: a smooth 3D curve through clicked points (centripetal Catmull-Rom: no loops or overshoot).
--- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
+-- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, raised = bool? (Shift-lifted: kept off the ground), w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
 --   walls = bool (clicks may land on walls),
 --   branches = { { pts = { ... } }, ... } }  -- extra open curves that sprout from a point of the network
 --------------------------------------------------------------------------------
@@ -2080,16 +2085,19 @@ local function bezier(a, c1, c2, b, t)
 end
 
 -- dense polyline of the curve: P (positions), U (interpolated up/normal), S (control segment of each sample),
--- W and Z (per-point width and scale multipliers, eased between points)
+-- W and Z (per-point width and scale multipliers, eased between points), R (how raised, 0-1, eased between points)
 function E.splineCurve(sp, step)
 	local pts = sp.pts
 	local n = #pts
-	local P, U, S, W, Z = {}, {}, {}, {}, {}
+	local P, U, S, W, Z, R = {}, {}, {}, {}, {}, {}
 	if n == 0 then
-		return P, U, S, W, Z
+		return P, U, S, W, Z, R
+	end
+	local function raised(q)
+		return q.raised and 1 or 0
 	end
 	if n == 1 then
-		return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }
+		return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }, { raised(pts[1]) }
 	end
 	local closed = sp.closed and n >= 3
 	local function cp(i)
@@ -2115,7 +2123,7 @@ function E.splineCurve(sp, step)
 			c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
 			c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
 		end
-		local wa, wb, za, zb = a.w or 1, b.w or 1, a.s or 1, b.s or 1
+		local wa, wb, za, zb, ra, rb = a.w or 1, b.w or 1, a.s or 1, b.s or 1, raised(a), raised(b)
 		for k = 0, steps - 1 do
 			local t = k / steps
 			if c1 then
@@ -2130,6 +2138,7 @@ function E.splineCurve(sp, step)
 			local e = t * t * (3 - 2 * t)
 			table.insert(W, wa + (wb - wa) * e)
 			table.insert(Z, za + (zb - za) * e)
+			table.insert(R, ra + (rb - ra) * e)
 		end
 	end
 	local last = closed and pts[1] or pts[n]
@@ -2138,7 +2147,8 @@ function E.splineCurve(sp, step)
 	table.insert(S, segs)
 	table.insert(W, last.w or 1)
 	table.insert(Z, last.s or 1)
-	return P, U, S, W, Z
+	table.insert(R, raised(last))
+	return P, U, S, W, Z, R
 end
 
 -- true when p is inside solid terrain or inside a solid part (a ray started there can't see the surface around it)
@@ -2185,12 +2195,16 @@ local function project(pos, up, rp)
 end
 -- curve samples for placement: optionally snapped onto the surface under each sample (ground, walls, ceilings)
 function E.splineSamples(sp, rp)
-	local P, U, _, W, Z = E.splineCurve(sp, 0.75)
+	local P, U, _, W, Z, R = E.splineCurve(sp, 0.75)
 	if sp.snap then
 		-- straight down onto the ground (along the slope's normal would slide the curve sideways on a hillside);
-		-- a spline allowed on walls snaps along its own normals instead
+		-- a spline allowed on walls snaps along its own normals instead. Between Shift-raised points the curve
+		-- keeps its own height (a bridge), easing back onto the ground toward points that aren't raised.
 		for k = 1, #P do
-			P[k], U[k] = project(P[k], sp.walls and U[k] or Vector3.yAxis, rp)
+			local up = sp.walls and U[k] or Vector3.yAxis
+			local g, gn = project(P[k], up, rp)
+			local lift = math.max((P[k] - g):Dot(up), 0) * R[k]
+			P[k], U[k] = g + up * lift, lift > 0.05 and gn:Lerp(up, R[k]).Unit or gn
 		end
 	end
 	return { P = P, U = U, W = W, Z = Z, snap = sp.snap, rp = rp }

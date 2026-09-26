@@ -32,30 +32,20 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		heading(parent, "Scatter", 14)
-		slider(
-			"Overall density",
-			0.1,
-			3,
-			function()
-				return G.density
-			end,
-			function(v)
-				G.density = v
-			end,
-			"%.2f×",
-			0.05,
-			function()
-				requestLive()
-			end,
-			function()
-				saveG()
-				commit()
-			end,
-			"Scales every layer at once.",
-			1
-		).Parent =
+		heading(parent, "Text size", 14)
+		App.segmented({ "Small", "Normal", "Large" }, function()
+			return App.TEXT_SIZES[G.textScale] or "Normal"
+		end, function(v)
+			for scale, name in App.TEXT_SIZES do
+				if name == v then
+					G.textScale = scale
+				end
+			end
+			saveG()
+			task.defer(App.rebuildAll) -- after this click finishes (the page it's on is rebuilt)
+		end).Parent =
 			parent
+		App.explain(parent, "How big the plugin's text is.")
 		heading(parent, "Viewport", 12)
 		switchRow("Show overlay", function()
 			return G.overlay

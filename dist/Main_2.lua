@@ -41,30 +41,20 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		heading(parent, "Scatter", 14)
-		slider(
-			"Overall density",
-			0.1,
-			3,
-			function()
-				return G.density
-			end,
-			function(v)
-				G.density = v
-			end,
-			"%.2f×",
-			0.05,
-			function()
-				requestLive()
-			end,
-			function()
-				saveG()
-				commit()
-			end,
-			"Scales every layer at once.",
-			1
-		).Parent =
+		heading(parent, "Text size", 14)
+		App.segmented({ "Small", "Normal", "Large" }, function()
+			return App.TEXT_SIZES[G.textScale] or "Normal"
+		end, function(v)
+			for scale, name in App.TEXT_SIZES do
+				if name == v then
+					G.textScale = scale
+				end
+			end
+			saveG()
+			task.defer(App.rebuildAll) -- after this click finishes (the page it's on is rebuilt)
+		end).Parent =
 			parent
+		App.explain(parent, "How big the plugin's text is.")
 		heading(parent, "Viewport", 12)
 		switchRow("Show overlay", function()
 			return G.overlay
@@ -2057,6 +2047,9 @@ return function(App)
 						local t = (q.p - ray.Origin):Dot(nrm) / denom
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
+							-- raised off the ground: the curve keeps this height instead of snapping down
+							local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
 				end
@@ -2066,6 +2059,7 @@ return function(App)
 				if hit then
 					q.p = hit.Position
 					q.n = hit.Normal
+					q.raised = nil -- back on a surface
 				end
 				snapTo = findSnap(dragPt)
 				if snapTo then -- magnet: sit exactly on the point or curve it would join
@@ -2082,7 +2076,7 @@ return function(App)
 				for _, w in welded do -- joined points travel together
 					local o = w.cv.pts[w.i]
 					if o then
-						o.p, o.n = q.p, q.n
+						o.p, o.n, o.raised = q.p, q.n, q.raised
 					end
 				end
 				App.drawSpline()
@@ -2612,7 +2606,7 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Settings",
-			text = "Overall density, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
+			text = "Text size, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
 				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
 				.. "Every shortcut is listed here too.",
 			target = function()
@@ -2787,7 +2781,7 @@ return function(App)
 		t.AutomaticSize = Enum.AutomaticSize.Y
 		t.Size = UDim2.new(1, 0, 0, 0)
 		local body = z(para(type(step.text) == "function" and step.text() or step.text, { Parent = card }))
-		body.TextSize = 13
+		body.TextSize = App.textSize(13)
 		body.TextColor3 = P.dim
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = card })
 		local row = z(box({ Size = UDim2.new(1, 0, 0, 32), Parent = card }))

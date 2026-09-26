@@ -69,6 +69,7 @@ return function(App)
 	local G = {
 		radius = 24,
 		density = 1,
+		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
 		live = true,
 		overlay = true,
 		groups = {},

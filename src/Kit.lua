@@ -17,6 +17,11 @@ return function(App)
 		return seqN
 	end
 
+	-- every text size in the plugin goes through here, so the Text size setting scales all of it
+	local TEXT_SIZES = { [1] = "Small", [1.2] = "Normal", [1.4] = "Large" }
+	local function textSize(n)
+		return math.round(n * (App.G.textScale or 1.2))
+	end
 	local function new(cls, props, kids)
 		local o = Instance.new(cls)
 		if o:IsA("GuiObject") then
@@ -27,6 +32,8 @@ return function(App)
 		for k, v in props or {} do
 			if k == "Parent" then
 				parent = v
+			elseif k == "TextSize" then
+				o.TextSize = textSize(v)
 			else
 				o[k] = v
 			end
@@ -82,7 +89,7 @@ return function(App)
 			Font = font or SANS,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextYAlignment = Enum.TextYAlignment.Center,
-			Size = UDim2.new(1, 0, 0, (size or 13) + 8),
+			Size = UDim2.new(1, 0, 0, textSize(size or 13) + 8),
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
 		for k, v in props or {} do
@@ -1451,6 +1458,8 @@ return function(App)
 
 	-- used by later modules
 	App.new = new
+	App.textSize = textSize
+	App.TEXT_SIZES = TEXT_SIZES
 	App.corner = corner
 	App.stroke = stroke
 	App.pad = pad

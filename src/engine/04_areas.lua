@@ -380,7 +380,12 @@ function E.loadArea(folder)
 			for _, q in list do
 				if type(q) == "table" and #q >= 6 then
 					local n = Vector3.new(q[4], q[5], q[6])
-					local pt = { p = Vector3.new(q[1], q[2], q[3]), n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, sharp = q[7] == 1 or nil }
+					local pt = {
+						p = Vector3.new(q[1], q[2], q[3]),
+						n = n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis,
+						sharp = (q[7] or 0) % 2 == 1 or nil,
+						raised = (q[7] or 0) >= 2 or nil,
+					}
 					if tonumber(q[8]) and q[8] ~= 1 then
 						pt.w = q[8]
 					end
@@ -622,7 +627,7 @@ function E.saveArea(a)
 					math.floor(q.n.X * 1000 + 0.5) / 1000,
 					math.floor(q.n.Y * 1000 + 0.5) / 1000,
 					math.floor(q.n.Z * 1000 + 0.5) / 1000,
-					q.sharp and 1 or 0,
+					(q.sharp and 1 or 0) + (q.raised and 2 or 0), -- flags: 1 sharp, 2 raised
 					math.floor((q.w or 1) * 100 + 0.5) / 100,
 					math.floor((q.s or 1) * 100 + 0.5) / 100,
 				})

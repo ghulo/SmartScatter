@@ -130,7 +130,7 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Settings",
-			text = "Overall density, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
+			text = "Text size, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
 				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
 				.. "Every shortcut is listed here too.",
 			target = function()
@@ -305,7 +305,7 @@ return function(App)
 		t.AutomaticSize = Enum.AutomaticSize.Y
 		t.Size = UDim2.new(1, 0, 0, 0)
 		local body = z(para(type(step.text) == "function" and step.text() or step.text, { Parent = card }))
-		body.TextSize = 13
+		body.TextSize = App.textSize(13)
 		body.TextColor3 = P.dim
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = card })
 		local row = z(box({ Size = UDim2.new(1, 0, 0, 32), Parent = card }))

@@ -1027,6 +1027,29 @@ return function(App)
 		buildLost(list)
 		if #App.area.layers > 0 then
 			slider(
+				"Amount of everything",
+				0.1,
+				3,
+				function()
+					return G.density
+				end,
+				function(v)
+					G.density = v
+				end,
+				"%.2f×",
+				0.05,
+				function()
+					requestLive()
+				end,
+				function()
+					saveG()
+					commit()
+				end,
+				"Scales how many of every object get placed, on top of each one's own amount.",
+				1
+			).Parent =
+				list
+			slider(
 				"Size of everything",
 				0.3,
 				3,
