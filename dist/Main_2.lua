@@ -1805,7 +1805,7 @@ end)()
 -- #module Tour
 MODULES[11] = (function()
 --[[
-	Smart Scatter — Tour: a short guided tour shown once to each new user (and on demand from Settings).
+	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
 	Part of Main; loaded in order by the bundle. Shared state and cross-module functions live on App.
@@ -1818,7 +1818,7 @@ return function(App)
 		App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 
 	local TOUR_KEY = "SmartScatter_tour"
-	local TOUR_V = 1 -- raise when the tour changes enough that everyone should see it again
+	local TOUR_V = 2 -- raise when the tour changes enough that everyone should see it again
 
 	local function ui(name)
 		local o = App.ui[name]
@@ -1828,64 +1828,131 @@ return function(App)
 		return App.area ~= nil
 	end
 
-	-- each step: a title, text, and the part of the panel it points at (nil: a card in the middle)
+	-- each step: its chapter, a title, text, and the part of the panel it points at (nil: a card in the middle)
 	local STEPS = {
 		{
+			chapter = "Welcome",
 			title = "Welcome to Smart Scatter",
-			text = "It fills your map by rules: forests, flower fields, rocks, fences, street lamps and roads that keep off buildings, roads and water by themselves.\n\nThis tour takes about a minute.",
+			text = "It fills your map by rules instead of by hand. You mark where things go, pick your models, and it places "
+				.. "them: trees keep off roads and roofs, rocks cluster, lamps line a road, fences meet round bends.\n\n"
+				.. "This tour shows everything in about three minutes. You can leave it any time and replay it from Settings.",
 		},
 		{
-			title = "Your areas and paths",
-			text = "Everything you make lives in an area. Click here to switch between them, rename one, lock it, bake it into plain models or delete it.",
+			chapter = "Welcome",
+			title = "What it's good for",
+			text = "• Forests, jungles and flower fields that look natural\n"
+				.. "• Rocks, rubble and debris around cliffs and ruins\n"
+				.. "• Villages: crates, barrels and props around houses\n"
+				.. "• Street lamps, fences, walls and tiled paths along a curve\n"
+				.. "• Dressing a big open world or an obby's themed zones in minutes\n\n"
+				.. "Not for: one special prop you'd rather place by hand.",
+		},
+		{
+			chapter = "Areas",
+			title = "Your areas",
+			text = "Everything you make lives in an area. Click here to switch between them, rename one, lock it so nothing "
+				.. "changes, bake it into plain models when you're done, or delete it.",
 			target = function()
 				return ui("areaPick")
 			end,
 		},
 		{
-			title = "Make something new",
-			text = "Scatter area: paint a patch of ground and fill it.\nPath: draw a curve for fences, lamps, tiled paths or roads.",
+			chapter = "Areas",
+			title = "Three kinds",
+			text = "Scatter area: paint ground and fill it.\n"
+				.. "Path: draw a curve for fences, lamps, tiled paths or a road.\n"
+				.. "Keep-clear zone: ground no area may put anything on, like a spawn, a doorway or a quest spot.",
 			target = function()
 				return ui("plusBtn")
 			end,
 		},
 		{
-			title = "Step 1 · Shape",
+			chapter = "Shape",
+			title = "Mark the ground",
 			text = function()
-				if not inArea() then
-					return "Start here. Pick Scatter area or Path, and your first one is ready to shape."
+				if inArea() and App.kindOf(App.area) == "Path" then
+					return "Press Draw path, then click in the viewport to place points. Hold and drag to draw freely."
 				end
-				return App.kindOf(App.area) == "Path"
-						and "Press Draw path, then click in the viewport to place points. Drag a point to move it; Shift changes its height, C makes a sharp corner, right-click deletes it."
-					or "Pick a tool and paint the ground in the viewport. Shift erases, [ and ] change the brush size, Esc stops. Fill paints a whole field in one click."
+				return "Brush paints, Lasso and Box fill a shape, Polygon clicks corners, Fill takes a whole field in one click. "
+					.. "Shift erases, F resizes the brush with the mouse, Esc stops.\n\n"
+					.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
 			end,
 			target = function()
 				return ui("step1Card") or ui("welcomeChoice")
 			end,
 		},
 		{
-			title = "Add objects",
-			text = "Once the ground is marked, open this. Select models in the Explorer (keep the originals outside the area, e.g. in ServerStorage) and press Add selected models.\n\nClick an object for its settings: size, spacing, clumping, what it grows on and what it keeps away from.",
+			chapter = "Shape",
+			title = "It reads the map for you",
+			text = "Each area is scanned: roads, paths, water, roofs and walls are found by their material and names, so "
+				.. "trees stay off the road and out of the pond on their own.\n\n"
+				.. "If it guesses wrong, select the part and use Mark selected as. Soft edges thin things out toward the "
+				.. "border so an area fades into its surroundings.",
+		},
+		{
+			chapter = "Paths",
+			title = "Drawing paths",
+			text = "Click to add points; drag one to move it. Shift+drag changes its height, C makes a sharp corner, X deletes "
+				.. "a point. Select a point and click the ground to branch off; drop an end on another point to join them.\n\n"
+				.. "Give the path a width and turn on Road to lay a real road or dirt path along it.",
+		},
+		{
+			chapter = "Objects",
+			title = "Add your models",
+			text = "Open this, select models in the Explorer and press Add selected models. Keep the originals outside the "
+				.. "area, for example in ServerStorage.\n\n"
+				.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. "
+				.. "Save a set you like as a preset to reuse it in any area.",
 			target = function()
 				return ui("step2Card")
 			end,
 		},
 		{
+			chapter = "Objects",
+			title = "Rules for each object",
+			text = "Click an object for its settings. Its type (tree, rock, bush…) sets smart defaults; then tune amount, "
+				.. "size, spacing and clumping, piles, which ground it grows on, what it keeps away from, slopes and looks.\n\n"
+				.. "Mix several models in one object, Swap one for another in place, or Lock an object to keep its copies "
+				.. "exactly where they are.",
+		},
+		{
+			chapter = "Objects",
+			title = "Along a line",
+			text = "Set an object to Along and it follows a line instead of spreading out: a road edge, the area's border "
+				.. "or your path. Fences and walls resize so their pieces meet end to end, even round bends; lamps keep a "
+				.. "steady gap and face the road.",
+		},
+		{
+			chapter = "Placing",
 			title = "Placing it all",
-			text = "With Live update on, everything is placed as you go and every change rebuilds by itself. Turn it off to get a Generate button instead.\n\nShuffle gives a new random layout, Clear removes what was placed. Ctrl+Z undoes any of it.",
+			text = "With Live update on, every change rebuilds by itself. Too much for Studio? It pauses and asks first. "
+				.. "Turn Live update off to use a Generate button instead.\n\n"
+				.. "Shuffle gives a new random layout, Clear removes what was placed, and Ctrl+Z undoes any step.",
 			target = function()
 				return ui("foot")
 			end,
 		},
 		{
+			chapter = "Placing",
 			title = "Settings",
-			text = "Overall density, the coloured overlay in the viewport, and game-ready output: no collision on plants, fewer shadows, streaming for big maps.",
+			text = "Overall density, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
+				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
+				.. "Every shortcut is listed here too.",
 			target = function()
 				return ui("gearBtn")
 			end,
 		},
 		{
-			title = "That's it",
-			text = "Not sure what something does? Hover over it for a tip. Right-click a slider to reset it.\n\nYou can replay this tour any time from Settings.",
+			chapter = "Finish",
+			title = "When you're done",
+			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it: its "
+				.. "objects become plain models and the area steps aside.\n\n"
+				.. "Hover over anything for a tip, and right-click a slider to reset it. The plugin updates itself.",
+		},
+		{
+			chapter = "Finish",
+			title = "Have fun building",
+			text = "Smart Scatter is made by Ghulo.\n\n" .. "Replay this tour any time from Settings.",
 		},
 	}
 
@@ -2022,6 +2089,7 @@ return function(App)
 				Parent = dots,
 			}, { corner(3) }))
 		end
+		z(label(string.upper(step.chapter) .. "  ·  " .. i .. " of " .. #STEPS, 10, P.faint, SANS_B, { Parent = card }))
 		local t = z(label(step.title, 17, P.text, SANS_B, { Parent = card }))
 		t.TextWrapped = true
 		t.TextTruncate = Enum.TextTruncate.None
@@ -2226,6 +2294,16 @@ return function(App)
 	switchArea(Engine.listAreas()[1])
 	toggleBtn:SetActive(App.widget.Enabled)
 	App.maybeStartTour()
+	-- the loader found a newer release while you're working: ask before swapping it in
+	ctx.offerUpdate = function(version, apply)
+		App.dialog(
+			"Update available",
+			"Smart Scatter " .. tostring(version) .. " is ready. Updating takes a second, needs no restart and changes nothing in your place.",
+			{ { "Update now", "accent", apply }, { "Later", nil, function() end } },
+			"info",
+			"accent"
+		)
+	end
 	if ctx.reloaded then
 		App.status("Updated to v" .. tostring(ctx.version) .. ".")
 	end

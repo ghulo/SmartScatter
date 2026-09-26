@@ -99,10 +99,10 @@ return function(App)
 			button("Replay the tour", nil, function()
 				App.startTour()
 			end, { Parent = buttonRow(parent) }),
-			"A one-minute walk through the panel: areas, the three steps and where the settings are."
+			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 8), Parent = parent })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev"), 12, P.faint, SANS, { Parent = parent })
+		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, { Parent = parent })
 	end
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much

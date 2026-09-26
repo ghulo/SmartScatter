@@ -419,7 +419,9 @@ return function(App)
 	-- used by later modules
 	-- a message that needs an answer, over the panel: title, text and buttons { { text, kind, onClick }, ... }
 	-- (kind as for App.button; the first is the main one). Any button, or a click outside, closes it.
-	App.dialog = function(title, text, actions, iconName)
+	-- tone: "accent" for good news (an update), otherwise a warning
+	App.dialog = function(title, text, actions, iconName, tone)
+		local tint = tone == "accent" and P.accent or P.danger
 		closePopup()
 		local shade = new("TextButton", {
 			Text = "",
@@ -446,12 +448,12 @@ return function(App)
 		local head = box({ Size = UDim2.new(1, 0, 0, 32), ZIndex = 52, Parent = card })
 		local badge = box({
 			BackgroundTransparency = 0,
-			BackgroundColor3 = P.danger:Lerp(P.card, 0.84),
+			BackgroundColor3 = tint:Lerp(P.card, 0.84),
 			Size = UDim2.fromOffset(32, 32),
 			ZIndex = 52,
 			Parent = head,
 		}, { corner(8) })
-		local ic = App.icon(iconName or "info", 16, P.danger)
+		local ic = App.icon(iconName or "info", 16, tint)
 		ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 		ic.Parent = badge
 		for _, d in ic:GetDescendants() do

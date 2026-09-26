@@ -4,9 +4,10 @@
 	Code sources, newest build wins:
 	  1. bundled: the Engine / Main modules inside this plugin file
 	  2. saved:   the last update, kept in plugin settings (so every place gets it)
-	  3. online:  the release published at UPDATE_URL (manifest.json + the code files). Checked when Studio starts and
-	              every half hour; a newer build is downloaded, started and saved, so everyone who has the plugin
-	              gets updates without reinstalling. Studio asks once before the plugin may reach that site.
+	  3. online:  the release published at UPDATE_URL (manifest.json + the code files). Checked when Studio starts
+	              (a newer build goes straight in) and every five minutes (the plugin asks first, then swaps it in
+	              live, no restart). Everyone who has the plugin gets updates without reinstalling. Studio asks once
+	              before the plugin may reach that site.
 	  4. live:    ServerStorage.SmartScatterSource in the open place (for development). Never saved with the place.
 	              Editing its modules and bumping its Build attribute hot-swaps the plugin instantly.
 ]]
@@ -69,7 +70,7 @@ local saved = plugin:GetSetting(SAVED_KEY)
 local current = (valid(saved) and saved.build > bundled.build) and saved or bundled
 
 -- run a version of the code, cleaning up the previous one first
-local cleanup, holder
+local cleanup, holder, running -- running: the ctx of the code that's running (it may offer to update)
 local function start(code, reloaded)
 	if cleanup then pcall(cleanup); cleanup = nil end
 	if holder then holder:Destroy() end
@@ -82,6 +83,7 @@ local function start(code, reloaded)
 	end
 	holder.Parent = script
 	local ctx = { plugin = plugin, button = button, widget = widget, version = code.version, reloaded = reloaded }
+	running = ctx
 	local ok, err = pcall(function()
 		ctx.Engine = require(e)
 		cleanup = require(m)(ctx)
@@ -190,9 +192,9 @@ local function fetchRelease()
 	return valid(code) and code or nil
 end
 local unloading = false
-local function checkForUpdate()
-	local code = fetchRelease()
-	if not code or unloading then return end
+local offered = {} -- [build] = true once the running plugin has asked about it
+local function apply(code)
+	if unloading or code.build <= current.build then return end
 	if start(code, true) then
 		current = code
 		plugin:SetSetting(SAVED_KEY, code)
@@ -200,6 +202,20 @@ local function checkForUpdate()
 		watch(writeMirror(current))
 	else
 		start(current, false) -- a release that won't start: keep the version that works
+	end
+end
+-- at boot a new release goes straight in; while working, the plugin asks first (a swap mid-stroke would lose it)
+local function checkForUpdate(boot)
+	local code = fetchRelease()
+	if not code or unloading then return end
+	local ask = not boot and running and running.offerUpdate
+	if not ask then
+		apply(code)
+	elseif not offered[code.build] then
+		offered[code.build] = true
+		pcall(ask, code.version, function()
+			apply(code)
+		end)
 	end
 end
 
@@ -218,11 +234,13 @@ plugin:SetSetting("SmartScatter_lastBuild", current.build)
 if current ~= bundled then plugin:SetSetting(SAVED_KEY, current) end
 watch(writeMirror(current))
 
--- then look for a newer release now and every half hour, without holding up the start
+-- then look for a newer release now and every five minutes, without holding up the start
 task.spawn(function()
+	local boot = true
 	while not unloading do
-		checkForUpdate()
-		task.wait(1800)
+		checkForUpdate(boot)
+		boot = false
+		task.wait(300)
 	end
 end)
 

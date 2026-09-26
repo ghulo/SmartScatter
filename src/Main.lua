@@ -69,6 +69,16 @@ return function(App)
 	switchArea(Engine.listAreas()[1])
 	toggleBtn:SetActive(App.widget.Enabled)
 	App.maybeStartTour()
+	-- the loader found a newer release while you're working: ask before swapping it in
+	ctx.offerUpdate = function(version, apply)
+		App.dialog(
+			"Update available",
+			"Smart Scatter " .. tostring(version) .. " is ready. Updating takes a second, needs no restart and changes nothing in your place.",
+			{ { "Update now", "accent", apply }, { "Later", nil, function() end } },
+			"info",
+			"accent"
+		)
+	end
 	if ctx.reloaded then
 		App.status("Updated to v" .. tostring(ctx.version) .. ".")
 	end
