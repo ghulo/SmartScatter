@@ -134,8 +134,8 @@ return function(App)
 		{ id = "tool3", group = "Painting", label = "Box", key = "Three" },
 		{ id = "tool4", group = "Painting", label = "Polygon", key = "Four" },
 		{ id = "tool5", group = "Painting", label = "Fill", key = "Five" },
-		{ id = "erase", group = "Painting", label = "Erase on / off", key = "E" },
-		{ id = "size", group = "Painting", label = "Resize brush with the mouse", key = "F" },
+		{ id = "erase", group = "Painting", label = "Erase on / off", key = "G" }, -- (not E: Studio's camera goes up)
+		{ id = "size", group = "Painting", label = "Resize brush with the mouse", key = "B" }, -- (not F: Studio focuses)
 		{ id = "shrink", group = "Painting", label = "Smaller brush", key = "LeftBracket" },
 		{ id = "grow", group = "Painting", label = "Bigger brush", key = "RightBracket" },
 		{ id = "close", group = "Shapes and paths", label = "Close polygon / finish", key = "Return" },
@@ -221,6 +221,18 @@ return function(App)
 		saveG()
 		return moved
 	end
+	-- keys Studio acts on too, whatever the plugin does with them: the camera (W A S D Q E), focus on the selection
+	-- (F), deleting the selection (Delete). A shortcut on one does both, so binding one gets a warning.
+	App.STUDIO_KEYS = {
+		W = "moves the camera",
+		A = "moves the camera",
+		S = "moves the camera",
+		D = "moves the camera",
+		Q = "moves the camera down",
+		E = "moves the camera up",
+		F = "focuses the camera on the selection",
+		Delete = "deletes the selected parts",
+	}
 	local function resetKeys()
 		table.clear(G.keys)
 		saveG()

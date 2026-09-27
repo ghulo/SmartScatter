@@ -89,7 +89,11 @@ return function(App)
 					return "Press Draw path, then click in the viewport to place points. Hold and drag to draw freely."
 				end
 				return "Brush paints, Lasso and Box fill a shape, Polygon clicks corners, Fill takes a whole field in one click. "
-					.. "Shift erases, F resizes the brush with the mouse, Esc stops.\n\n"
+					.. "Shift erases, "
+					.. App.keyText("size")
+					.. " resizes the brush with the mouse, "
+					.. App.keyText("cancel")
+					.. " stops.\n\n"
 					.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
 			end,
 			tab = shapeTab,
@@ -108,9 +112,15 @@ return function(App)
 		{
 			chapter = "Paths",
 			title = "Drawing paths",
-			text = "Click to add points; drag one to move it. Shift+drag changes its height, C makes a sharp corner, X deletes "
-				.. "a point. Select a point and click the ground to branch off; drop an end on another point to join them.\n\n"
-				.. "Give the path a width and turn on Road to lay a real road or dirt path along it.",
+			text = function()
+				return "Click to add points; drag one to move it. Shift+drag changes its height, "
+					.. App.keyText("corner")
+					.. " makes a sharp corner, "
+					.. App.keyText("delete")
+					.. " deletes a point. Select a point and click the ground to branch off; drop an end on another "
+					.. "point to join them.\n\n"
+					.. "Give the path a width and turn on Road to lay a real road or dirt path along it."
+			end,
 		},
 		{
 			chapter = "Objects",

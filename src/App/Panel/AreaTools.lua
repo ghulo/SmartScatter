@@ -124,7 +124,13 @@ return function(App)
 			1,
 			nil,
 			saveG,
-			"Radius of the brush. While painting, press F and move the mouse to set it (click to keep), or step it with [ and ].",
+			"Radius of the brush. While painting, press "
+				.. App.keyText("size")
+				.. " and move the mouse to set it (click to keep), or step it with "
+				.. App.keyText("shrink")
+				.. " and "
+				.. App.keyText("grow")
+				.. ".",
 			24
 		).Parent =
 			brushOpts
