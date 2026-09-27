@@ -84,7 +84,7 @@ return function(App)
 		shape = "Circle",
 		fillReach = 120,
 		paintOn = {},
-		page = "Main", -- Main (the area's steps) · Objects (its objects, or one object's settings) · Settings
+		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do
 		local saved = plugin:GetSetting(KEY)
@@ -96,7 +96,7 @@ return function(App)
 			end
 		end
 	end
-	G.page = "Main" -- every session opens on the area's page
+	G.page = "" -- every session opens on the area's home tab
 	App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 	local function saveG()
 		plugin:SetSetting(KEY, G)
@@ -341,12 +341,12 @@ end)()
 -- #module Core/Kit
 MODULES["Core/Kit"] = (function()
 --[[
-	Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches, segmented controls, sections.
+	Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches, segmented controls, chips, icons.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
-	local RunService, FAST, tween, G, saveG, P, SANS = App.RunService, App.FAST, App.tween, App.G, App.saveG, App.P, App.SANS
+	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
 
@@ -1095,6 +1095,9 @@ return function(App)
 		if name == "brush" then
 			ring(0.5, 0.5, 0.36)
 			ring(0.5, 0.5, 0.09, true)
+		elseif name == "search" then
+			ring(0.42, 0.42, 0.27)
+			bar(0.63, 0.63, 0.84, 0.84)
 		elseif name == "erase" then
 			ring(0.5, 0.5, 0.36)
 			bar(0.24, 0.76, 0.76, 0.24)
@@ -1304,124 +1307,6 @@ return function(App)
 		return f, refresh
 	end
 
-	local function rowHead(parent, iconName, title, sub, height)
-		local b = new("TextButton", {
-			Text = "",
-			AutoButtonColor = false,
-			BackgroundColor3 = P.card,
-			Size = UDim2.new(1, 0, 0, height or (sub and 52 or 40)),
-			Parent = parent,
-		}, { corner(10), stroke(P.line) })
-		shade(b, 0.05)
-		topLight(b, 0.05)
-		local x = 12
-		local ic
-		if iconName then
-			local tile = box({
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised,
-				Size = UDim2.fromOffset(32, 32),
-				AnchorPoint = Vector2.new(0, 0.5),
-				Position = UDim2.new(0, 10, 0.5, 0),
-				Parent = b,
-			}, { corner(8) })
-			ic = icon(iconName, 15, P.dim)
-			ic.AnchorPoint = Vector2.new(0.5, 0.5)
-			ic.Position = UDim2.fromScale(0.5, 0.5)
-			ic.Parent = tile
-			x = 54
-		end
-		local t = label(title, 13, P.text, SANS_B, {
-			Position = UDim2.new(0, x, 0.5, sub and -17 or -10),
-			Size = UDim2.new(1, -x - 32, 0, 20),
-			Parent = b,
-		})
-		local subLabel = sub
-			and label(sub, 12, P.dim, SANS, {
-				Position = UDim2.new(0, x, 0.5, 1),
-				Size = UDim2.new(1, -x - 32, 0, 16),
-				Parent = b,
-			})
-		local chev = icon("right", 13, P.faint)
-		chev.AnchorPoint = Vector2.new(1, 0.5)
-		chev.Position = UDim2.new(1, -12, 0.5, 0)
-		chev.Parent = b
-		b.MouseEnter:Connect(function()
-			if b:GetAttribute("disabled") ~= true then
-				b.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
-			end
-		end)
-		b.MouseLeave:Connect(function()
-			b.BackgroundColor3 = P.card
-		end)
-		return b, t, subLabel, chev, ic
-	end
-
-	local function navRow(parent, iconName, title, sub, onClick, disabled)
-		local b, t, subLabel, chev, ic = rowHead(parent, iconName, title, sub, sub and 58 or 44)
-		b:SetAttribute("disabled", disabled == true)
-		shadow(b, 10)
-		if not disabled then
-			pressable(b, 0.985)
-		end
-		if disabled then
-			t.TextColor3 = P.faint
-			if subLabel then
-				subLabel.TextColor3 = P.faint
-			end
-			if ic then
-				setIconColor(ic, P.faint)
-			end
-			setIconColor(chev, P.line)
-		end
-		b.MouseButton1Click:Connect(function()
-			if not disabled and onClick then
-				onClick()
-			end
-		end)
-		return b, subLabel
-	end
-
-	local SECTION_SUB = {
-		scanfix = "Tell it what's a road, building or water",
-		line = "What it follows and which way it faces",
-		variants = "Mix several models in one object",
-		layerpaint = "Brush more or less of it by hand",
-		size = "Random sizes, smallest to largest",
-		spread = "Spacing, clumping and a limit",
-		groups = "Small piles, like rocks or crates",
-		surfaces = "Grass, sand, rock… and a height band",
-		avoid = "Distance from buildings, roads, water",
-		attract = "Grow close to walls, water or roads",
-		terrain = "Steepest ground and leaning",
-		look = "Rotation, tilt, colour, variation and sinking",
-		presets = "Save this set of objects, reuse it anywhere",
-		output = "Collision, shadows, streaming",
-	}
-
-	local function section(parent, id, title, defaultOpen, build)
-		local open = G.groups[id]
-		if open == nil then
-			open = defaultOpen
-		end
-		local wrap = col({ Parent = parent }, { vlist(0) })
-		local head, _, _, chev = rowHead(wrap, nil, title, SECTION_SUB[id])
-		local body = col({ Parent = wrap }, { vlist(4), pad(2, 2, 10, 6) })
-		local function look()
-			body.Visible = open
-			chev.Rotation = open and 90 or 0
-		end
-		look()
-		build(body)
-		head.MouseButton1Click:Connect(function()
-			open = not open
-			G.groups[id] = open
-			saveG()
-			look()
-		end)
-		return wrap
-	end
-
 	local function stepLabel(parent, n, text, done)
 		local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = parent }, { hlist(8) })
 		if n then
@@ -1476,60 +1361,6 @@ return function(App)
 			label(k[2], 11, P.dim, SANS, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
 		end
 		return row
-	end
-
-	local function stepCard(parent, n, title, sub, done, id, opts)
-		opts = opts or {}
-		local card = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = parent }, { corner(14), stroke(P.line) })
-		shade(card, 0.07)
-		topLight(card, 0.12, 16)
-		shadow(card, 14)
-
-		local inner = col({ Parent = card }, { pad(14, 14, 14, 14), vlist(12) })
-		local head = col({ Parent = inner })
-		local badge = box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
-			Size = UDim2.fromOffset(32, 32),
-			Parent = head,
-		}, { corner(8), stroke(P.accent:Lerp(P.card, 0.8)) })
-		local ic = icon(opts.icon or "spline", 16, P.accent)
-		ic.AnchorPoint = Vector2.new(0.5, 0.5)
-		ic.Position = UDim2.fromScale(0.5, 0.5)
-		ic.Parent = badge
-		if n or done then -- the step's number (a tick once done); optional cards have none
-			local num = label(done and "✓" or tostring(n), 10, P.onAccent, SANS_B, {
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.accent,
-				Size = UDim2.fromOffset(16, 16),
-				Position = UDim2.fromOffset(22, -6),
-				TextXAlignment = Enum.TextXAlignment.Center,
-				ZIndex = 2,
-				Parent = badge,
-			})
-			corner(8).Parent = num
-			local ring = stroke(P.card)
-			ring.Thickness = 2
-			ring.Parent = num
-		end
-		local txt = col({ Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -44, 0, 0), Parent = head }, { vlist(2) })
-		local titleRow = box({ Size = UDim2.new(1, 0, 0, 18), Parent = txt }, { hlist(8) })
-		label(title, 14, P.text, SANS_B, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
-		if opts.tag then -- a small pill after the title ("Optional")
-			local tag = label(opts.tag, 10, P.dim, SANS_B, {
-				Size = UDim2.fromOffset(0, 18),
-				AutomaticSize = Enum.AutomaticSize.X,
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised,
-				Parent = titleRow,
-			})
-			corner(9).Parent = tag
-			pad(7, 7, 0, 0).Parent = tag
-		end
-		local hint = para(opts.desc or sub or "", { Parent = txt })
-		hint.TextColor3 = P.dim
-		local body = col({ Parent = inner }, { vlist(10) })
-		return body, card, hint
 	end
 
 	local function iconButton(iconName, hint, onClick, on, size)
@@ -1771,10 +1602,7 @@ return function(App)
 	App.segmented = segmented
 	App.icon = icon
 	App.setIconColor = setIconColor
-	App.section = section
-	App.stepCard = stepCard
 	App.stepLabel = stepLabel
-	App.navRow = navRow
 	App.hintBox = hintBox
 	App.keyChips = keyChips
 	App.pageHead = pageHead
@@ -1783,6 +1611,203 @@ return function(App)
 	App.captureKey = captureKey
 	App.chipGrid = chipGrid
 	App.iconButton = iconButton
+end
+end)()
+-- #module Core/Cards
+MODULES["Core/Cards"] = (function()
+--[[
+	Smart Scatter — Cards: how every tab lays out its features, and the search box that finds them.
+	A tab is a column of cards, one per feature: the basics first, then the extras folded under "More options".
+	While searching, only the cards whose words match are built, and the extras show without the fold.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local G, saveG, P, SANS_B = App.G, App.saveG, App.P, App.SANS_B
+	local new, corner, stroke, pad, vlist, hlist = App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist
+	local box, col, label, icon = App.box, App.col, App.label, App.icon
+
+	local SUB = {
+		scanfix = "Tell it what's a road, building or water",
+		line = "What it follows and which way it faces",
+		variants = "Mix several models in one object",
+		layerpaint = "Brush more or less of it by hand",
+		size = "Random sizes, smallest to largest",
+		spread = "Spacing, clumping and a limit",
+		groups = "Small piles, like rocks or crates",
+		surfaces = "Grass, sand, rock… and a height band",
+		avoid = "Distance from buildings, roads, water",
+		attract = "Grow close to walls, water or roads",
+		terrain = "Steepest ground and leaning",
+		look = "Rotation, tilt, colour, variation and sinking",
+		presets = "Save this set of objects, reuse it anywhere",
+		output = "Collision, shadows, streaming",
+	}
+
+	App.searchWords = {}
+	App.searching = function()
+		return #App.searchWords > 0
+	end
+	App.setSearch = function(text)
+		local words = {}
+		for w in string.gmatch(string.lower(text or ""), "%S+") do
+			table.insert(words, w)
+		end
+		App.searchWords = words
+	end
+	local function matches(spec)
+		local hay = string.lower(spec.title .. " " .. (spec.sub or SUB[spec.id] or "") .. " " .. (spec.keys or ""))
+		for _, w in App.searchWords do
+			if not string.find(hay, w, 1, true) then
+				return false
+			end
+		end
+		return true
+	end
+
+	App.cardCount = 0 -- cards built since the panel was last built (the search tells empty tabs from ones with hits)
+
+	local function card(parent, spec, order)
+		App.cardCount += 1
+		local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
+			corner(12),
+			stroke(P.line),
+			pad(14, 14, 12, 14),
+			vlist(8),
+		})
+		App.shade(c, 0.05)
+		App.topLight(c, 0.06, 12)
+		local head = col({ Parent = c })
+		local x = 0
+		if spec.icon then
+			local badge = box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
+				Size = UDim2.fromOffset(28, 28),
+				Parent = head,
+			}, { corner(7) })
+			local ic = icon(spec.icon, 14, P.accent)
+			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+			ic.Parent = badge
+			x = 38
+		end
+		local txt = col({ Position = UDim2.fromOffset(x, 0), Size = UDim2.new(1, -x, 0, 0), Parent = head }, { vlist(1) })
+		local titleRow = box({ Size = UDim2.new(1, 0, 0, 18), Parent = txt }, { hlist(8) })
+		label(spec.title, 14, P.text, SANS_B, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
+		if spec.tag then -- a small pill after the title ("Optional")
+			local tag = label(spec.tag, 10, P.dim, SANS_B, {
+				Size = UDim2.fromOffset(0, 18),
+				AutomaticSize = Enum.AutomaticSize.X,
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.raised,
+				Parent = titleRow,
+			})
+			corner(9).Parent = tag
+			pad(7, 7, 0, 0).Parent = tag
+		end
+		local sub = spec.sub or SUB[spec.id]
+		if sub and sub ~= "" then
+			local s = App.para(sub, { Parent = txt })
+			s.TextColor3 = P.dim
+		end
+		local body = col({ Parent = c }, { vlist(6) })
+		spec.build(body, c)
+		return c
+	end
+
+	App.cards = function(parent, id)
+		local cs = {}
+		local order = 0
+		local fold, foldBody, foldCount
+		local function moreBody()
+			if App.searching() then -- search results show flat
+				return parent
+			end
+			if foldBody then
+				return foldBody
+			end
+			local key = "more:" .. id
+			local open = G.groups[key] == true
+			fold = col({ LayoutOrder = 100000, Parent = parent }, { vlist(10) })
+			local head = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 30),
+				Parent = fold,
+			})
+			local line = box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.line,
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.fromScale(0, 0.5),
+				Size = UDim2.new(1, 0, 0, 1),
+				Parent = head,
+			})
+			local chip = box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.bg,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(0, 26),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Parent = head,
+			}, { pad(10, 10, 0, 0), hlist(6) })
+			local chev = icon("right", 11, P.dim)
+			chev.Parent = chip
+			foldCount = label("", 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
+			foldBody = col({ Parent = fold }, { vlist(10) })
+			local function look()
+				foldBody.Visible = open
+				chev.Rotation = open and 90 or 0
+			end
+			look()
+			head.MouseEnter:Connect(function()
+				foldCount.TextColor3 = P.text
+				line.BackgroundColor3 = P.accentLine
+			end)
+			head.MouseLeave:Connect(function()
+				foldCount.TextColor3 = P.dim
+				line.BackgroundColor3 = P.line
+			end)
+			head.MouseButton1Click:Connect(function()
+				open = not open
+				G.groups[key] = open or nil
+				saveG()
+				look()
+			end)
+			return foldBody
+		end
+		local nMore = 0
+		function cs.add(spec)
+			if App.searching() and not matches(spec) then
+				return nil
+			end
+			if spec.more then
+				local into = moreBody()
+				nMore += 1
+				if foldCount then
+					foldCount.Text = string.format("More options  ·  %d", nMore)
+				end
+				order += 1
+				return card(into, spec, order)
+			end
+			order += 1
+			return card(parent, spec, order)
+		end
+		return cs
+	end
+
+	App.goNote = function(parent, text, buttonText, tab)
+		local wrap = col({ Parent = parent }, { vlist(8) })
+		App.hintBox(wrap, text)
+		if buttonText then
+			App.button(buttonText, "accent", function()
+				App.goPage(tab)
+			end, { Parent = App.buttonRow(wrap) })
+		end
+		return wrap
+	end
 end
 end)()
 -- #module Viewport/Overlay
@@ -2424,7 +2449,7 @@ return function(App)
 		local a = Engine.createArea((clear and "Keep clear " or "Area ") .. n, nil)
 		a.folder:SetAttribute("SS_Kind", clear and "Clear" or "Scatter")
 		endRec(rec)
-		G.page = "Main"
+		G.page = "" -- its home tab: where its first step is
 		switchArea(a.folder)
 		if not (opts and opts.keepMode) then
 			App.setMode("Paint")
@@ -2510,13 +2535,13 @@ end)()
 -- #module Panel/Header
 MODULES["Panel/Header"] = (function()
 --[[
-	Smart Scatter — Header: area menu, surface marking, header with page tabs, shared page helpers.
+	Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
 	local Selection, beginRec, endRec = App.Selection, App.beginRec, App.endRec
-	local Engine, G, saveG, num, P, SANS, SANS_M = App.Engine, App.G, App.saveG, App.num, App.P, App.SANS, App.SANS_M
+	local Engine, G, num, P, SANS, SANS_M = App.Engine, App.G, App.num, App.P, App.SANS, App.SANS_M
 	local SANS_B, new, corner, stroke, pad, vlist, box = App.SANS_B, App.new, App.corner, App.stroke, App.pad, App.vlist, App.box
 	local label, hoverable, hintOn, flushRows, saveArea = App.label, App.hoverable, App.hintOn, App.flushRows, App.saveArea
 	local canGenerate, runGenerate, switchArea, newArea = App.canGenerate, App.runGenerate, App.switchArea, App.newArea
@@ -2653,6 +2678,16 @@ return function(App)
 					})
 				end, P.dim)
 			end
+			if App.kindOf(App.area) ~= "Clear" then
+				item("Clear placed objects", function()
+					local rec = beginRec("Smart Scatter: Clear")
+					Engine.clearOutputs(App.area)
+					endRec(rec)
+					App.lastCounts, App.lastTotal = {}, 0
+					App.refreshCounts()
+					App.status("Cleared. The area and objects are kept; Generate brings it all back.")
+				end, P.dim)
+			end
 			item("Bake to plain models", function()
 				local a = App.area
 				local n = Engine.roadOf(a) and 1 or 0
@@ -2726,17 +2761,6 @@ return function(App)
 		end
 	end
 
-	App.goPage = function(name)
-		if G.page == name then
-			return
-		end
-		G.page = name
-		saveG()
-		if name ~= "Main" and (App.mode == "Paint" or App.mode == "Erase" or App.mode == "Spline") then
-			App.setMode("Off")
-		end
-		App.rebuildAll()
-	end
 	local function heading(parent, text, gapTop)
 		box({ Size = UDim2.new(1, 0, 0, gapTop or 8), Parent = parent })
 		label(string.upper(text), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
@@ -2831,7 +2855,7 @@ return function(App)
 			Text = "",
 			BackgroundColor3 = P.raised,
 			AutoButtonColor = false,
-			Size = UDim2.new(1, -88, 1, 0),
+			Size = UDim2.new(1, -44, 1, 0),
 			Parent = row,
 		}, { corner(9) })
 		App.ui.areaPick = pick
@@ -2863,15 +2887,9 @@ return function(App)
 		local plus = iconButton("plus", "New scatter area or path", function(b)
 			openNewMenu(b)
 		end, false, 36)
-		plus.Position = UDim2.new(1, -80, 0, 0)
+		plus.Position = UDim2.new(1, -36, 0, 0)
 		plus.Parent = row
 		App.ui.plusBtn = plus
-		local gear = iconButton("settings", G.page == "Settings" and "Back to the area" or "Settings", function()
-			App.goPage(G.page == "Settings" and "Main" or "Settings")
-		end, G.page == "Settings", 36)
-		gear.Position = UDim2.new(1, -36, 0, 0)
-		gear.Parent = row
-		App.ui.gearBtn = gear
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
 	end
 
@@ -3013,11 +3031,12 @@ return function(App)
 	App.primaryButton = primaryButton
 end
 end)()
--- #module Panel/AreaPage
-MODULES["Panel/AreaPage"] = (function()
+-- #module Panel/AreaTools
+MODULES["Panel/AreaTools"] = (function()
 --[[
-	Smart Scatter — AreaPage: the area's main page. Step 1 is a card (paint the ground, or draw the path); the
-	steps after it are flat labelled groups; objects live on their own page behind "Add objects".
+	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
+	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
+	and the welcome shown before there are any areas. Each builder fills the body it's given.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -3027,11 +3046,11 @@ return function(App)
 	local box, col, label, para = App.box, App.col, App.label, App.para
 	local pad, SANS_B, icon = App.pad, App.SANS_B, App.icon
 	local button, buttonRow = App.button, App.buttonRow
-	local hintOn, slider, switchRow, segmented, section = App.hintOn, App.slider, App.switchRow, App.segmented, App.section
+	local hintOn, slider, switchRow, segmented = App.hintOn, App.slider, App.switchRow, App.segmented
 	local rebuildOverlay, saveArea, runGenerate, requestLive = App.rebuildOverlay, App.saveArea, App.runGenerate, App.requestLive
 	local commit, heading, NICE, TOOLS, TOOL_HINT = App.commit, App.heading, App.NICE, App.TOOLS, App.TOOL_HINT
 	local FILTER_SURFACES, maskOp, primaryButton = App.FILTER_SURFACES, App.maskOp, App.primaryButton
-	local setIconColor, keyChips, stepLabel, navRow, hintBox = App.setIconColor, App.keyChips, App.stepLabel, App.navRow, App.hintBox
+	local setIconColor, keyChips = App.setIconColor, App.keyChips
 	local chip, chipGrid = App.chip, App.chipGrid
 
 	local function gap(parent, h)
@@ -3162,7 +3181,168 @@ return function(App)
 			refresh()
 			showTool()
 		end
+	end
 
+	local function areaSlider(parent, key, text, min, max, fmt, step, hint, def)
+		slider(
+			text,
+			min,
+			max,
+			function()
+				return App.area and App.area[key] or def
+			end,
+			function(v)
+				if App.area then
+					App.area[key] = v
+				end
+			end,
+			fmt,
+			step,
+			function()
+				requestLive()
+			end,
+			function()
+				commit()
+			end,
+			hint,
+			def
+		).Parent =
+			parent
+	end
+	local function areaChoice(parent, key, title, options, hints, def, onPick)
+		label(title, 13, P.text, SANS, { Parent = parent })
+		local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
+		for i, name in options do
+			local c = chip(grid, name, function()
+				return (App.area and App.area[key] or def) == name
+			end, function()
+				if App.area and App.area[key] ~= name then
+					App.area[key] = name
+					if onPick then
+						onPick(App.area)
+					end
+					commit()
+					App.rebuildAll()
+				end
+			end)
+			c.LayoutOrder = i
+			hintOn(c, hints[name])
+		end
+	end
+	local function showing(strengthKey, amount)
+		return function(a)
+			if (a[strengthKey] or 0) <= 0 then
+				a[strengthKey] = amount
+			end
+		end
+	end
+
+	local function buildEdges(parent)
+		areaSlider(
+			parent,
+			"edge",
+			"Soft edges",
+			0,
+			48,
+			"%.0f studs",
+			1,
+			"Thins things out toward the border so the area fades into its surroundings.",
+			12
+		)
+	end
+
+	local function buildPattern(parent)
+		areaChoice(parent, "pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
+		areaSlider(
+			parent,
+			"patches",
+			"Pattern strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"How much the pattern shapes the area: every object thickens and thins in the same places. 0% is off.",
+			0
+		)
+		areaSlider(parent, "patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
+	end
+
+	local function buildZones(parent)
+		areaChoice(parent, "zoneMood", "Mood", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
+		areaSlider(
+			parent,
+			"zones",
+			"Strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
+			0
+		)
+	end
+
+	local function buildWind(parent)
+		areaSlider(
+			parent,
+			"windDir",
+			"Wind direction",
+			0,
+			359,
+			"%.0f°",
+			5,
+			'The way objects with "Lean with the wind" lean (0° leans toward +Z).',
+			0
+		)
+	end
+
+	local function buildPaintFilter(parent)
+		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
+		hintOn(fHead, "Only paint or erase over these surfaces, e.g. just the grass between roads. None picked means any surface.")
+		local chips = chipGrid(parent, 4, 30)
+		local refreshers = {}
+		local function refreshHead()
+			fLabel.Text = App.paintFilterOn and "Paint only on" or "Paint only on · any"
+		end
+		for _, cls in FILTER_SURFACES do
+			local _, look = chip(chips, NICE[cls] or cls, function()
+				return G.paintOn[cls] == true
+			end, function()
+				G.paintOn[cls] = not G.paintOn[cls] or nil
+				refreshFilter()
+				saveG()
+				refreshHead()
+			end)
+			table.insert(refreshers, look)
+		end
+		button("Any surface", "ghost", function()
+			table.clear(G.paintOn)
+			refreshFilter()
+			saveG()
+			for _, f in refreshers do
+				f()
+			end
+			refreshHead()
+		end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = fHead })
+		refreshHead()
+	end
+
+	local function buildTidy(parent)
+		local tools = buttonRow(parent, 6)
+		for _, t in
+			{
+				{ "Fill holes", "holes", "Fills gaps enclosed by the area." },
+				{ "Smooth", "smooth", "Rounds jagged edges and removes specks." },
+				{ "Grow", "grow", "Expands the area by one cell all around." },
+				{ "Shrink", "shrink", "Pulls the edge in by one cell." },
+			}
+		do
+			local b = button(t[1], nil, function()
+				maskOp(t[2], t[1])
+			end, { Parent = tools })
+			hintOn(b, t[3])
+		end
 		if App.area and App.area.count > 0 then
 			local armed = 0
 			local clr
@@ -3193,132 +3373,6 @@ return function(App)
 				App.status("Area erased. Objects and settings are kept, paint a new one.")
 			end, { Parent = buttonRow(parent) })
 			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
-		end
-	end
-
-	local function buildSurfaces(parent, done)
-		stepLabel(parent, 2, "Edges and surfaces", done)
-		local function areaSlider(key, text, min, max, fmt, step, hint, def)
-			slider(
-				text,
-				min,
-				max,
-				function()
-					return App.area and App.area[key] or def
-				end,
-				function(v)
-					if App.area then
-						App.area[key] = v
-					end
-				end,
-				fmt,
-				step,
-				function()
-					requestLive()
-				end,
-				function()
-					commit()
-				end,
-				hint,
-				def
-			).Parent =
-				parent
-		end
-		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
-		local function areaChoice(key, title, options, hints, def, onPick)
-			label(title, 13, P.text, SANS, { Parent = parent })
-			local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
-			for i, name in options do
-				local c = chip(grid, name, function()
-					return (App.area and App.area[key] or def) == name
-				end, function()
-					if App.area and App.area[key] ~= name then
-						App.area[key] = name
-						if onPick then
-							onPick(App.area)
-						end
-						commit()
-						App.rebuildAll()
-					end
-				end)
-				c.LayoutOrder = i
-				hintOn(c, hints[name])
-			end
-		end
-		local function showing(strengthKey, amount)
-			return function(a)
-				if (a[strengthKey] or 0) <= 0 then
-					a[strengthKey] = amount
-				end
-			end
-		end
-		areaChoice("pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
-		areaSlider(
-			"patches",
-			"Pattern strength",
-			0,
-			1,
-			"%.0f%%",
-			0.05,
-			"How much the pattern shapes the area: every object thickens and thins in the same places. 0% is off.",
-			0
-		)
-		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
-		areaChoice("zoneMood", "Colour zones", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
-		areaSlider(
-			"zones",
-			"Colour zone strength",
-			0,
-			1,
-			"%.0f%%",
-			0.05,
-			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
-			0
-		)
-		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
-		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
-		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
-		hintOn(fHead, "Only paint or erase over these surfaces, e.g. just the grass between roads. None picked means any surface.")
-		local chips = chipGrid(parent, 4, 30)
-		local refreshers = {}
-		local function refreshHead()
-			fLabel.Text = App.paintFilterOn and "Paint only on" or "Paint only on · any"
-		end
-		for _, cls in FILTER_SURFACES do
-			local _, look = chip(chips, NICE[cls] or cls, function()
-				return G.paintOn[cls] == true
-			end, function()
-				G.paintOn[cls] = not G.paintOn[cls] or nil
-				refreshFilter()
-				saveG()
-				refreshHead()
-			end)
-			table.insert(refreshers, look)
-		end
-		button("Any surface", "ghost", function()
-			table.clear(G.paintOn)
-			refreshFilter()
-			saveG()
-			for _, f in refreshers do
-				f()
-			end
-			refreshHead()
-		end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = fHead })
-		refreshHead()
-		gap(parent, 4)
-		local tools = buttonRow(parent, 6)
-		for _, t in
-			{
-				{ "Fill holes", "holes", "Fills gaps enclosed by the area." },
-				{ "Smooth", "smooth", "Rounds jagged edges and removes specks." },
-				{ "Grow", "grow", "Expands the area by one cell all around." },
-				{ "Shrink", "shrink", "Pulls the edge in by one cell." },
-			}
-		do
-			local b = button(t[1], nil, function()
-				maskOp(t[2], t[1])
-			end, { Parent = tools })
-			hintOn(b, t[3])
 		end
 	end
 
@@ -3448,8 +3502,7 @@ return function(App)
 		end
 	end
 
-	local function buildCurve(parent, n)
-		stepLabel(parent, n, "Curve", hasPath())
+	local function buildCurve(parent)
 		slider(
 			"Strip width",
 			0,
@@ -3470,8 +3523,6 @@ return function(App)
 			0
 		).Parent =
 			parent
-		gap(parent, 6)
-		App.fadeLine(parent, "left", 0.14)
 		gap(parent, 4)
 		local function toggle(text, key, def, rec, hint)
 			switchRow(text, spGet(key, def), spSet(key), function()
@@ -3499,41 +3550,38 @@ return function(App)
 	end
 
 	local function buildScanFix(parent)
-		section(parent, "scanfix", "Fix what the scan sees", false, function(parent)
-			local markHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
-			hintOn(
-				markHead,
-				"The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
-			)
-			label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
-			hintOn(
-				button("Remove mark", "ghost", function()
-					App.markSelected(nil)
-				end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = markHead }),
-				"Lets the scan guess again for the selected parts."
-			)
-			local marks = chipGrid(parent, 4, 30)
-			for _, cls in { "Road", "Path", "Building", "Water" } do
-				local c = chip(marks, cls, nil, function()
-					App.markSelected(cls)
-				end)
-				hintOn(c, "Select parts, models or meshes in the Explorer or viewport, then click to mark them as " .. string.lower(cls) .. ".")
-			end
-			gap(parent, 4)
-			App.ui.scanText = para("", { Parent = parent })
-			hintOn(
-				button("Rescan", nil, function()
-					App.analysisDirty = true
-					rebuildOverlay(true)
-					runGenerate(true)
-				end, { Parent = buttonRow(parent) }),
-				"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
-			)
-		end)
+		local markHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+		hintOn(
+			markHead,
+			"The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
+		)
+		label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
+		hintOn(
+			button("Remove mark", "ghost", function()
+				App.markSelected(nil)
+			end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = markHead }),
+			"Lets the scan guess again for the selected parts."
+		)
+		local marks = chipGrid(parent, 4, 30)
+		for _, cls in { "Road", "Path", "Building", "Water" } do
+			local c = chip(marks, cls, nil, function()
+				App.markSelected(cls)
+			end)
+			hintOn(c, "Select parts, models or meshes in the Explorer or viewport, then click to mark them as " .. string.lower(cls) .. ".")
+		end
+		gap(parent, 4)
+		App.ui.scanText = para("", { Parent = parent })
+		hintOn(
+			button("Rescan", nil, function()
+				App.analysisDirty = true
+				rebuildOverlay(true)
+				runGenerate(true)
+			end, { Parent = buttonRow(parent) }),
+			"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
+		)
 	end
 
-	local function buildRoad(parent, withScan)
-		heading(parent, "Road", 0)
+	local function buildRoad(parent)
 		local function surf()
 			local sp = App.ensureSplineFn()
 			sp.surface = sp.surface or { on = false, style = "Asphalt", thick = 1 }
@@ -3621,25 +3669,6 @@ return function(App)
 				1
 			).Parent =
 				parent
-			if withScan then
-				gap(parent, 4)
-				buildScanFix(parent)
-			end
-		end
-	end
-
-	local function buildObjectsStep(parent, n, shaped)
-		local a = App.area
-		local has = #a.layers > 0
-		stepLabel(parent, n, "Add objects", has)
-		local sub = has and string.format("%d object%s", #a.layers, #a.layers == 1 and "" or "s") or "Pick models and how they spread"
-		local row, subLabel = navRow(parent, "layers", has and "Objects" or "Add objects", sub, function()
-			App.goPage("Objects")
-		end, not (shaped or has))
-		App.ui.step2Card = row
-		App.ui.objectsSub = subLabel
-		if not (shaped or has) then
-			hintBox(parent, App.kindOf(a) == "Path" and "Draw a path first" or "Paint an area first")
 		end
 	end
 
@@ -3755,83 +3784,22 @@ return function(App)
 		return tostring((a.count or 0) > 0) .. tostring(a.spline ~= nil and #a.spline.pts >= 2) .. tostring(#a.layers > 0)
 	end
 	local pending = false
+	local function stale()
+		return G.page ~= "Settings" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
+	end
 	App.checkShape = function()
-		if pending or G.page ~= "Main" or App.ui.builtShape == nil or App.ui.builtShape == shapeKey() then
+		if pending or not stale() then
 			return
 		end
 		pending = true
 		task.defer(function()
 			pending = false
-			if G.page == "Main" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey() then
+			if stale() then
 				App.rebuildAll()
 			end
 		end)
 	end
-
-	local function buildArea(parent)
-		App.ui.builtShape = shapeKey()
-		if not App.area then
-			buildWelcome(parent)
-			return
-		end
-		local a = App.area
-		local kind = App.kindOf(a)
-		local page = col({ Parent = parent }, { vlist(22) })
-		if kind == "Clear" then
-			local painted = (a.count or 0) > 0
-			local body, card = App.stepCard(page, 1, "Paint the zone", nil, painted, nil, {
-				icon = "clear",
-				desc = "Nothing from any area goes here: spawns, doorways, a quest NPC's spot",
-			})
-			App.ui.step1Card = card
-			buildPaintTools(body)
-			hintBox(page, "Other areas leave this ground empty the next time they generate.")
-		elseif kind == "Path" then
-			local drawn = a.spline ~= nil and #a.spline.pts >= 2
-			local body, card = App.stepCard(page, 1, "Draw the path", nil, drawn, nil, {
-				icon = "spline",
-				desc = drawn and "Click to add more points, or move on below" or "Click in the viewport to place points",
-			})
-			App.ui.step1Card = card
-			buildDrawTools(body)
-			local curve = col({ Parent = page }, { vlist(2) })
-			buildCurve(curve, 2)
-			local road = col({ Parent = page }, { vlist(2) })
-			buildRoad(road, true)
-			local objects = col({ Parent = page }, { vlist(10) })
-			buildObjectsStep(objects, 3, drawn)
-		else
-			local painted = (a.count or 0) > 0
-			local body, card = App.stepCard(page, 1, "Paint the area", nil, painted, nil, {
-				icon = "brush",
-				desc = painted and string.format("%s studs² painted. Keep painting, or move on below.", App.num(a.count * a.cell * a.cell))
-					or "Pick a tool, then paint the ground in the viewport",
-			})
-			App.ui.step1Card = card
-			buildPaintTools(body)
-			local surfaces = col({ Parent = page }, { vlist(4) })
-			buildSurfaces(surfaces, painted)
-			local drawn = hasPath()
-			local pathBody = App.stepCard(page, nil, "Path through this area", nil, false, nil, {
-				icon = "spline",
-				tag = "Optional",
-				desc = drawn and "Objects set to follow it line it; a road can be laid along it"
-					or "A road, fence or row of lamps along a curve you draw",
-			})
-			buildDrawTools(pathBody)
-			if drawn then -- its shape and road once there's something to shape
-				local more = col({ Parent = pathBody }, { vlist(2) })
-				buildCurve(more)
-				gap(more, 12)
-				buildRoad(more)
-			end
-			local objects = col({ Parent = page }, { vlist(10) })
-			buildObjectsStep(objects, 3, painted or drawn)
-			local more = col({ Parent = page }, { vlist(8) })
-			heading(more, "More", 0)
-			buildScanFix(more)
-		end
-	end
+	App.shapeKey = shapeKey
 
 	App.refreshScan = function()
 		if not App.ui.scanText then
@@ -3860,14 +3828,27 @@ return function(App)
 		App.ui.scanText.Text = table.concat(parts, "  ·  ")
 	end
 
-	App.buildArea = buildArea
+	App.hasPath = hasPath
+	App.buildPaintTools = buildPaintTools
+	App.buildTidy = buildTidy
+	App.buildPaintFilter = buildPaintFilter
+	App.buildEdges = buildEdges
+	App.buildPattern = buildPattern
+	App.buildZones = buildZones
+	App.buildWind = buildWind
+	App.buildDrawTools = buildDrawTools
+	App.buildCurve = buildCurve
+	App.buildRoad = buildRoad
+	App.buildScanFix = buildScanFix
+	App.buildWelcome = buildWelcome
 end
 end)()
--- #module Panel/ObjectsPage
-MODULES["Panel/ObjectsPage"] = (function()
+-- #module Panel/ObjectTools
+MODULES["Panel/ObjectTools"] = (function()
 --[[
-	Smart Scatter — ObjectsPage: the Objects page. The area's objects (each one model or a mix of models, with its
-	rules) with adding, presets and objects whose model went missing; or one object's settings on a page of its own.
+	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
+	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
+	settings (a card per rule), biomes, presets, the performance report and removing single copies.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -3875,7 +3856,7 @@ return function(App)
 	local Selection, FAST, tween, Engine, G, saveG, num = App.Selection, App.FAST, App.tween, App.Engine, App.G, App.saveG, App.num
 	local P, SANS, SANS_M, SANS_B, new, corner, stroke = App.P, App.SANS, App.SANS_M, App.SANS_B, App.new, App.corner, App.stroke
 	local pad, vlist, hlist, box, col, label, para = App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
-	local hintOn, slider, switch, switchRow, segmented, section = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented, App.section
+	local hintOn, slider, switch, switchRow, segmented = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented
 	local recolorOverlay, rebuildOverlay, canGenerate, requestLive, commit =
 		App.recolorOverlay, App.rebuildOverlay, App.canGenerate, App.requestLive, App.commit
 	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
@@ -3981,536 +3962,608 @@ return function(App)
 		return c
 	end
 
-	local function buildBasics(l, parent, c)
-		local s = l.s
-		local line = Engine.isLine(l)
-		stepLabel(parent, nil, "Placement")
-		segmented(Engine.PLACES, function()
-			return s.place
-		end, function(v)
-			if v == "Along" and s.place ~= "Along" then
-				local sp = App.area and App.area.spline
-				Engine.smartLine(l, sp ~= nil and #sp.pts >= 2)
-			else
-				s.place = v
-			end
-		end, function()
-			commit()
-			App.refreshObjects()
-		end).Parent =
-			parent
-		explain(
-			parent,
-			line and "Along: copies follow a line (a road edge, the area's border or a path), like lamps or a fence."
-				or "Scatter: copies spread over the painted area, following the rules below."
-		)
-		gap(parent, 6)
-		if not line then
-			c.S(parent, "density", "Amount", 0, 4, "%.2f×", 0.05, "How much of this object to place. 1× is the smart default for its type.")
-			gap(parent, 4)
-		end
-		stepLabel(parent, nil, "Type")
-		segmented(Engine.TYPES, function()
-			return l.type
-		end, function(t)
-			Engine.setType(l, t)
-		end, function()
-			commit()
-			App.refreshObjects()
-		end).Parent =
-			parent
-		explain(parent, "What it is. Sets sensible defaults for spacing, slopes and what it keeps away from.")
-		gap(parent, 6)
-		c.SW(
-			parent,
-			"locked",
-			"Lock placement",
-			"Keeps every copy of this object exactly where it is when the area regenerates. Changes still save; unlock to see them."
-		)
+	local function buildBasics(l, cs, c)
+		cs.add({
+			id = "placement",
+			title = "Placement",
+			sub = "Spread out or along a line, how much, and what it is",
+			build = function(parent)
+				local s = l.s
+				local line = Engine.isLine(l)
+				segmented(Engine.PLACES, function()
+					return s.place
+				end, function(v)
+					if v == "Along" and s.place ~= "Along" then
+						local sp = App.area and App.area.spline
+						Engine.smartLine(l, sp ~= nil and #sp.pts >= 2)
+					else
+						s.place = v
+					end
+				end, function()
+					commit()
+					App.refreshObjects()
+				end).Parent =
+					parent
+				explain(
+					parent,
+					line and "Along: copies follow a line (a road edge, the area's border or a path), like lamps or a fence."
+						or "Scatter: copies spread over the painted area, following the rules below."
+				)
+				gap(parent, 6)
+				if not line then
+					c.S(parent, "density", "Amount", 0, 4, "%.2f×", 0.05, "How much of this object to place. 1× is the smart default for its type.")
+					gap(parent, 4)
+				end
+				stepLabel(parent, nil, "Type")
+				segmented(Engine.TYPES, function()
+					return l.type
+				end, function(t)
+					Engine.setType(l, t)
+				end, function()
+					commit()
+					App.refreshObjects()
+				end).Parent =
+					parent
+				explain(parent, "What it is. Sets sensible defaults for spacing, slopes and what it keeps away from.")
+				gap(parent, 6)
+				c.SW(
+					parent,
+					"locked",
+					"Lock placement",
+					"Keeps every copy of this object exactly where it is when the area regenerates. Changes still save; unlock to see them."
+				)
+			end,
+		})
 	end
 
 	local function buildLine(l, parent, c)
 		local s = l.s
-		section(parent, "line", "Line", true, function(b)
-			local follows = table.clone(Engine.FOLLOWS)
-			if (App.area and App.area.spline and #App.area.spline.pts > 0) or s.follow == "Spline" then
-				table.insert(follows, "Spline")
-			end
-			c.PICK(
-				b,
-				"Follow",
-				"follow",
-				follows,
-				s.follow == "Spline" and "Follows this area's path."
-					or s.follow == "Border" and "Runs around the edge of the painted area, e.g. a fence around a field."
-					or ("Runs along " .. string.lower(s.follow) .. " inside the painted area (found by the scan)."),
-				true
-			)
-			local onSpline = s.follow == "Spline"
-			if onSpline then
-				gap(b, 4)
+		parent.add({
+			id = "line",
+			title = "Line",
+			keys = "follow side orientation roll fit end to end post gap stagger facing axis",
+			more = false,
+			build = function(b)
+				local follows = table.clone(Engine.FOLLOWS)
+				if (App.area and App.area.spline and #App.area.spline.pts > 0) or s.follow == "Spline" then
+					table.insert(follows, "Spline")
+				end
 				c.PICK(
 					b,
-					"Side",
-					"side",
-					Engine.SIDES,
-					"Center puts copies on the curve itself, turned toward the nearest road; the others set them beside it, e.g. lamps along both sides of a road.",
+					"Follow",
+					"follow",
+					follows,
+					s.follow == "Spline" and "Follows this area's path."
+						or s.follow == "Border" and "Runs around the edge of the painted area, e.g. a fence around a field."
+						or ("Runs along " .. string.lower(s.follow) .. " inside the painted area (found by the scan)."),
 					true
 				)
+				local onSpline = s.follow == "Spline"
+				if onSpline then
+					gap(b, 4)
+					c.PICK(
+						b,
+						"Side",
+						"side",
+						Engine.SIDES,
+						"Center puts copies on the curve itself, turned toward the nearest road; the others set them beside it, e.g. lamps along both sides of a road.",
+						true
+					)
+					gap(b, 4)
+					c.PICK(
+						b,
+						"Orientation",
+						"orient",
+						Engine.ORIENTS,
+						"Upright stands straight (lamps, posts). Surface sticks to what's under it (moss on walls, lights on a ceiling). Follow bends with the curve up and down (bridge planks, rails, pipes)."
+					)
+					c.S(b, "roll", "Roll", 0, 360, "%.0f°", 5, "Turns each copy around the direction of the curve.")
+				end
 				gap(b, 4)
-				c.PICK(
+				if not onSpline then
+					c.S(b, "offset", "Distance from it", 0, 40, "%.0f studs", 0.5, "Gap between the edge you follow and the side of each copy.")
+				elseif s.side ~= "Center" then
+					c.S(b, "offset", "Distance from the curve", 0, 60, "%.0f studs", 0.5, "How far to the side of the path each copy sits.")
+				end
+				c.SW(
 					b,
-					"Orientation",
-					"orient",
-					Engine.ORIENTS,
-					"Upright stands straight (lamps, posts). Surface sticks to what's under it (moss on walls, lights on a ceiling). Follow bends with the curve up and down (bridge planks, rails, pipes)."
+					"fit",
+					"Line up end to end",
+					"Resizes each piece so they meet with no gaps or overlaps, even on bends: fences, walls, path tiles, rails.",
+					true
 				)
-				c.S(b, "roll", "Roll", 0, 360, "%.0f°", 5, "Turns each copy around the direction of the curve.")
-			end
-			gap(b, 4)
-			if not onSpline then
-				c.S(b, "offset", "Distance from it", 0, 40, "%.0f studs", 0.5, "Gap between the edge you follow and the side of each copy.")
-			elseif s.side ~= "Center" then
-				c.S(b, "offset", "Distance from the curve", 0, 60, "%.0f studs", 0.5, "How far to the side of the path each copy sits.")
-			end
-			c.SW(
-				b,
-				"fit",
-				"Line up end to end",
-				"Resizes each piece so they meet with no gaps or overlaps, even on bends: fences, walls, path tiles, rails.",
-				true
-			)
-			if not s.fit and Engine.looksLikeSegment(l) then
-				local row = col({ Parent = b }, { vlist(4) })
-				label("Pieces don't meet. Resize them to fit?", 12, P.dim, SANS, { Parent = row })
-				button("Resize pieces to fit", "accent", function()
-					s.fit = true
-					c.changed(true)
-				end, { Parent = buttonRow(row) })
-			end
-			if s.fit then -- an optional post model at every joint and both ends
-				if l.post then
-					modelRow(b, l.post.inst, "Post: " .. l.post.inst.Name, {
-						{
-							"Remove",
-							"danger",
-							function()
-								Engine.setPost(l, nil)
+				if not s.fit and Engine.looksLikeSegment(l) then
+					local row = col({ Parent = b }, { vlist(4) })
+					label("Pieces don't meet. Resize them to fit?", 12, P.dim, SANS, { Parent = row })
+					button("Resize pieces to fit", "accent", function()
+						s.fit = true
+						c.changed(true)
+					end, { Parent = buttonRow(row) })
+				end
+				if s.fit then -- an optional post model at every joint and both ends
+					if l.post then
+						modelRow(b, l.post.inst, "Post: " .. l.post.inst.Name, {
+							{
+								"Remove",
+								"danger",
+								function()
+									Engine.setPost(l, nil)
+									c.changed(true)
+								end,
+							},
+						})
+					else
+						hintOn(
+							button("Add selected as post", nil, function()
+								local sel = Selection:Get()[1]
+								if not sel or sel == l.inst or not Engine.setPost(l, sel) then
+									App.status("Select a post or pillar model in the Explorer first.")
+									return
+								end
+								App.status("Posts go at every joint and both ends.")
 								c.changed(true)
-							end,
-						},
-					})
+							end, { Parent = buttonRow(b) }),
+							"Optional: a separate post model placed at every joint and at both ends. Without one, a fence whose model has a post on one end only gets matching end posts automatically."
+						)
+					end
 				else
-					hintOn(
-						button("Add selected as post", nil, function()
-							local sel = Selection:Get()[1]
-							if not sel or sel == l.inst or not Engine.setPost(l, sel) then
-								App.status("Select a post or pillar model in the Explorer first.")
-								return
-							end
-							App.status("Posts go at every joint and both ends.")
-							c.changed(true)
-						end, { Parent = buttonRow(b) }),
-						"Optional: a separate post model placed at every joint and at both ends. Without one, a fence whose model has a post on one end only gets matching end posts automatically."
+					c.S(b, "interval", "Gap between", 2, 150, "%.0f studs", 1, "Distance from one copy to the next along the line.")
+					c.S(b, "jitter", "Unevenness", 0, 1, "%.0f%%", 0.05, "0% is perfectly even. Higher shifts copies back and forth along the line.")
+					if not onSpline or s.side == "Both" then
+						c.SW(b, "stagger", "Stagger the two sides", "Copies on opposite sides sit between each other instead of facing pairs.")
+					end
+				end
+				c.S(
+					b,
+					"skip",
+					"Leave gaps",
+					0,
+					0.9,
+					"%.0f%%",
+					0.05,
+					"How much is left out, in real openings: stretches of fence with gaps between them, never a lone piece. Posts only stand where there's fence."
+				)
+				if not s.fit then -- end-to-end pieces always run along the line
+					gap(b, 4)
+					c.PICK(
+						b,
+						"Facing",
+						"facing",
+						Engine.FACINGS,
+						"Face it turns the front (−Z side) toward the edge, like a lamp over a road. Along lines the long side up with it.",
+						true -- the axis picker below reads differently for "Along"
 					)
 				end
-			else
-				c.S(b, "interval", "Gap between", 2, 150, "%.0f studs", 1, "Distance from one copy to the next along the line.")
-				c.S(b, "jitter", "Unevenness", 0, 1, "%.0f%%", 0.05, "0% is perfectly even. Higher shifts copies back and forth along the line.")
-				if not onSpline or s.side == "Both" then
-					c.SW(b, "stagger", "Stagger the two sides", "Copies on opposite sides sit between each other instead of facing pairs.")
-				end
-			end
-			c.S(
-				b,
-				"skip",
-				"Leave gaps",
-				0,
-				0.9,
-				"%.0f%%",
-				0.05,
-				"How much is left out, in real openings: stretches of fence with gaps between them, never a lone piece. Posts only stand where there's fence."
-			)
-			if not s.fit then -- end-to-end pieces always run along the line
 				gap(b, 4)
+				local alongAxis = s.fit or s.facing == "Along"
 				c.PICK(
 					b,
-					"Facing",
-					"facing",
-					Engine.FACINGS,
-					"Face it turns the front (−Z side) toward the edge, like a lamp over a road. Along lines the long side up with it.",
-					true -- the axis picker below reads differently for "Along"
+					alongAxis and "Axis along the line" or "Model's front",
+					"front",
+					Engine.FRONTS,
+					alongAxis and "Which of the model's axes runs down the line, and so sets the piece length. Auto uses the longer side."
+						or "Which side of the model is its front, the side that faces the edge (a lantern's glass, a sign's face). Auto uses the side the model reaches out to (a lamp's arm), otherwise -Z, Roblox's front."
 				)
-			end
-			gap(b, 4)
-			local alongAxis = s.fit or s.facing == "Along"
-			c.PICK(
-				b,
-				alongAxis and "Axis along the line" or "Model's front",
-				"front",
-				Engine.FRONTS,
-				alongAxis and "Which of the model's axes runs down the line, and so sets the piece length. Auto uses the longer side."
-					or "Which side of the model is its front, the side that faces the edge (a lantern's glass, a sign's face). Auto uses the side the model reaches out to (a lamp's arm), otherwise -Z, Roblox's front."
-			)
-			c.S(b, "maxCount", "Limit", 0, 2000, "%.0f", 10, "Maximum number of copies. 0 means no limit.")
-		end)
+				c.S(b, "maxCount", "Limit", 0, 2000, "%.0f", 10, "Maximum number of copies. 0 means no limit.")
+			end,
+		})
 	end
 
 	local function buildModels(l, parent, c)
-		section(parent, "variants", "Models", true, function(b)
-			for _, v in l.variants do
-				local actions = {
-					{
-						"Swap",
-						nil,
-						function()
-							local pick = Selection:Get()[1]
-							local old = v.inst.Name
-							if not (pick and Engine.swapVariant(l, table.find(l.variants, v), pick)) then
-								App.status("Select the model to swap in, in the Explorer, then click Swap.")
-								return
-							end
-							App.status(string.format("Swapped %s for %s. Copies stay on the same spots where they fit.", old, pick.Name))
-							commit(l)
-							App.refreshObjects()
-						end,
-					},
-				}
-				if #l.variants > 1 then
-					table.insert(actions, {
-						"Remove",
-						"danger",
-						function()
-							Engine.removeVariant(l, table.find(l.variants, v))
-							commit()
-							App.refreshObjects()
-						end,
-					})
-				end
-				modelRow(b, v.inst, v.inst.Name, actions)
-				if #l.variants > 1 then
-					slider("Share", 0, 10, function()
-						return v.w
+		parent.add({
+			id = "variants",
+			title = "Models",
+			keys = "swap mix share",
+			more = false,
+			build = function(b)
+				for _, v in l.variants do
+					local actions = {
+						{
+							"Swap",
+							nil,
+							function()
+								local pick = Selection:Get()[1]
+								local old = v.inst.Name
+								if not (pick and Engine.swapVariant(l, table.find(l.variants, v), pick)) then
+									App.status("Select the model to swap in, in the Explorer, then click Swap.")
+									return
+								end
+								App.status(string.format("Swapped %s for %s. Copies stay on the same spots where they fit.", old, pick.Name))
+								commit(l)
+								App.refreshObjects()
+							end,
+						},
+					}
+					if #l.variants > 1 then
+						table.insert(actions, {
+							"Remove",
+							"danger",
+							function()
+								Engine.removeVariant(l, table.find(l.variants, v))
+								commit()
+								App.refreshObjects()
+							end,
+						})
+					end
+					modelRow(b, v.inst, v.inst.Name, actions)
+					if #l.variants > 1 then
+						slider("Share", 0, 10, function()
+							return v.w
+						end, function(x)
+							v.w = x
+						end, "%.1f", 0.5, c.live, c.done, "How often this model is picked compared to the others in this object.", 1).Parent =
+							b
+					end
+					slider("Size", 0.3, 3, function()
+						return v.size
 					end, function(x)
-						v.w = x
-					end, "%.1f", 0.5, c.live, c.done, "How often this model is picked compared to the others in this object.", 1).Parent =
+						v.size = x
+					end, "%.2f×", 0.05, c.live, c.done, "Size of this model on top of the object's size range.", 1).Parent =
 						b
 				end
-				slider("Size", 0.3, 3, function()
-					return v.size
-				end, function(x)
-					v.size = x
-				end, "%.2f×", 0.05, c.live, c.done, "Size of this model on top of the object's size range.", 1).Parent =
-					b
-			end
-			if l.missing then
-				para(
-					string.format(
-						"%d more model%s not found in this place. %s kept, and come%s back when found again.",
-						#l.missing,
-						#l.missing == 1 and "" or "s",
-						#l.missing == 1 and "It's" or "They're",
-						#l.missing == 1 and "s" or ""
-					),
-					{ Parent = b }
-				)
-			end
-			gap(b, 4)
-			hintOn(
-				button("Add selected as models", nil, function()
-					local added = 0
-					for _, sel in Selection:Get() do
-						for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
-							if Engine.addVariant(l, inst) then
-								added += 1
+				if l.missing then
+					para(
+						string.format(
+							"%d more model%s not found in this place. %s kept, and come%s back when found again.",
+							#l.missing,
+							#l.missing == 1 and "" or "s",
+							#l.missing == 1 and "It's" or "They're",
+							#l.missing == 1 and "s" or ""
+						),
+						{ Parent = b }
+					)
+				end
+				gap(b, 4)
+				hintOn(
+					button("Add selected as models", nil, function()
+						local added = 0
+						for _, sel in Selection:Get() do
+							for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+								if Engine.addVariant(l, inst) then
+									added += 1
+								end
 							end
 						end
-					end
-					if added == 0 then
-						App.status("Select more models in the Explorer to mix them into this object.")
-						return
-					end
-					App.status(string.format("Added %d model%s to %s.", added, added == 1 and "" or "s", l.inst.Name))
-					commit(l)
-					App.refreshObjects()
-				end, { Parent = buttonRow(b) }),
-				"Select models (or a folder of them) in the Explorer, then click: they mix into this object, e.g. pine, oak and birch in one forest."
-			)
-		end)
+						if added == 0 then
+							App.status("Select more models in the Explorer to mix them into this object.")
+							return
+						end
+						App.status(string.format("Added %d model%s to %s.", added, added == 1 and "" or "s", l.inst.Name))
+						commit(l)
+						App.refreshObjects()
+					end, { Parent = buttonRow(b) }),
+					"Select models (or a folder of them) in the Explorer, then click: they mix into this object, e.g. pine, oak and birch in one forest."
+				)
+			end,
+		})
 	end
 
-	local function buildLayerPaint(l, parent)
-		section(parent, "layerpaint", "Paint or place this object", false, function(b)
-			local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
-				return App.paintLayer == l and App.mode or nil
-			end, function(m)
-				App.setMode(m, l)
-			end, nil, nil, true)
-			seg.Parent = b
-			explain(
-				b,
-				"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
-			)
-			App.ui.refreshLayerBrush = refresh
-			if l.pins then
-				gap(b, 4)
-				button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
-					l.pins = nil
-					commit(l)
-					App.refreshObjects()
-				end, { Parent = buttonRow(b) })
-			end
-			if l.paint then
-				gap(b, 4)
-				button("Reset painting", nil, function()
-					l.paint = nil
-					if App.paintLayer == l then
-						recolorOverlay()
-					end
-					commit(l)
-					App.refreshObjects()
-				end, { Parent = buttonRow(b) })
-			end
-		end)
+	local function buildLayerPaint(l, parent, more)
+		parent.add({
+			id = "layerpaint",
+			title = "Paint or place this object",
+			keys = "brush more less clear place pins",
+			more = more,
+			build = function(b)
+				local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
+					return App.paintLayer == l and App.mode or nil
+				end, function(m)
+					App.setMode(m, l)
+				end, nil, nil, true)
+				seg.Parent = b
+				explain(
+					b,
+					"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
+				)
+				App.ui.refreshLayerBrush = refresh
+				if l.pins then
+					gap(b, 4)
+					button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+						l.pins = nil
+						commit(l)
+						App.refreshObjects()
+					end, { Parent = buttonRow(b) })
+				end
+				if l.paint then
+					gap(b, 4)
+					button("Reset painting", nil, function()
+						l.paint = nil
+						if App.paintLayer == l then
+							recolorOverlay()
+						end
+						commit(l)
+						App.refreshObjects()
+					end, { Parent = buttonRow(b) })
+				end
+			end,
+		})
 	end
 
 	local function buildSize(l, parent, c)
 		local s = l.s
-		section(parent, "size", "Size", true, function(b)
-			if Engine.isLine(l) and s.fit then -- pieces that join up all share one size
-				slider("Size", 0.2, 4, function()
-					return (s.scaleMin + s.scaleMax) / 2
-				end, function(v)
-					s.scaleMin, s.scaleMax = v, v
-				end, "%.2f×", 0.05, c.live, c.done, "Size of every piece. Pieces that join end to end all share one size.", 1).Parent =
-					b
-			else
-				c.S(b, "scaleMin", "Smallest", 0.2, 4, "%.2f×", 0.05, "Smallest random size a copy can be.")
-				c.S(b, "scaleMax", "Largest", 0.2, 4, "%.2f×", 0.05, "Largest random size. Bigger copies land in the middle of clumps.")
-				c.S(
-					b,
-					"edgeYoung",
-					"Young at the edges",
-					0,
-					1,
-					"%.0f%%",
-					0.05,
-					"Smaller copies toward the area's edge and its clearings, like the young fringe of a real forest."
-				)
-			end
-		end)
+		parent.add({
+			id = "size",
+			title = "Size",
+			keys = "smallest largest young edges scale",
+			more = false,
+			build = function(b)
+				if Engine.isLine(l) and s.fit then -- pieces that join up all share one size
+					slider("Size", 0.2, 4, function()
+						return (s.scaleMin + s.scaleMax) / 2
+					end, function(v)
+						s.scaleMin, s.scaleMax = v, v
+					end, "%.2f×", 0.05, c.live, c.done, "Size of every piece. Pieces that join end to end all share one size.", 1).Parent =
+						b
+				else
+					c.S(b, "scaleMin", "Smallest", 0.2, 4, "%.2f×", 0.05, "Smallest random size a copy can be.")
+					c.S(b, "scaleMax", "Largest", 0.2, 4, "%.2f×", 0.05, "Largest random size. Bigger copies land in the middle of clumps.")
+					c.S(
+						b,
+						"edgeYoung",
+						"Young at the edges",
+						0,
+						1,
+						"%.0f%%",
+						0.05,
+						"Smaller copies toward the area's edge and its clearings, like the young fringe of a real forest."
+					)
+				end
+			end,
+		})
 	end
 
 	local function buildSpread(parent, c)
-		section(parent, "spread", "Spread", true, function(b)
-			c.S(b, "spacing", "Spacing", 0.3, 3, "%.2f×", 0.05, "Gap between copies of this object, relative to their size.")
-			c.S(b, "clearance", "Room for others", 0, 2, "%.2f×", 0.05, "Lower lets other objects tuck in close, e.g. bushes under trees.")
-			c.S(b, "cluster", "Clumping", 0, 1, "%.0f%%", 0.05, "0% spreads evenly. 100% groups copies into patches.")
-			c.S(b, "clumpSize", "Clump size", 0.3, 4, "%.2f×", 0.05, "How big the patches are when clumping.")
-			c.S(b, "maxCount", "Limit", 0, 2000, "%.0f", 10, "Maximum number of copies. 0 means no limit.")
-		end)
+		parent.add({
+			id = "spread",
+			title = "Spread",
+			keys = "spacing clumping clump room limit",
+			more = false,
+			build = function(b)
+				c.S(b, "spacing", "Spacing", 0.3, 3, "%.2f×", 0.05, "Gap between copies of this object, relative to their size.")
+				c.S(b, "clearance", "Room for others", 0, 2, "%.2f×", 0.05, "Lower lets other objects tuck in close, e.g. bushes under trees.")
+				c.S(b, "cluster", "Clumping", 0, 1, "%.0f%%", 0.05, "0% spreads evenly. 100% groups copies into patches.")
+				c.S(b, "clumpSize", "Clump size", 0.3, 4, "%.2f×", 0.05, "How big the patches are when clumping.")
+				c.S(b, "maxCount", "Limit", 0, 2000, "%.0f", 10, "Maximum number of copies. 0 means no limit.")
+			end,
+		})
 	end
 
 	local function buildGroups(l, parent, c)
 		local s = l.s
-		section(parent, "groups", "Groups", s.groups, function(b)
-			c.SW(
-				b,
-				"groups",
-				"Place in small groups",
-				"Copies gather in little piles (barrels, crates, rocks, bushes) with space between piles, instead of spreading one by one.",
-				true
-			)
-			if not s.groups then
-				return
-			end
-			c.S(b, "groupMin", "Smallest group", 1, 12, "%.0f", 1, "Fewest pieces in one pile.")
-			c.S(b, "groupMax", "Largest group", 1, 12, "%.0f", 1, "Most pieces in one pile.")
-			c.S(b, "tight", "Tightness", 0.9, 2.5, "%.2f×", 0.05, "1× means pieces touch. Higher leaves a small gap between them.")
-			local flat = false
-			for _, v in l.variants do
-				flat = flat or v.m.flatTop >= 0.45
-			end
-			if flat then
-				c.S(
+		parent.add({
+			id = "groups",
+			title = "Groups",
+			keys = "piles stack tightness",
+			more = true,
+			build = function(b)
+				c.SW(
 					b,
-					"stack",
-					"Stack on top",
-					0,
-					0.6,
-					"%.0f%%",
-					0.05,
-					"Chance a piece sits on top of another, like crates on crates. Only on flat tops."
+					"groups",
+					"Place in small groups",
+					"Copies gather in little piles (barrels, crates, rocks, bushes) with space between piles, instead of spreading one by one.",
+					true
 				)
-			end
-			c.SW(b, "sameModel", "Same model per group", "On: a pile is all barrels or all crates. Off: models mix inside a pile.")
-		end)
+				if not s.groups then
+					return
+				end
+				c.S(b, "groupMin", "Smallest group", 1, 12, "%.0f", 1, "Fewest pieces in one pile.")
+				c.S(b, "groupMax", "Largest group", 1, 12, "%.0f", 1, "Most pieces in one pile.")
+				c.S(b, "tight", "Tightness", 0.9, 2.5, "%.2f×", 0.05, "1× means pieces touch. Higher leaves a small gap between them.")
+				local flat = false
+				for _, v in l.variants do
+					flat = flat or v.m.flatTop >= 0.45
+				end
+				if flat then
+					c.S(
+						b,
+						"stack",
+						"Stack on top",
+						0,
+						0.6,
+						"%.0f%%",
+						0.05,
+						"Chance a piece sits on top of another, like crates on crates. Only on flat tops."
+					)
+				end
+				c.SW(b, "sameModel", "Same model per group", "On: a pile is all barrels or all crates. Off: models mix inside a pile.")
+			end,
+		})
 	end
 
 	local function buildGrowsOn(l, parent, c)
 		local s = l.s
-		section(parent, "surfaces", "Grows on", false, function(b)
-			local grid = chipGrid(b, 4, 30)
-			for _, cls in Engine.SURFACES do
-				chip(grid, NICE[cls] or cls, function()
-					return s.surfaces[cls]
-				end, function()
-					s.surfaces[cls] = not s.surfaces[cls]
-					c.changed()
-				end)
-			end
-			if not Engine.isLine(l) then -- the height band is a scatter rule: lines follow their edge wherever it goes
-				gap(b, 6)
-				c.SW(b, "useAlt", "Only within a height band", "Keeps this object to part of the area's height, e.g. rocks only up high.", true)
-				if s.useAlt then
-					c.S(b, "altMin", "From", 0, 1, "%.0f%%", 0.05, "Bottom of the band. 0% is the lowest ground in the area.")
-					c.S(b, "altMax", "To", 0, 1, "%.0f%%", 0.05, "Top of the band. 100% is the highest ground in the area.")
+		parent.add({
+			id = "surfaces",
+			title = "Grows on",
+			keys = "grass sand rock snow height band",
+			more = true,
+			build = function(b)
+				local grid = chipGrid(b, 4, 30)
+				for _, cls in Engine.SURFACES do
+					chip(grid, NICE[cls] or cls, function()
+						return s.surfaces[cls]
+					end, function()
+						s.surfaces[cls] = not s.surfaces[cls]
+						c.changed()
+					end)
 				end
-			end
-		end)
+				if not Engine.isLine(l) then -- the height band is a scatter rule: lines follow their edge wherever it goes
+					gap(b, 6)
+					c.SW(b, "useAlt", "Only within a height band", "Keeps this object to part of the area's height, e.g. rocks only up high.", true)
+					if s.useAlt then
+						c.S(b, "altMin", "From", 0, 1, "%.0f%%", 0.05, "Bottom of the band. 0% is the lowest ground in the area.")
+						c.S(b, "altMax", "To", 0, 1, "%.0f%%", 0.05, "Top of the band. 100% is the highest ground in the area.")
+					end
+				end
+			end,
+		})
 	end
 
 	local function buildNeighbours(l, parent, c)
 		local s = l.s
-		section(parent, "avoid", "Keep away from", false, function(b)
-			c.S(b, "keepBuilding", "Buildings", 0, 60, "%.0f studs", 1, "Minimum distance from buildings and other structures.")
-			c.S(b, "keepRoad", "Roads", 0, 60, "%.0f studs", 1, "Minimum distance from roads and pavement.")
-			c.S(b, "keepWater", "Water", 0, 60, "%.0f studs", 1, "Minimum distance from water.")
-		end)
-		section(parent, "attract", "Prefer near", false, function(b)
-			segmented(Engine.HUGS, function()
-				return s.hug
-			end, function(v)
-				s.hug = v
-			end, function()
-				c.changed(true)
-			end).Parent =
-				b
-			explain(b, "Pull this object toward something: bushes near trees, crates near houses.")
-			if s.hug ~= "None" then
-				gap(b, 4)
-				c.S(b, "hugRange", "Within", 2, 80, "%.0f studs", 1, "How far the pull reaches.")
-				c.S(b, "hugStrength", "Strength", 0, 1, "%.0f%%", 0.05, "100% means only near it. 0% ignores it.")
-			end
-			if l.type == "Building" then
-				c.SW(b, "faceRoad", "Face the nearest road", "Turns the front (−Z side) of each building toward the closest road.")
-			end
-			local others = {}
-			for _, o in App.area.layers do
-				if o ~= l then
-					table.insert(others, o)
-				end
-			end
-			if #others > 0 then
-				gap(b, 6)
-				stepLabel(b, nil, "Near another object")
-				local grid = chipGrid(b, 3, 30)
-				chip(grid, "None", function()
-					return s.near == ""
+		parent.add({
+			id = "avoid",
+			title = "Keep away from",
+			keys = "buildings roads water distance",
+			more = true,
+			build = function(b)
+				c.S(b, "keepBuilding", "Buildings", 0, 60, "%.0f studs", 1, "Minimum distance from buildings and other structures.")
+				c.S(b, "keepRoad", "Roads", 0, 60, "%.0f studs", 1, "Minimum distance from roads and pavement.")
+				c.S(b, "keepWater", "Water", 0, 60, "%.0f studs", 1, "Minimum distance from water.")
+			end,
+		})
+		parent.add({
+			id = "attract",
+			title = "Prefer near",
+			keys = "hug near walls water roads face road",
+			more = true,
+			build = function(b)
+				segmented(Engine.HUGS, function()
+					return s.hug
+				end, function(v)
+					s.hug = v
 				end, function()
-					s.near = ""
 					c.changed(true)
-				end)
-				for _, o in others do
-					local key = Engine.layerKey(o)
-					chip(grid, o.inst.Name, function()
-						return s.near == key
+				end).Parent =
+					b
+				explain(b, "Pull this object toward something: bushes near trees, crates near houses.")
+				if s.hug ~= "None" then
+					gap(b, 4)
+					c.S(b, "hugRange", "Within", 2, 80, "%.0f studs", 1, "How far the pull reaches.")
+					c.S(b, "hugStrength", "Strength", 0, 1, "%.0f%%", 0.05, "100% means only near it. 0% ignores it.")
+				end
+				if l.type == "Building" then
+					c.SW(b, "faceRoad", "Face the nearest road", "Turns the front (−Z side) of each building toward the closest road.")
+				end
+				local others = {}
+				for _, o in App.area.layers do
+					if o ~= l then
+						table.insert(others, o)
+					end
+				end
+				if #others > 0 then
+					gap(b, 6)
+					stepLabel(b, nil, "Near another object")
+					local grid = chipGrid(b, 3, 30)
+					chip(grid, "None", function()
+						return s.near == ""
 					end, function()
-						s.near = key
+						s.near = ""
 						c.changed(true)
 					end)
+					for _, o in others do
+						local key = Engine.layerKey(o)
+						chip(grid, o.inst.Name, function()
+							return s.near == key
+						end, function()
+							s.near = key
+							c.changed(true)
+						end)
+					end
+					if s.near ~= "" then
+						c.S(b, "nearRange", "Within", 2, 60, "%.0f studs", 1, "How far from that object's copies this one grows.")
+						c.S(b, "nearStrength", "Strength", 0, 1, "%.0f%%", 0.05, "100% means only near it. 0% ignores it.")
+					end
 				end
-				if s.near ~= "" then
-					c.S(b, "nearRange", "Within", 2, 60, "%.0f studs", 1, "How far from that object's copies this one grows.")
-					c.S(b, "nearStrength", "Strength", 0, 1, "%.0f%%", 0.05, "100% means only near it. 0% ignores it.")
-				end
-			end
-		end)
+			end,
+		})
 	end
 
 	local function buildSlope(parent, c)
-		section(parent, "terrain", "Slope", false, function(b)
-			c.S(b, "maxSlope", "Steepest", 0, 89, "%.0f°", 1, "Steepest ground this object can stand on.")
-			c.S(
-				b,
-				"slopePref",
-				"Prefers",
-				-1,
-				1,
-				"%+.0f%%",
-				0.05,
-				"Below 0: mostly on flat ground (trees in the valleys). Above 0: mostly on slopes (rocks and shrubs on hillsides). 0: anywhere."
-			)
-			c.S(b, "align", "Lean with the ground", 0, 1, "%.0f%%", 0.05, "0% stands straight up. 100% tilts with the slope.")
-		end)
+		parent.add({
+			id = "terrain",
+			title = "Slope",
+			keys = "steep flat lean slope",
+			more = true,
+			build = function(b)
+				c.S(b, "maxSlope", "Steepest", 0, 89, "%.0f°", 1, "Steepest ground this object can stand on.")
+				c.S(
+					b,
+					"slopePref",
+					"Prefers",
+					-1,
+					1,
+					"%+.0f%%",
+					0.05,
+					"Below 0: mostly on flat ground (trees in the valleys). Above 0: mostly on slopes (rocks and shrubs on hillsides). 0: anywhere."
+				)
+				c.S(b, "align", "Lean with the ground", 0, 1, "%.0f%%", 0.05, "0% stands straight up. 100% tilts with the slope.")
+			end,
+		})
 	end
 
 	local function buildLook(l, parent, c)
 		local s = l.s
 		local line = Engine.isLine(l)
-		section(parent, "look", "Look", false, function(b)
-			if not line then
-				c.PICK(b, "Rotation", "yawMode", Engine.YAW_MODES, nil, true)
-				if s.yawMode == "Fixed" then
-					gap(b, 4)
-					c.S(b, "yaw", "Fixed angle", 0, 359, "%.0f°", 5, "The direction every copy faces.")
+		parent.add({
+			id = "look",
+			title = "Look",
+			keys = "rotation tilt wind colour color hue saturation brightness variation details sink lift",
+			more = true,
+			build = function(b)
+				if not line then
+					c.PICK(b, "Rotation", "yawMode", Engine.YAW_MODES, nil, true)
+					if s.yawMode == "Fixed" then
+						gap(b, 4)
+						c.S(b, "yaw", "Fixed angle", 0, 359, "%.0f°", 5, "The direction every copy faces.")
+					end
 				end
-			end
-			if not (line and s.fit) then -- joined pieces stay true so their joints meet
-				c.S(b, "tilt", "Random tilt", 0, 45, "%.0f°", 1, "Random lean for a less uniform look.")
-				c.S(
-					b,
-					"lean",
-					"Lean with the wind",
-					0,
-					30,
-					"%.0f°",
-					1,
-					"Every copy leans the same way, like windswept trees. The direction is the area's Wind setting."
-				)
-			end
-			gap(b, 4)
-			c.SW(
-				b,
-				"vary",
-				"Variation",
-				"Every copy a little different: its own hue, saturation and brightness, on part colours, SurfaceAppearance meshes and decals alike; optionally with some details left out.",
-				true
-			)
-			if s.vary then
-				c.S(b, "hueVar", "Hue", 0, 0.15, "±%.0f%%", 0.005, "How far colours may drift round the colour wheel.")
-				c.S(b, "satVar", "Saturation", 0, 0.5, "±%.0f%%", 0.01, "Richer or more washed-out colours.")
-				c.S(b, "valVar", "Brightness", 0, 0.5, "±%.0f%%", 0.01, "Lighter or darker copies.")
+				if not (line and s.fit) then -- joined pieces stay true so their joints meet
+					c.S(b, "tilt", "Random tilt", 0, 45, "%.0f°", 1, "Random lean for a less uniform look.")
+					c.S(
+						b,
+						"lean",
+						"Lean with the wind",
+						0,
+						30,
+						"%.0f°",
+						1,
+						"Every copy leans the same way, like windswept trees. The direction is the area's Wind setting."
+					)
+				end
+				gap(b, 4)
 				c.SW(
 					b,
-					"perPart",
-					"Each part separately",
-					"Off: one shift for the whole copy. On: every part gets its own, e.g. leaves in slightly different greens."
+					"vary",
+					"Variation",
+					"Every copy a little different: its own hue, saturation and brightness, on part colours, SurfaceAppearance meshes and decals alike; optionally with some details left out.",
+					true
 				)
+				if s.vary then
+					c.S(b, "hueVar", "Hue", 0, 0.15, "±%.0f%%", 0.005, "How far colours may drift round the colour wheel.")
+					c.S(b, "satVar", "Saturation", 0, 0.5, "±%.0f%%", 0.01, "Richer or more washed-out colours.")
+					c.S(b, "valVar", "Brightness", 0, 0.5, "±%.0f%%", 0.01, "Lighter or darker copies.")
+					c.SW(
+						b,
+						"perPart",
+						"Each part separately",
+						"Off: one shift for the whole copy. On: every part gets its own, e.g. leaves in slightly different greens."
+					)
+					c.S(
+						b,
+						"dropDetails",
+						"Leave out details",
+						0,
+						1,
+						"%.0f%%",
+						0.05,
+						"Chance each detail part is left out, so copies differ in shape too. Details: parts named like Apple, Fruit, Berry, Mushroom, Moss, Detail, Extra or Optional, or marked with the attribute SS_Optional."
+					)
+				else
+					c.S(b, "tint", "Colour shift", 0, 0.4, "%.0f%%", 0.01, "Random brightness and hue change per copy.")
+				end
 				c.S(
 					b,
-					"dropDetails",
-					"Leave out details",
-					0,
-					1,
+					"sink",
+					"Sink or lift",
+					-0.3,
+					0.6,
 					"%.0f%%",
-					0.05,
-					"Chance each detail part is left out, so copies differ in shape too. Details: parts named like Apple, Fruit, Berry, Mushroom, Moss, Detail, Extra or Optional, or marked with the attribute SS_Optional."
+					0.01,
+					"Pushes copies into the ground (+) or lifts them (−), as a share of their height."
 				)
-			else
-				c.S(b, "tint", "Colour shift", 0, 0.4, "%.0f%%", 0.01, "Random brightness and hue change per copy.")
-			end
-			c.S(
-				b,
-				"sink",
-				"Sink or lift",
-				-0.3,
-				0.6,
-				"%.0f%%",
-				0.01,
-				"Pushes copies into the ground (+) or lifts them (−), as a share of their height."
-			)
-		end)
+			end,
+		})
 	end
 
 	local function buildActions(l, parent, c)
@@ -4543,7 +4596,7 @@ return function(App)
 		end, { Parent = actions })
 	end
 
-	local function layerRules(l, parent)
+	local function layerRules(l, parent, c)
 		local s = l.s
 		local spl = App.area and App.area.spline
 		if Engine.isLine(l) and spl and #spl.pts >= 2 and (App.area.count or 0) == 0 and s.follow ~= "Spline" then
@@ -4552,34 +4605,32 @@ return function(App)
 		end
 		local line = Engine.isLine(l)
 		local onSpline = line and s.follow == "Spline" -- stands on the curve: ground filters and slope don't apply
-		local c = controls(l)
-		local panel = col({ Parent = parent }, { vlist(2) })
-		buildBasics(l, panel, c)
-		gap(panel, 8)
+		local cs = App.cards(parent, "object")
+		buildBasics(l, cs, c)
+		buildModels(l, cs, c)
 		if line then
-			buildLine(l, panel, c)
+			buildLine(l, cs, c)
 		end
-		buildModels(l, panel, c)
-		if not onSpline then
-			buildLayerPaint(l, panel)
-		end
-		buildSize(l, panel, c)
+		buildSize(l, cs, c)
 		if not line then
-			buildSpread(panel, c)
-			buildGroups(l, panel, c)
+			buildSpread(cs, c)
 		end
 		if not onSpline then
-			buildGrowsOn(l, panel, c)
+			buildLayerPaint(l, cs, true)
 		end
 		if not line then
-			buildNeighbours(l, panel, c)
+			buildGroups(l, cs, c)
+		end
+		if not onSpline then
+			buildGrowsOn(l, cs, c)
+		end
+		if not line then
+			buildNeighbours(l, cs, c)
 		end
 		if not onSpline then -- on a path, Orientation decides how copies stand
-			buildSlope(panel, c)
+			buildSlope(cs, c)
 		end
-		buildLook(l, panel, c)
-		gap(panel, 8)
-		buildActions(l, panel, c)
+		buildLook(l, cs, c)
 	end
 
 	local function layerRow(l, parent) -- an object in the list: thumbnail, name, what it is, its share, on/off
@@ -4643,7 +4694,8 @@ return function(App)
 		label(l.inst.Name, 16, P.text, SANS_B, { Position = UDim2.fromOffset(52, 2), Size = UDim2.new(1, -52, 0, 22), Parent = head })
 		local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -52, 0, 16), Parent = head })
 		rowRefs[l] = { sub = sub }
-		gap(parent, 8)
+		local c = controls(l)
+		buildActions(l, parent, c)
 		if not Engine.isLine(l) then
 			switchRow(
 				"Show where it grows",
@@ -4660,7 +4712,8 @@ return function(App)
 			).Parent =
 				parent
 		end
-		layerRules(l, parent)
+		gap(parent, 4)
+		layerRules(l, parent, c)
 	end
 
 	local function addSelected()
@@ -4706,7 +4759,7 @@ return function(App)
 			return
 		end
 		App.status(added == 1 and "Added 1 object." or string.format("Added %d objects.", added))
-		G.page = "Objects"
+		G.page = "Scatter"
 		saveG()
 		commit()
 		showObject(added == 1 and last or nil) -- one new object: open it; several: show the list
@@ -4744,96 +4797,92 @@ return function(App)
 	end
 	App.addLayers = addLayers -- (the area menu's "Copy settings from…" adds objects the same way)
 
-	local function buildBiomes(parent, open)
-		section(parent, "biomes", "Start from a biome", open, function(b)
-			local grid = chipGrid(b, 4, 30)
-			for _, biome in Engine.BIOMES do
-				hintOn(
-					chip(grid, biome.name, nil, function()
-						local layers, missing = Engine.biomeLayers(biome)
-						if #layers == 0 then
-							App.status('No models with fitting names found (like "Oak Tree" or "Rock"). Try Get sample models.')
-							return
-						end
-						local none = #missing > 0 and ("No " .. string.lower(table.concat(missing, ", ")) .. " models found.") or nil
-						addLayers(layers, biome.name, none)
-					end),
-					"Adds a "
-						.. string.lower(biome.name)
-						.. " mix made from your models, found by name in ServerStorage, ReplicatedStorage and asset folders."
-				)
-			end
-			gap(b, 4)
+	local function buildBiomes(b)
+		local grid = chipGrid(b, 4, 30)
+		for _, biome in Engine.BIOMES do
 			hintOn(
-				button("Get sample models", nil, function()
-					local rec = beginRec("Smart Scatter: Sample models")
-					local folder, made = Engine.makeSamples()
-					endRec(rec, not made)
-					Selection:Set({ folder })
-					App.status(
-						made and "Sample models are in ServerStorage > SmartScatter Samples, and selected. Pick a biome, or Add selected."
-							or "Sample models are already in ServerStorage; selected them."
-					)
-				end, { Parent = buttonRow(b) }),
-				"Puts a few simple trees, a bush, a flower, a rock and a crate in ServerStorage to try things with."
+				chip(grid, biome.name, nil, function()
+					local layers, missing = Engine.biomeLayers(biome)
+					if #layers == 0 then
+						App.status('No models with fitting names found (like "Oak Tree" or "Rock"). Try Get sample models.')
+						return
+					end
+					local none = #missing > 0 and ("No " .. string.lower(table.concat(missing, ", ")) .. " models found.") or nil
+					addLayers(layers, biome.name, none)
+				end),
+				"Adds a "
+					.. string.lower(biome.name)
+					.. " mix made from your models, found by name in ServerStorage, ReplicatedStorage and asset folders."
 			)
-		end)
+		end
+		gap(b, 4)
+		hintOn(
+			button("Get sample models", nil, function()
+				local rec = beginRec("Smart Scatter: Sample models")
+				local folder, made = Engine.makeSamples()
+				endRec(rec, not made)
+				Selection:Set({ folder })
+				App.status(
+					made and "Sample models are in ServerStorage > SmartScatter Samples, and selected. Pick a biome, or Add selected."
+						or "Sample models are already in ServerStorage; selected them."
+				)
+			end, { Parent = buttonRow(b) }),
+			"Puts a few simple trees, a bush, a flower, a rock and a crate in ServerStorage to try things with."
+		)
 	end
 
-	local function buildReport(parent)
-		section(parent, "performance", "Performance", false, function(b)
-			explain(b, "See which objects cost the most parts, so you know what to simplify first.")
-			local out = col({ Parent = b }, { vlist(2) })
-			local function show()
-				out:ClearAllChildren()
-				vlist(2).Parent = out
-				local rows, total = Engine.report(App.area)
-				if total.parts == 0 then
-					para("Nothing placed yet.", { Parent = out })
-					return
-				end
-				for _, r in rows do
-					local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = out })
-					label(r.name, 12, P.text, SANS_M, { Size = UDim2.new(0.45, 0, 1, 0), Parent = row })
-					label(
-						r.copies > 0
-								and string.format(
-									"%s parts · %s per copy%s",
-									num(r.parts),
-									num(math.ceil(r.parts / r.copies)),
-									r.unique > 0 and (" · " .. r.unique .. " meshes") or ""
-								)
-							or (num(r.parts) .. " parts"),
-						12,
-						P.dim,
-						SANS,
-						{
-							Size = UDim2.new(0.55, 0, 1, 0),
-							Position = UDim2.fromScale(0.45, 0),
-							TextXAlignment = Enum.TextXAlignment.Right,
-							Parent = row,
-						}
-					)
-				end
-				local top = rows[1]
-				local share = top.parts / total.parts
-				para(
-					string.format("%s parts in all.", num(total.parts))
-						.. (
-							#rows > 1
-								and share >= 0.4
-								and string.format(
-									" %s is %d%% of them: a simpler model or a lower amount there helps most.",
-									top.name,
-									math.floor(share * 100 + 0.5)
-								)
-							or ""
-						),
-					{ Parent = out }
+	local function buildReport(b)
+		explain(b, "See which objects cost the most parts, so you know what to simplify first.")
+		local out = col({ Parent = b }, { vlist(2) })
+		local function show()
+			out:ClearAllChildren()
+			vlist(2).Parent = out
+			local rows, total = Engine.report(App.area)
+			if total.parts == 0 then
+				para("Nothing placed yet.", { Parent = out })
+				return
+			end
+			for _, r in rows do
+				local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = out })
+				label(r.name, 12, P.text, SANS_M, { Size = UDim2.new(0.45, 0, 1, 0), Parent = row })
+				label(
+					r.copies > 0
+							and string.format(
+								"%s parts · %s per copy%s",
+								num(r.parts),
+								num(math.ceil(r.parts / r.copies)),
+								r.unique > 0 and (" · " .. r.unique .. " meshes") or ""
+							)
+						or (num(r.parts) .. " parts"),
+					12,
+					P.dim,
+					SANS,
+					{
+						Size = UDim2.new(0.55, 0, 1, 0),
+						Position = UDim2.fromScale(0.45, 0),
+						TextXAlignment = Enum.TextXAlignment.Right,
+						Parent = row,
+					}
 				)
 			end
-			button("Check this area", nil, show, { Parent = buttonRow(b) })
-		end)
+			local top = rows[1]
+			local share = top.parts / total.parts
+			para(
+				string.format("%s parts in all.", num(total.parts))
+					.. (
+						#rows > 1
+							and share >= 0.4
+							and string.format(
+								" %s is %d%% of them: a simpler model or a lower amount there helps most.",
+								top.name,
+								math.floor(share * 100 + 0.5)
+							)
+						or ""
+					),
+				{ Parent = out }
+			)
+		end
+		button("Check this area", nil, show, { Parent = buttonRow(b) })
 	end
 
 	local codeBox
@@ -4846,106 +4895,104 @@ return function(App)
 		codeBox.SelectionStart, codeBox.CursorPosition = 1, #code + 1
 		App.status("The code is selected in the box: press Ctrl+C to copy it.")
 	end
-	local function buildPresets(parent)
-		section(parent, "presets", "Presets", false, function(b)
-			local list = Engine.listPresets()
-			if #list == 0 then
-				App.emptyState(b, "No presets yet", "Save this area's objects below to reuse them in any area.")
-			end
-			for _, v in list do
-				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -220, 1, 0), Parent = row })
-				local acts = box({
-					Size = UDim2.new(0, 0, 1, 0),
-					AutomaticSize = Enum.AutomaticSize.X,
-					AnchorPoint = Vector2.new(1, 0),
-					Position = UDim2.fromScale(1, 0),
-					Parent = row,
-				}, { hlist(6) })
-				hintOn(
-					button("Use", "accent", function()
-						local layers, lost = Engine.layersFromJSON(v.Value)
-						addLayers(layers, v.Name, #lost > 0 and string.format("%d model%s not found in this place.", #lost, #lost == 1 and "" or "s"))
-					end, { Parent = acts }),
-					"Adds this preset's objects to the area (ones it already has are skipped)."
-				)
-				hintOn(
-					button("Share", nil, function()
-						shareCode(Engine.presetCode(v))
-					end, { Parent = acts }),
-					"Puts this preset's code in the box below: copy it and paste it into another place, or send it to a teammate."
-				)
-				button("Delete", "danger", function()
-					local rec = beginRec("Smart Scatter: Delete preset")
-					v.Parent = nil
-					endRec(rec)
-					App.refreshObjects()
-				end, { Parent = acts })
-			end
-			gap(b, 6)
-			local saveRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
-			local nameBox = new("TextBox", {
-				Text = "",
-				PlaceholderText = "Preset name",
-				Font = SANS,
-				TextSize = 13,
-				TextColor3 = P.text,
-				PlaceholderColor3 = P.faint,
-				BackgroundColor3 = P.field,
-				ClearTextOnFocus = false,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Size = UDim2.new(1, -76, 1, 0),
-				Parent = saveRow,
-			}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+	local function buildPresets(b)
+		local list = Engine.listPresets()
+		if #list == 0 then
+			App.emptyState(b, "No presets yet", "Save this area's objects below to reuse them in any area.")
+		end
+		for _, v in list do
+			local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+			label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -220, 1, 0), Parent = row })
+			local acts = box({
+				Size = UDim2.new(0, 0, 1, 0),
+				AutomaticSize = Enum.AutomaticSize.X,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.fromScale(1, 0),
+				Parent = row,
+			}, { hlist(6) })
 			hintOn(
-				button("Save", "accent", function()
-					local name = string.gsub(nameBox.Text, "^%s*(.-)%s*$", "%1")
-					if name == "" then
-						name = App.area.folder.Name
-					end
-					if #App.area.layers == 0 then
-						App.status("Add some objects first, then save them as a preset.")
-						return
-					end
-					local rec = beginRec("Smart Scatter: Save preset")
-					Engine.savePreset(name, App.area.layers)
-					endRec(rec)
-					App.status(string.format("Saved %d objects as %s.", #App.area.layers, name))
-					App.refreshObjects()
-				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = saveRow }),
-				"Saves this area's objects and all their settings under that name. Saving an existing name replaces it."
+				button("Use", "accent", function()
+					local layers, lost = Engine.layersFromJSON(v.Value)
+					addLayers(layers, v.Name, #lost > 0 and string.format("%d model%s not found in this place.", #lost, #lost == 1 and "" or "s"))
+				end, { Parent = acts }),
+				"Adds this preset's objects to the area (ones it already has are skipped)."
 			)
-			gap(b, 8)
-			label("Share code", 13, P.text, SANS, { Parent = b })
-			local codeRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
-			codeBox = new("TextBox", {
-				Text = "",
-				PlaceholderText = "Paste a code here, or press Share on a preset",
-				Font = SANS,
-				TextSize = 12,
-				TextColor3 = P.text,
-				PlaceholderColor3 = P.faint,
-				BackgroundColor3 = P.field,
-				ClearTextOnFocus = false,
-				TextTruncate = Enum.TextTruncate.AtEnd,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Size = UDim2.new(1, -76, 1, 0),
-				Parent = codeRow,
-			}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
 			hintOn(
-				button("Import", "accent", function()
-					local preset, err = Engine.importPresetCode(codeBox.Text)
-					if not preset then
-						App.status(err, "error")
-						return
-					end
-					codeBox.Text = ""
-					App.status(string.format("Imported %s. Press Use to add its objects to this area.", preset.Name))
-					App.refreshObjects()
-				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = codeRow }),
-				"Saves a pasted code as a preset. Models it needs are found in this place by where they sit or their name."
+				button("Share", nil, function()
+					shareCode(Engine.presetCode(v))
+				end, { Parent = acts }),
+				"Puts this preset's code in the box below: copy it and paste it into another place, or send it to a teammate."
 			)
-		end)
+			button("Delete", "danger", function()
+				local rec = beginRec("Smart Scatter: Delete preset")
+				v.Parent = nil
+				endRec(rec)
+				App.refreshObjects()
+			end, { Parent = acts })
+		end
+		gap(b, 6)
+		local saveRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+		local nameBox = new("TextBox", {
+			Text = "",
+			PlaceholderText = "Preset name",
+			Font = SANS,
+			TextSize = 13,
+			TextColor3 = P.text,
+			PlaceholderColor3 = P.faint,
+			BackgroundColor3 = P.field,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Size = UDim2.new(1, -76, 1, 0),
+			Parent = saveRow,
+		}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+		hintOn(
+			button("Save", "accent", function()
+				local name = string.gsub(nameBox.Text, "^%s*(.-)%s*$", "%1")
+				if name == "" then
+					name = App.area.folder.Name
+				end
+				if #App.area.layers == 0 then
+					App.status("Add some objects first, then save them as a preset.")
+					return
+				end
+				local rec = beginRec("Smart Scatter: Save preset")
+				Engine.savePreset(name, App.area.layers)
+				endRec(rec)
+				App.status(string.format("Saved %d objects as %s.", #App.area.layers, name))
+				App.refreshObjects()
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = saveRow }),
+			"Saves this area's objects and all their settings under that name. Saving an existing name replaces it."
+		)
+		gap(b, 8)
+		label("Share code", 13, P.text, SANS, { Parent = b })
+		local codeRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+		codeBox = new("TextBox", {
+			Text = "",
+			PlaceholderText = "Paste a code here, or press Share on a preset",
+			Font = SANS,
+			TextSize = 12,
+			TextColor3 = P.text,
+			PlaceholderColor3 = P.faint,
+			BackgroundColor3 = P.field,
+			ClearTextOnFocus = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Size = UDim2.new(1, -76, 1, 0),
+			Parent = codeRow,
+		}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+		hintOn(
+			button("Import", "accent", function()
+				local preset, err = Engine.importPresetCode(codeBox.Text)
+				if not preset then
+					App.status(err, "error")
+					return
+				end
+				codeBox.Text = ""
+				App.status(string.format("Imported %s. Press Use to add its objects to this area.", preset.Name))
+				App.refreshObjects()
+			end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = codeRow }),
+			"Saves a pasted code as a preset. Models it needs are found in this place by where they sit or their name."
+		)
 	end
 
 	local function buildLost(list)
@@ -4990,84 +5037,57 @@ return function(App)
 		gap(list, 8)
 	end
 
+	local function buildEverything(list)
+		slider(
+			"Amount of everything",
+			0.1,
+			3,
+			function()
+				return G.density
+			end,
+			function(v)
+				G.density = v
+			end,
+			"%.2f×",
+			0.05,
+			function()
+				requestLive()
+			end,
+			function()
+				saveG()
+				commit()
+			end,
+			"Scales how many of every object get placed, on top of each one's own amount.",
+			1
+		).Parent =
+			list
+		slider(
+			"Size of everything",
+			0.3,
+			3,
+			function()
+				return App.area.size or 1
+			end,
+			function(v)
+				App.area.size = v
+			end,
+			"%.2f×",
+			0.05,
+			function()
+				requestLive()
+			end,
+			function()
+				commit()
+			end,
+			"Scales every object in this area at once, on top of each one's own size. Spacing grows with it.",
+			1
+		).Parent =
+			list
+	end
+
 	local function fillList(list)
 		buildLost(list)
-		if #App.area.layers > 0 then
-			slider(
-				"Amount of everything",
-				0.1,
-				3,
-				function()
-					return G.density
-				end,
-				function(v)
-					G.density = v
-				end,
-				"%.2f×",
-				0.05,
-				function()
-					requestLive()
-				end,
-				function()
-					saveG()
-					commit()
-				end,
-				"Scales how many of every object get placed, on top of each one's own amount.",
-				1
-			).Parent =
-				list
-			slider(
-				"Size of everything",
-				0.3,
-				3,
-				function()
-					return App.area.size or 1
-				end,
-				function(v)
-					App.area.size = v
-				end,
-				"%.2f×",
-				0.05,
-				function()
-					requestLive()
-				end,
-				function()
-					commit()
-				end,
-				"Scales every object in this area at once, on top of each one's own size. Spacing grows with it.",
-				1
-			).Parent =
-				list
-			for _, l in App.area.layers do
-				layerRow(l, list)
-			end
-			gap(list, 2)
-			hintOn(
-				button("+  Add selected models", nil, addSelected, { Parent = buttonRow(list) }),
-				"Select models, or a folder of them, in the Explorer. Each becomes an object you can tune."
-			)
-			local fix = buttonRow(list)
-			local pick = button("", nil, function()
-				App.setMode("Remove")
-			end, { Parent = fix })
-			hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
-			local function refresh()
-				pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
-			end
-			refresh()
-			App.ui.refreshRemoveBtn = refresh
-			local n = Engine.removedCount(App.area)
-			if n > 0 then
-				button(string.format("Bring back %d removed", n), "ghost", function()
-					App.area.removed = {}
-					commit()
-					App.refreshObjects()
-					if not G.live then
-						App.status("Press Generate to bring them back.")
-					end
-				end, { Parent = fix })
-			end
-		else
+		if #App.area.layers == 0 then
 			App.emptyState(
 				list,
 				"No objects yet",
@@ -5075,37 +5095,55 @@ return function(App)
 				"Add selected models",
 				addSelected
 			)
+			return
 		end
-		gap(list, 4)
-		buildBiomes(list, #App.area.layers == 0)
-		buildPresets(list)
-		buildReport(list)
+		buildEverything(list)
+		gap(list, 2)
+		for _, l in App.area.layers do
+			layerRow(l, list)
+		end
+		gap(list, 2)
+		hintOn(
+			button("+  Add selected models", nil, addSelected, { Parent = buttonRow(list) }),
+			"Select models, or a folder of them, in the Explorer. Each becomes an object you can tune."
+		)
 	end
 
-	local function buildObjectsPage(parent)
-		if App.expanded and not table.find(App.area.layers, App.expanded) then
-			App.expanded = nil
+	local function fillRemoveCopies(b)
+		local fix = buttonRow(b)
+		local pick = button("", nil, function()
+			App.setMode("Remove")
+		end, { Parent = fix })
+		hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
+		local function refresh()
+			pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
 		end
-		if App.expanded then
-			App.pageHead(parent, "Objects", nil, function()
-				showObject(nil)
-			end)
-			gap(parent, 6)
-			App.ui.inspector = col({ Parent = parent }, { vlist(6) })
-		else
-			App.pageHead(parent, App.area.folder.Name, "Objects", function()
-				App.goPage("Main")
-			end)
-			gap(parent, 10)
-			App.ui.objectList = col({ Parent = parent }, { vlist(8) })
+		refresh()
+		App.ui.refreshRemoveBtn = refresh
+		local n = App.area and Engine.removedCount(App.area) or 0
+		if n > 0 then
+			button(string.format("Bring back %d removed", n), "ghost", function()
+				App.area.removed = {}
+				commit()
+				App.refreshObjects()
+				if not G.live then
+					App.status("Press Generate to bring them back.")
+				end
+			end, { Parent = fix })
 		end
+	end
+
+	local function liveBox(parent, fill)
+		local holder = col({ Parent = parent }, { vlist(8) })
+		App.ui.live = App.ui.live or {}
+		table.insert(App.ui.live, { holder = holder, fill = fill })
+		return holder
 	end
 
 	App.refreshObjects = function()
-		local list, inspector = App.ui.objectList, App.ui.inspector
 		if App.expanded and not (App.area and table.find(App.area.layers, App.expanded)) then
 			App.expanded = nil
-			if inspector then -- the open object is gone (removed, undone): back to the list
+			if App.ui.inspector then -- the open object is gone (removed, undone): back to the list
 				App.rebuildAll()
 				return
 			end
@@ -5122,23 +5160,21 @@ return function(App)
 			App.area.relinked = 0
 			App.saveArea()
 		end
-		if list or inspector then
+		local boxes = App.ui.live or {}
+		if #boxes > 0 then
 			eachThumb(function(vp) -- thumbnails are reused: take them out before the rows they sit in go
 				vp.Parent = nil
 			end)
 			table.clear(rowRefs)
-			for _, holder in { list, inspector } do
-				for _, ch in holder:GetChildren() do
+			for _, lb in boxes do
+				for _, ch in lb.holder:GetChildren() do
 					if ch:IsA("GuiObject") then
 						ch:Destroy()
 					end
 				end
-			end
-			if list and App.area then
-				fillList(list)
-			end
-			if inspector and App.expanded then
-				objectPage(App.expanded, inspector)
+				if App.area then
+					lb.fill(lb.holder)
+				end
 			end
 		end
 		App.refreshCounts()
@@ -5166,15 +5202,6 @@ return function(App)
 				r.kind.Text = l.s.enabled and (what .. placed .. (l.s.locked and " · locked" or "")) or "Off"
 			end
 		end
-		if App.ui.objectsSub and App.area and #App.area.layers > 0 then
-			local on, n = 0, #App.area.layers
-			for _, l in App.area.layers do
-				on += l.s.enabled and 1 or 0
-			end
-			App.ui.objectsSub.Text = string.format("%d object%s", n, n == 1 and "" or "s")
-				.. (on < n and string.format(" · %d on", on) or "")
-				.. (App.lastTotal > 0 and ("  ·  " .. num(App.lastTotal) .. " placed") or "")
-		end
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
 			local ok, why = canGenerate()
 			local failed = ok and App.failure ~= nil
@@ -5186,7 +5213,540 @@ return function(App)
 		end
 	end
 
-	App.buildObjectsPage = buildObjectsPage
+	App.showObject = showObject
+	App.addSelected = addSelected
+	App.liveBox = liveBox
+	App.buildBiomes = buildBiomes
+	App.buildReport = buildReport
+	App.buildLayerPaint = buildLayerPaint
+	App.objectRules = function(l, parent) -- one object's rule cards alone (search results)
+		layerRules(l, parent, controls(l))
+	end
+	App.objectList = function(parent)
+		return liveBox(parent, fillList)
+	end
+	App.objectInspector = function(parent)
+		App.ui.inspector = liveBox(parent, function(h)
+			if App.expanded then
+				objectPage(App.expanded, h)
+			end
+		end)
+		return App.ui.inspector
+	end
+	App.presetsBox = function(parent)
+		return liveBox(parent, buildPresets)
+	end
+	App.removeCopiesBox = function(parent)
+		return liveBox(parent, fillRemoveCopies)
+	end
+end
+end)()
+-- #module Panel/Tabs/Scatter
+MODULES["Panel/Tabs/Scatter"] = (function()
+--[[
+	Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
+	when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
+	performance report under More options.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local vlist, col = App.vlist, App.col
+
+	local function buildObject(page)
+		App.pageHead(page, "All objects", nil, function()
+			App.showObject(nil)
+		end)
+		App.objectInspector(col({ Parent = page }, { vlist(10) }))
+	end
+
+	App.buildScatterTab = function(page)
+		local a = App.area
+		if a and App.expanded and not App.searching() then
+			buildObject(page)
+			return
+		end
+		local cs = App.cards(page, "scatter")
+		local kind = a and App.kindOf(a)
+		if kind == "Clear" then
+			cs.add({
+				id = "clearzone",
+				title = "Keep-clear zone",
+				icon = "clear",
+				sub = "Nothing from any area goes here: spawns, doorways, a quest NPC's spot",
+				build = function(b)
+					App.goNote(b, "This zone holds no objects. Paint where to keep clear on the Brush tab.", "Paint the zone", "Brush")
+				end,
+			})
+			return
+		end
+		local shaped = a and ((a.count or 0) > 0 or App.hasPath())
+		cs.add({
+			id = "objects",
+			title = "Objects",
+			icon = "layers",
+			sub = "The models that fill this area, and how much of everything",
+			keys = "add models amount size everything list lost",
+			build = function(b)
+				if a and not shaped then
+					if kind == "Path" then
+						App.goNote(b, "Draw the path first, on the Map tab. Then add what lines it.", "Draw the path", "Map")
+					else
+						App.goNote(b, "Paint the ground first, on the Brush tab. Then add what fills it.", "Paint the area", "Brush")
+					end
+				end
+				if a then
+					App.objectList(b)
+				else
+					App.emptyState(b, "No area yet", "Make a scatter area or a path first: the + next to the area picker.")
+				end
+				App.ui.step2Card = b.Parent
+			end,
+		})
+		if not a then
+			return
+		end
+		local empty = #a.layers == 0
+		cs.add({
+			id = "biomes",
+			title = "Start from a biome",
+			sub = "A ready mix of objects made from your models",
+			keys = "forest meadow desert town sample models",
+			more = not empty,
+			build = App.buildBiomes,
+		})
+		cs.add({
+			id = "pattern",
+			title = "Pattern",
+			sub = "Where everything thickens and thins together",
+			keys = "groves natural islands veins spots bands strength noise patches",
+			more = true,
+			build = App.buildPattern,
+		})
+		cs.add({
+			id = "zones",
+			title = "Colour zones",
+			sub = "Tint objects by the pattern: autumn, dry, lush, frost",
+			keys = "color mood autumn dry lush frost tint season",
+			more = true,
+			build = App.buildZones,
+		})
+		cs.add({
+			id = "edges",
+			title = "Edges and wind",
+			sub = "Fade into the surroundings, and which way things lean",
+			keys = "soft edges border fade wind direction lean",
+			more = true,
+			build = function(b)
+				App.buildEdges(b)
+				App.buildWind(b)
+			end,
+		})
+		cs.add({
+			id = "presets",
+			title = "Presets",
+			keys = "save share code import reuse",
+			more = true,
+			build = App.presetsBox,
+		})
+		cs.add({
+			id = "performance",
+			title = "Performance",
+			sub = "Which objects cost the most parts",
+			keys = "report parts meshes heavy lag simplify",
+			more = true,
+			build = App.buildReport,
+		})
+		if App.searching() then -- every object's rules too, under its name
+			for i, l in a.layers do
+				local holder = col({ LayoutOrder = 200000 + i, Parent = page }, { vlist(10) })
+				App.label(l.inst.Name, 13, App.P.text, App.SANS_B, { Parent = holder })
+				local before = App.cardCount
+				App.objectRules(l, holder)
+				if App.cardCount == before then
+					holder:Destroy()
+				end
+			end
+		end
+	end
+end
+end)()
+-- #module Panel/Tabs/Brush
+MODULES["Panel/Tabs/Brush"] = (function()
+--[[
+	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
+	less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
+	the painted edge under More options.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Engine, P, SANS = App.Engine, App.P, App.SANS
+	local label, chip, chipGrid, hintOn = App.label, App.chip, App.chipGrid, App.hintOn
+
+	local picked
+	local function paintable(l)
+		return not (Engine.isLine(l) and l.s.follow == "Spline")
+	end
+	local function buildObjectBrush(b)
+		local list = {}
+		for _, l in App.area.layers do
+			if paintable(l) then
+				table.insert(list, l)
+			end
+		end
+		if #list == 0 then
+			App.goNote(
+				b,
+				#App.area.layers == 0 and "Add objects on the Scatter tab first." or "Objects along a path can't be brushed.",
+				#App.area.layers == 0 and "Add objects" or nil,
+				"Scatter"
+			)
+			return
+		end
+		if not table.find(list, picked) then
+			picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
+		end
+		label("Object", 13, P.text, SANS, { Parent = b })
+		local grid = chipGrid(b, 3, 30)
+		for i, l in list do
+			local c = chip(grid, l.inst.Name, function()
+				return picked == l
+			end, function()
+				if picked ~= l then
+					if App.LAYER_MODES[App.mode] then -- the brush moves over to the new pick
+						App.setMode(App.mode, l)
+					end
+					picked = l
+					App.rebuildAll()
+				end
+			end)
+			c.LayoutOrder = i
+			hintOn(c, "Brush " .. l.inst.Name .. ".")
+		end
+		App.buildLayerPaint(picked, { -- its controls straight into this card
+			add = function(spec)
+				spec.build(b)
+			end,
+		})
+	end
+
+	App.buildBrushTab = function(page)
+		local a = App.area
+		local cs = App.cards(page, "brush")
+		local kind = a and App.kindOf(a)
+		if kind == "Path" then
+			cs.add({
+				id = "pathbrush",
+				title = "Draw the path",
+				icon = "spline",
+				sub = "Paths are drawn, not painted",
+				keys = "draw path spline points",
+				build = function(b)
+					App.goNote(b, "Draw and shape the path on the Map tab.", "Go to Map", "Map")
+				end,
+			})
+		else
+			local painted = a and (a.count or 0) > 0
+			local card = cs.add({
+				id = "paint",
+				title = kind == "Clear" and "Paint the zone" or "Paint the area",
+				icon = kind == "Clear" and "clear" or "brush",
+				sub = kind == "Clear" and "Where nothing from any area may go"
+					or painted and string.format("%s studs² painted. Keep painting, or tune what fills it.", App.num(a.count * a.cell * a.cell))
+					or "Pick a tool, then paint the ground in the viewport",
+				keys = "paint ground brush lasso box polygon fill erase size shape reach selected parts",
+				build = App.buildPaintTools,
+			})
+			App.ui.step1Card = card
+		end
+		if a and kind ~= "Clear" then
+			if kind ~= "Path" then
+				cs.add({
+					id = "objectbrush",
+					title = "Paint one object",
+					sub = "More, less or none of it where you brush; or place copies exactly",
+					keys = "more less clear place pins object brush by hand",
+					build = buildObjectBrush,
+				})
+			end
+			cs.add({
+				id = "removecopies",
+				title = "Remove single copies",
+				sub = "Click a copy that looks wrong to take it out; it stays out",
+				keys = "remove delete copy copies bring back",
+				build = App.removeCopiesBox,
+			})
+		end
+		if kind ~= "Path" then
+			cs.add({
+				id = "paintfilter",
+				title = "Paint only on",
+				sub = "Painting and erasing stick to these surfaces",
+				keys = "filter surfaces grass road rock sand snow",
+				more = true,
+				build = App.buildPaintFilter,
+			})
+			if a then
+				cs.add({
+					id = "tidy",
+					title = "Tidy the edge",
+					sub = "Fill holes, smooth, grow or shrink what's painted",
+					keys = "fill holes smooth grow shrink erase all paint cleanup",
+					more = true,
+					build = App.buildTidy,
+				})
+			end
+		end
+	end
+end
+end)()
+-- #module Panel/Tabs/Map
+MODULES["Panel/Tabs/Map"] = (function()
+--[[
+	Smart Scatter — Map tab: the shapes on the map. The path (drawing it, its curve and its road), and telling the
+	scan what the parts of the map are.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	App.buildMapTab = function(page)
+		local a = App.area
+		local cs = App.cards(page, "map")
+		local kind = a and App.kindOf(a)
+		local drawn = App.hasPath()
+		if kind ~= "Clear" then
+			local isPath = kind == "Path"
+			local card = cs.add({
+				id = "path",
+				title = isPath and "Draw the path" or "Path through this area",
+				icon = "spline",
+				tag = not isPath and "Optional" or nil,
+				sub = drawn and (isPath and "Click to add more points, or drag one to move it" or "Objects set to follow it line it")
+					or (isPath and "Click in the viewport to place points" or "A road, fence or row of lamps along a curve you draw"),
+				keys = "draw path spline points corner branch loop clear",
+				build = App.buildDrawTools,
+			})
+			if isPath then
+				App.ui.step1Card = card
+			end
+			if drawn then
+				cs.add({
+					id = "curve",
+					title = "Curve",
+					sub = "The strip beside it, and what it sticks to",
+					keys = "strip width snap surfaces walls closed loop",
+					build = App.buildCurve,
+				})
+				cs.add({
+					id = "road",
+					title = "Road",
+					sub = "A solid road or path down the middle",
+					keys = "road asphalt dirt style width thickness",
+					build = App.buildRoad,
+				})
+			end
+		end
+		cs.add({
+			id = "scanfix",
+			title = "Fix what the scan sees",
+			keys = "mark road path building water rescan",
+			more = kind ~= "Clear",
+			build = App.buildScanFix,
+		})
+	end
+end
+end)()
+-- #module Panel/Tabs/Settings
+MODULES["Panel/Tabs/Settings"] = (function()
+--[[
+	Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
+	viewport overlay, game-ready output and the tour; shortcuts under More options.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
+	local box, label, para, hlist = App.box, App.label, App.para, App.hlist
+	local hintOn, switchRow, button, buttonRow, commit = App.hintOn, App.switchRow, App.button, App.buttonRow, App.commit
+
+	local function buildLook(b)
+		local swatches = App.chipGrid(b, 5, 32)
+		for _, a in App.ACCENTS do
+			App.chip(swatches, a.name, function()
+				return G.accent == a.name
+			end, function()
+				if G.accent ~= a.name then
+					G.accent = a.name
+					saveG()
+					task.defer(App.applyTheme) -- after this click finishes (the tab it's on is rebuilt)
+				end
+			end, Color3.fromHex(a.dark))
+		end
+		App.explain(b, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
+		label("Text size", 13, P.text, SANS, { Parent = b })
+		App.segmented({ "Small", "Normal", "Large" }, function()
+			return App.TEXT_SIZES[G.textScale] or "Normal"
+		end, function(v)
+			for scale, name in App.TEXT_SIZES do
+				if name == v then
+					G.textScale = scale
+				end
+			end
+			saveG()
+			task.defer(App.rebuildAll) -- after this click finishes (the tab it's on is rebuilt)
+		end).Parent =
+			b
+	end
+
+	local function buildViewport(b)
+		switchRow("Show overlay", function()
+			return G.overlay
+		end, function(v)
+			G.overlay = v
+		end, function()
+			saveG()
+			App.rebuildOverlay()
+			App.drawSpline()
+		end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
+			b
+	end
+
+	local function buildOutput(b)
+		local function outSwitch(text, key, hint)
+			switchRow(text, function()
+				return G[key]
+			end, function(v)
+				G[key] = v
+			end, function()
+				saveG()
+				commit()
+			end, hint).Parent =
+				b
+		end
+		outSwitch("Walk through plants", "walk", "Flowers and bushes get no collision, so players never snag on them.")
+		outSwitch("No shadows on small stuff", "shadows", "Flowers and tiny parts skip shadows. Big win on lower-end devices.")
+		outSwitch("Flowers ignore clicks", "query", "Flowers won't block raycasts, clicks, tools or weapons.")
+		outSwitch(
+			"Streaming chunks",
+			"chunks",
+			"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
+		)
+		outSwitch(
+			"Preview as boxes",
+			"ghost",
+			"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
+		)
+		box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
+		App.ui.perf = para("", { Parent = b })
+		App.refreshPerf()
+	end
+
+	local function buildShortcuts(b)
+		App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
+		local group
+		for _, a in App.KEYMAP do
+			if a.group ~= group then
+				group = a.group
+				label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
+			end
+			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
+			label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
+			local key = button(App.keyText(a.id), nil, nil, {
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				AutomaticSize = Enum.AutomaticSize.None,
+				Size = UDim2.fromOffset(84, 26),
+				Font = SANS_B,
+				Parent = row,
+			})
+			local lit = App.glow(key, 8, 0.8)
+			key.MouseButton1Click:Connect(function()
+				if App.capturingKey then
+					return
+				end
+				App.capturingKey = true
+				key.Text = "Press a key"
+				lit:pulse(true)
+				App.captureKey(key, function(k)
+					App.capturingKey = false
+					if not k then
+						key.Text = App.keyText(a.id)
+						lit:pulse(false)
+						return
+					end
+					local moved = App.bindKey(a.id, k)
+					App.status(
+						moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
+							or string.format("%s is now %s.", a.label, App.keyText(a.id))
+					)
+					App.rebuildAll() -- every hint that names a key shows the new one
+				end)
+			end)
+		end
+		local fixed = label(
+			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
+			12,
+			P.faint,
+			SANS,
+			{ Parent = b }
+		)
+		fixed.TextWrapped, fixed.AutomaticSize, fixed.Size = true, Enum.AutomaticSize.Y, UDim2.new(1, 0, 0, 0)
+		box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
+		button("Reset all shortcuts", "ghost", function()
+			App.resetKeys()
+			App.status("Shortcuts are back to their defaults.")
+			App.rebuildAll()
+		end, { Parent = buttonRow(b) })
+	end
+
+	local function buildAbout(b)
+		hintOn(
+			button("Replay the tour", nil, function()
+				App.startTour()
+			end, { Parent = buttonRow(b) }),
+			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
+		)
+		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = b }, { hlist(10) })
+		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
+		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
+			Size = UDim2.new(1, -42, 1, 0),
+			Parent = about,
+		})
+	end
+
+	App.buildSettingsTab = function(page)
+		local cs = App.cards(page, "settings")
+		cs.add({
+			id = "look",
+			title = "Look",
+			sub = "Accent colour and text size",
+			keys = "theme accent colour color text size font",
+			build = buildLook,
+		})
+		cs.add({ id = "viewport", title = "Viewport", sub = "What's drawn over the 3D view", keys = "overlay", build = buildViewport })
+		cs.add({
+			id = "output",
+			title = "Game-ready output",
+			keys = "collision walk shadows clicks raycast streaming chunks preview boxes ghost performance parts",
+			build = buildOutput,
+		})
+		cs.add({
+			id = "about",
+			title = "Tour and about",
+			sub = "A walk through everything, and the version",
+			keys = "tour help version",
+			build = buildAbout,
+		})
+		cs.add({
+			id = "shortcuts",
+			title = "Shortcuts",
+			sub = "Every key, and changing them",
+			keys = "keys keyboard keybind hotkey",
+			more = true,
+			build = buildShortcuts,
+		})
+	end
 end
 end)()
 
@@ -5212,21 +5772,27 @@ end
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
 	puts its state and functions on App, and later modules read them from there. A module that returns a function
 	hands back its cleanup (the last one returned runs when the plugin unloads or updates).
-	  Core/      state, UI kit, generation jobs, and the undo/cleanup wiring that runs last
-	  Viewport/  what happens in the 3D view: the painted overlay, painting, the spline editor
-	  Panel/     the pages of the panel
+	  Core/        state, UI kit, cards and search, generation jobs, and the undo/cleanup wiring that runs last
+	  Viewport/    what happens in the 3D view: the painted overlay, painting, the spline editor
+	  Panel/       the header, the controls for areas and objects, the shell (tabs, search, bottom bar), the tour
+	  Panel/Tabs/  one module per tab: Scatter, Brush, Map, Settings
 	To add a module: create it in the folder it belongs to and add its path to ORDER after what it uses.
 ]]
 
 local ORDER = {
 	"Core/State",
 	"Core/Kit",
+	"Core/Cards",
 	"Viewport/Overlay",
 	"Core/Generation",
 	"Panel/Header",
-	"Panel/AreaPage",
-	"Panel/ObjectsPage",
-	"Panel/Settings",
+	"Panel/AreaTools",
+	"Panel/ObjectTools",
+	"Panel/Tabs/Scatter",
+	"Panel/Tabs/Brush",
+	"Panel/Tabs/Map",
+	"Panel/Tabs/Settings",
+	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Spline",
 	"Panel/Tour",

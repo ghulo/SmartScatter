@@ -1,11 +1,11 @@
 --[[
-	Smart Scatter — Header: area menu, surface marking, header with page tabs, shared page helpers.
+	Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
 	local Selection, beginRec, endRec = App.Selection, App.beginRec, App.endRec
-	local Engine, G, saveG, num, P, SANS, SANS_M = App.Engine, App.G, App.saveG, App.num, App.P, App.SANS, App.SANS_M
+	local Engine, G, num, P, SANS, SANS_M = App.Engine, App.G, App.num, App.P, App.SANS, App.SANS_M
 	local SANS_B, new, corner, stroke, pad, vlist, box = App.SANS_B, App.new, App.corner, App.stroke, App.pad, App.vlist, App.box
 	local label, hoverable, hintOn, flushRows, saveArea = App.label, App.hoverable, App.hintOn, App.flushRows, App.saveArea
 	local canGenerate, runGenerate, switchArea, newArea = App.canGenerate, App.runGenerate, App.switchArea, App.newArea
@@ -149,6 +149,16 @@ return function(App)
 					})
 				end, P.dim)
 			end
+			if App.kindOf(App.area) ~= "Clear" then
+				item("Clear placed objects", function()
+					local rec = beginRec("Smart Scatter: Clear")
+					Engine.clearOutputs(App.area)
+					endRec(rec)
+					App.lastCounts, App.lastTotal = {}, 0
+					App.refreshCounts()
+					App.status("Cleared. The area and objects are kept; Generate brings it all back.")
+				end, P.dim)
+			end
 			item("Bake to plain models", function()
 				local a = App.area
 				local n = Engine.roadOf(a) and 1 or 0
@@ -223,18 +233,6 @@ return function(App)
 		end
 	end
 
-	-- switch page; area tools (paint, erase, spline) stop when you leave the Area page
-	App.goPage = function(name)
-		if G.page == name then
-			return
-		end
-		G.page = name
-		saveG()
-		if name ~= "Main" and (App.mode == "Paint" or App.mode == "Erase" or App.mode == "Spline") then
-			App.setMode("Off")
-		end
-		App.rebuildAll()
-	end
 	-- small group title inside a page
 	local function heading(parent, text, gapTop)
 		box({ Size = UDim2.new(1, 0, 0, gapTop or 8), Parent = parent })
@@ -334,7 +332,7 @@ return function(App)
 			Text = "",
 			BackgroundColor3 = P.raised,
 			AutoButtonColor = false,
-			Size = UDim2.new(1, -88, 1, 0),
+			Size = UDim2.new(1, -44, 1, 0),
 			Parent = row,
 		}, { corner(9) })
 		App.ui.areaPick = pick
@@ -366,15 +364,9 @@ return function(App)
 		local plus = iconButton("plus", "New scatter area or path", function(b)
 			openNewMenu(b)
 		end, false, 36)
-		plus.Position = UDim2.new(1, -80, 0, 0)
+		plus.Position = UDim2.new(1, -36, 0, 0)
 		plus.Parent = row
 		App.ui.plusBtn = plus
-		local gear = iconButton("settings", G.page == "Settings" and "Back to the area" or "Settings", function()
-			App.goPage(G.page == "Settings" and "Main" or "Settings")
-		end, G.page == "Settings", 36)
-		gear.Position = UDim2.new(1, -36, 0, 0)
-		gear.Parent = row
-		App.ui.gearBtn = gear
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
 	end
 

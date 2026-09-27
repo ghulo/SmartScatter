@@ -408,7 +408,7 @@ return function(App)
 		local a = Engine.createArea((clear and "Keep clear " or "Area ") .. n, nil)
 		a.folder:SetAttribute("SS_Kind", clear and "Clear" or "Scatter")
 		endRec(rec)
-		G.page = "Main"
+		G.page = "" -- its home tab: where its first step is
 		switchArea(a.folder)
 		if not (opts and opts.keepMode) then
 			App.setMode("Paint")

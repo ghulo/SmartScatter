@@ -958,7 +958,7 @@ return function(App)
 		local a = Engine.createArea("Path " .. n, nil)
 		a.folder:SetAttribute("SS_Kind", "Path")
 		endRec(rec)
-		G.page = "Main"
+		G.page = "" -- its home tab: where its first step is
 		saveG()
 		switchArea(a.folder)
 		ensureSpline()

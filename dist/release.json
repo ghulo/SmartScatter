@@ -1,18 +1,22 @@
 {
- "version": "9.48",
- "build": 112,
+ "version": "9.49",
+ "build": 113,
  "modules": {
   "App": {
    "path": "modules/App.lua",
-   "sum": 87284901
+   "sum": 897873991
+  },
+  "App/Core/Cards": {
+   "path": "modules/App/Core/Cards.lua",
+   "sum": 143804693
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
-   "sum": 950307947
+   "sum": 295110946
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
-   "sum": 171140204
+   "sum": 268375584
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
@@ -20,27 +24,43 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 954693944
+   "sum": 381540564
   },
-  "App/Panel/AreaPage": {
-   "path": "modules/App/Panel/AreaPage.lua",
-   "sum": 993696141
+  "App/Panel/AreaTools": {
+   "path": "modules/App/Panel/AreaTools.lua",
+   "sum": 881541478
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
-   "sum": 637053465
+   "sum": 502168983
   },
-  "App/Panel/ObjectsPage": {
-   "path": "modules/App/Panel/ObjectsPage.lua",
-   "sum": 504392856
+  "App/Panel/ObjectTools": {
+   "path": "modules/App/Panel/ObjectTools.lua",
+   "sum": 389029674
   },
-  "App/Panel/Settings": {
-   "path": "modules/App/Panel/Settings.lua",
-   "sum": 786067932
+  "App/Panel/Shell": {
+   "path": "modules/App/Panel/Shell.lua",
+   "sum": 713034572
+  },
+  "App/Panel/Tabs/Brush": {
+   "path": "modules/App/Panel/Tabs/Brush.lua",
+   "sum": 631299548
+  },
+  "App/Panel/Tabs/Map": {
+   "path": "modules/App/Panel/Tabs/Map.lua",
+   "sum": 121495907
+  },
+  "App/Panel/Tabs/Scatter": {
+   "path": "modules/App/Panel/Tabs/Scatter.lua",
+   "sum": 440080685
+  },
+  "App/Panel/Tabs/Settings": {
+   "path": "modules/App/Panel/Tabs/Settings.lua",
+   "sum": 765807745
   },
   "App/Panel/Tour": {
    "path": "modules/App/Panel/Tour.lua",
-   "sum": 906847347
+   "sum": 526233756
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
@@ -52,7 +72,7 @@
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
-   "sum": 41094028
+   "sum": 19479266
   },
   "Engine": {
    "path": "modules/Engine.lua",

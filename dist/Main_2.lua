@@ -1,168 +1,21 @@
 -- GENERATED part 2 of src/App by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
--- #module Panel/Settings
-MODULES["Panel/Settings"] = (function()
+-- #module Panel/Shell
+MODULES["Panel/Shell"] = (function()
 --[[
-	Smart Scatter — Settings: the Settings page, the footer, toasts and the whole-panel rebuild.
+	Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
+	Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
+	update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
-	local FAST, MED, tween, beginRec, endRec, Engine, track = App.FAST, App.MED, App.tween, App.beginRec, App.endRec, App.Engine, App.track
+	local FAST, MED, tween, beginRec, endRec, track = App.FAST, App.MED, App.tween, App.beginRec, App.endRec, App.track
 	local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
-	local para, hintOn, slider, switch, switchRow = App.para, App.hintOn, App.slider, App.switch, App.switchRow
-	local button, buttonRow = App.button, App.buttonRow
-	local section, rebuildOverlay, saveArea, canGenerate = App.section, App.rebuildOverlay, App.saveArea, App.canGenerate
-	local runGenerate, requestLive, commit, thumbCache = App.runGenerate, App.requestLive, App.commit, App.thumbCache
-	local eachThumb, heading, buildHeader, buildArea = App.eachThumb, App.heading, App.buildHeader, App.buildArea
-
-	local applyTheme -- (below)
-	local function buildGlobal(parent)
-		App.pageHead(parent, App.area and App.area.folder.Name or "Back", "Settings", function()
-			App.goPage("Main")
-		end)
-		heading(parent, "Look", 14)
-		local swatches = App.chipGrid(parent, 5, 32)
-		for _, a in App.ACCENTS do
-			App.chip(swatches, a.name, function()
-				return G.accent == a.name
-			end, function()
-				if G.accent ~= a.name then
-					G.accent = a.name
-					saveG()
-					task.defer(applyTheme) -- after this click finishes (the page it's on is rebuilt)
-				end
-			end, Color3.fromHex(a.dark))
-		end
-		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		heading(parent, "Text size", 14)
-		App.segmented({ "Small", "Normal", "Large" }, function()
-			return App.TEXT_SIZES[G.textScale] or "Normal"
-		end, function(v)
-			for scale, name in App.TEXT_SIZES do
-				if name == v then
-					G.textScale = scale
-				end
-			end
-			saveG()
-			task.defer(App.rebuildAll) -- after this click finishes (the page it's on is rebuilt)
-		end).Parent =
-			parent
-		App.explain(parent, "How big the plugin's text is.")
-		heading(parent, "Viewport", 12)
-		switchRow("Show overlay", function()
-			return G.overlay
-		end, function(v)
-			G.overlay = v
-		end, function()
-			saveG()
-			rebuildOverlay()
-			App.drawSpline()
-		end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
-			parent
-		box({ Size = UDim2.new(1, 0, 0, 10), Parent = parent })
-		section(parent, "output", "Game-ready output", true, function(b)
-			local function outSwitch(text, key, hint)
-				switchRow(text, function()
-					return G[key]
-				end, function(v)
-					G[key] = v
-				end, function()
-					saveG()
-					commit()
-				end, hint).Parent =
-					b
-			end
-			outSwitch("Walk through plants", "walk", "Flowers and bushes get no collision, so players never snag on them.")
-			outSwitch("No shadows on small stuff", "shadows", "Flowers and tiny parts skip shadows. Big win on lower-end devices.")
-			outSwitch("Flowers ignore clicks", "query", "Flowers won't block raycasts, clicks, tools or weapons.")
-			outSwitch(
-				"Streaming chunks",
-				"chunks",
-				"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
-			)
-			outSwitch(
-				"Preview as boxes",
-				"ghost",
-				"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
-			)
-			box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
-			App.ui.perf = para("", { Parent = b })
-		end)
-		section(parent, "shortcuts", "Shortcuts", false, function(b)
-			App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
-			local group
-			for _, a in App.KEYMAP do
-				if a.group ~= group then
-					group = a.group
-					label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
-				end
-				local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
-				label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
-				local key = button(App.keyText(a.id), nil, nil, {
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, 0, 0.5, 0),
-					AutomaticSize = Enum.AutomaticSize.None,
-					Size = UDim2.fromOffset(84, 26),
-					Font = App.SANS_B,
-					Parent = row,
-				})
-				local lit = App.glow(key, 8, 0.8)
-				key.MouseButton1Click:Connect(function()
-					if App.capturingKey then
-						return
-					end
-					App.capturingKey = true
-					key.Text = "Press a key"
-					lit:pulse(true)
-					App.captureKey(key, function(k)
-						App.capturingKey = false
-						if not k then
-							key.Text = App.keyText(a.id)
-							lit:pulse(false)
-							return
-						end
-						local moved = App.bindKey(a.id, k)
-						App.status(
-							moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
-								or string.format("%s is now %s.", a.label, App.keyText(a.id))
-						)
-						App.rebuildAll() -- every hint that names a key shows the new one
-					end)
-				end)
-			end
-			local fixed = label(
-				"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
-				12,
-				P.faint,
-				SANS,
-				{ Parent = b }
-			)
-			fixed.TextWrapped, fixed.AutomaticSize, fixed.Size = true, Enum.AutomaticSize.Y, UDim2.new(1, 0, 0, 0)
-			box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
-			button("Reset all shortcuts", "ghost", function()
-				App.resetKeys()
-				App.status("Shortcuts are back to their defaults.")
-				App.rebuildAll()
-			end, { Parent = buttonRow(b) })
-		end)
-		box({ Size = UDim2.new(1, 0, 0, 12), Parent = parent })
-		hintOn(
-			button("Replay the tour", nil, function()
-				App.startTour()
-			end, { Parent = buttonRow(parent) }),
-			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
-		)
-		box({ Size = UDim2.new(1, 0, 0, 8), Parent = parent })
-		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = parent }, { hlist(10) })
-		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
-			Size = UDim2.new(1, -42, 1, 0),
-			Parent = about,
-		})
-	end
+	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
+	local runGenerate, commit, thumbCache, eachThumb, buildHeader = App.runGenerate, App.commit, App.thumbCache, App.eachThumb, App.buildHeader
 
 	App.perfNote = function()
 		if G.ghost then
@@ -191,130 +44,142 @@ return function(App)
 		runGenerate(true)
 	end
 
-	local function footHeight()
-		return G.live and 58 or 108
-	end
-	local function buildFooter(parent)
-		local h = footHeight()
+	local BAR_H = 60
+	local function buildBar(parent)
 		local foot = box({
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.header,
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.new(1, 0, 0, h),
+			Size = UDim2.new(1, 0, 0, BAR_H),
+			ZIndex = 3,
 			Parent = parent,
 		})
 		App.ui.foot = foot
 		App.fadeLine(foot, nil, 0.16)
-		local track = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 3, Parent = foot })
+		local line = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 4, Parent = foot })
 		App.ui.progress = box({
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.accent,
 			Size = UDim2.fromScale(0, 1),
 			Visible = false,
-			ZIndex = 3,
-			Parent = track,
+			ZIndex = 4,
+			Parent = line,
 		})
 		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
 		App.sheen(foot, 0.025, 40)
-		local inner = box({ Position = UDim2.fromOffset(14, 13), Size = UDim2.new(1, -28, 1, -23), Parent = foot })
-		local y = 0
-		if not G.live then
-			App.ui.genBtn = new("TextButton", {
-				Text = "Generate",
-				Font = SANS_B,
-				TextSize = 14,
-				TextColor3 = P.onAccent,
-				BackgroundColor3 = P.accent,
-				AutoButtonColor = false,
-				Size = UDim2.new(1, 0, 0, 40),
-				TextTruncate = Enum.TextTruncate.AtEnd,
-				Parent = inner,
-			}, { corner(10) })
-			App.shade(App.ui.genBtn, 0.12)
-			App.topLight(App.ui.genBtn, 0.35, 8)
-			App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
-			local press = new("UIScale", { Parent = App.ui.genBtn })
-			App.ui.genBar = box({
-				BackgroundTransparency = 0.82,
-				BackgroundColor3 = Color3.new(1, 1, 1),
-				Size = UDim2.fromScale(0, 1),
-				Visible = false,
-				Parent = App.ui.genBtn,
-			}, { corner(10) })
-			App.ui.genBtn.MouseEnter:Connect(function()
-				if canGenerate() then
-					tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
-				end
-			end)
-			App.ui.genBtn.MouseLeave:Connect(function()
-				tween(press, FAST, { Scale = 1 })
-				App.refreshCounts()
-			end)
-			App.ui.genBtn.MouseButton1Down:Connect(function()
-				if canGenerate() then
-					tween(press, FAST, { Scale = 0.98 })
-				end
-			end)
-			App.ui.genBtn.MouseButton1Up:Connect(function()
-				tween(press, MED, { Scale = 1 })
-			end)
-			App.ui.genBtn.MouseButton1Click:Connect(function()
-				if App.busy() then -- while generating the button stops it
-					App.cancelJob()
-					App.status("Stopped. Nothing was changed.")
-					return
-				end
-				if App.worldChanged() then -- read the ground again only if something under the area changed
-					App.analysisDirty = true
-				end
-				runGenerate(true)
-			end)
-			y = 50
-		end
+		local inner = box({ Position = UDim2.fromOffset(12, 11), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
+		local right = box({
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.fromScale(1, 0),
+			Size = UDim2.fromOffset(0, 38),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Parent = inner,
+		}, { hlist(6) })
 
-		local r = box({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, y), Parent = inner })
-		local sw, swGlow = switch(function()
-			return G.live
-		end, function(v)
-			G.live = v
-		end, function()
+		App.ui.genBtn = new("TextButton", {
+			Text = "Generate",
+			Font = SANS_B,
+			TextSize = 14,
+			TextColor3 = P.onAccent,
+			BackgroundColor3 = P.accent,
+			AutoButtonColor = false,
+			Size = UDim2.new(1, -174, 1, 0),
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = inner,
+		}, { corner(10), pad(8, 8, 0, 0) })
+		App.shade(App.ui.genBtn, 0.12)
+		App.topLight(App.ui.genBtn, 0.35, 8)
+		App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
+		local press = new("UIScale", { Parent = App.ui.genBtn })
+		App.ui.genBar = box({
+			BackgroundTransparency = 0.82,
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			Size = UDim2.fromScale(0, 1),
+			Visible = false,
+			Parent = App.ui.genBtn,
+		}, { corner(10) })
+		App.ui.genBtn.MouseEnter:Connect(function()
+			if canGenerate() then
+				tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
+			end
+		end)
+		App.ui.genBtn.MouseLeave:Connect(function()
+			tween(press, FAST, { Scale = 1 })
+			App.refreshCounts()
+		end)
+		App.ui.genBtn.MouseButton1Down:Connect(function()
+			if canGenerate() then
+				tween(press, FAST, { Scale = 0.98 })
+			end
+		end)
+		App.ui.genBtn.MouseButton1Up:Connect(function()
+			tween(press, MED, { Scale = 1 })
+		end)
+		App.ui.genBtn.MouseButton1Click:Connect(function()
+			if App.busy() then -- while generating the button stops it
+				App.cancelJob()
+				App.status("Stopped. Nothing was changed.")
+				return
+			end
+			if App.worldChanged() then -- read the ground again only if something under the area changed
+				App.analysisDirty = true
+			end
+			runGenerate(true)
+		end)
+		hintOn(App.ui.genBtn, "Places everything now. With Live update on, changes do this by themselves.")
+
+		local live = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			Size = UDim2.fromOffset(78, 38),
+			LayoutOrder = 1,
+			Parent = right,
+		}, { corner(10) })
+		local liveStroke = App.stroke(P.line)
+		liveStroke.Parent = live
+		local dot = box({
+			BackgroundTransparency = 0,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 12, 0.5, 0),
+			Size = UDim2.fromOffset(8, 8),
+			Parent = live,
+		}, { corner(4) })
+		local liveText = label("Live", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -30, 1, 0), Parent = live })
+		App.ui.liveGlow = App.glow(live, 10, 0.6) -- breathes while a job runs
+		App.pressable(live, 0.95)
+		local function liveLook()
+			live.BackgroundColor3 = G.live and P.accentSoft or P.raised
+			liveStroke.Color = G.live and P.accentLine or P.line
+			dot.BackgroundColor3 = G.live and P.accent or P.faint
+			liveText.TextColor3 = G.live and P.accent or P.dim
+		end
+		liveLook()
+		live.MouseButton1Click:Connect(function()
+			G.live = not G.live
 			saveG()
+			liveLook()
 			if G.live then
 				commit()
 			end
-			task.defer(App.rebuildAll) -- the Generate button comes and goes with it
+			App.status(G.live and "Live update on: every change rebuilds as you make it." or "Live update off: changes wait for Generate.")
 		end)
-		sw.Position = UDim2.fromOffset(0, 4)
-		sw.Parent = r
-		App.ui.liveGlow = swGlow -- breathes while a job runs
-		label("Live update", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(46, 0), Size = UDim2.fromOffset(90, 30), Parent = r })
-		hintOn(sw, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
-		local links = box({
-			Size = UDim2.new(0, 0, 1, 0),
-			AutomaticSize = Enum.AutomaticSize.X,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.fromScale(1, 0),
-			Parent = r,
-		}, { hlist(8) })
-		hintOn(
-			button("Shuffle", nil, App.shuffle, { Parent = links }),
-			"A new random layout with the same settings. Ctrl+Z goes back to the last one."
-		)
-		hintOn(
-			button("Clear", "ghost", function()
-				if not App.area then
-					return
-				end
-				local rec = beginRec("Smart Scatter: Clear")
-				Engine.clearOutputs(App.area)
-				endRec(rec)
-				App.lastCounts, App.lastTotal = {}, 0
-				App.refreshCounts()
-				App.status("Cleared. The area and objects are kept.")
-			end, { Parent = links }),
-			"Removes everything placed in this area. The painted ground, path and objects stay; Generate brings it all back."
-		)
+		hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
+
+		local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
+		shuffle.LayoutOrder = 2
+		shuffle.Parent = right
+		local undo = App.iconButton("left", "Undo the last step (Ctrl+Z)", function()
+			local chs = App.ChangeHistoryService
+			local ok, can = pcall(chs.GetCanUndo, chs)
+			if ok and can == false then
+				App.status("Nothing to undo.")
+				return
+			end
+			pcall(chs.Undo, chs)
+		end, false, 38)
+		undo.LayoutOrder = 3
+		undo.Parent = right
 	end
 
 	local running = false
@@ -387,8 +252,8 @@ return function(App)
 		t.dot.BackgroundColor3 = err and P.danger or P.accent
 		t.glow:set(err)
 		if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
-			t.group.Position = UDim2.new(0.5, 0, 1, -footHeight() - 2)
-			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -footHeight() - 10) })
+			t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
+			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
 		end
 		task.delay((err and 7 or 3.5) + #msg * 0.02, function()
 			if my == toastToken and App.ui.toast == t then
@@ -401,7 +266,7 @@ return function(App)
 			BackgroundTransparency = 1,
 			GroupTransparency = 1,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -footHeight() - 10),
+			Position = UDim2.new(0.5, 0, 1, -BAR_H - 10),
 			Size = UDim2.new(1, -24, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 60,
@@ -432,23 +297,256 @@ return function(App)
 		App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
 	end
 
-	local builtPage
-	App.rebuildAll = function()
-		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
-		local turned = builtPage ~= nil and builtPage ~= G.page -- another page: it slides in
-		builtPage = G.page
-		if App.root then
-			App.root:Destroy()
+	local TABS = {
+		{ name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
+		{ name = "Brush", icon = "brush", hint = "Work by hand: paint the ground, brush one object, remove copies.", build = "buildBrushTab" },
+		{ name = "Map", icon = "spline", hint = "The path, its road, and telling the scan what's what.", build = "buildMapTab" },
+		{ name = "Settings", icon = "settings", hint = "The plugin's look, output and shortcuts.", build = "buildSettingsTab" },
+	}
+	local TAB = {}
+	for _, t in TABS do
+		TAB[t.name] = t
+	end
+	local OWNER =
+		{ Paint = "Brush", Erase = "Brush", More = "Brush", Less = "Brush", Clear = "Brush", Place = "Brush", Remove = "Brush", Spline = "Map" }
+
+	local function homeTab()
+		local a = App.area
+		if not a then
+			return "Scatter"
 		end
+		local kind = App.kindOf(a)
+		if kind == "Path" then
+			return App.hasPath() and "Scatter" or "Map"
+		end
+		if kind == "Clear" or (a.count or 0) == 0 then
+			return "Brush"
+		end
+		return "Scatter"
+	end
+
+	local searchText = "" -- the search box's text (kept while the panel is rebuilt)
+	local function clearSearch()
+		searchText = ""
+		App.setSearch("")
+	end
+
+	App.goPage = function(name)
+		if G.page == name and not App.searching() then
+			return
+		end
+		clearSearch()
+		G.page = name
+		saveG()
+		local owner = OWNER[App.mode]
+		if owner and owner ~= (TAB[name] and name or homeTab()) then
+			App.setMode("Off")
+		end
+		App.rebuildAll()
+	end
+
+	local function buildTabs(parent)
+		local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Size = UDim2.new(1, 0, 0, 36), Parent = parent }, {
+			corner(10),
+			pad(3, 3, 3, 3),
+			new("UIGridLayout", {
+				CellSize = UDim2.new(1 / #TABS, -3, 1, 0),
+				CellPadding = UDim2.fromOffset(3, 0),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		App.ui.tabs = {}
+		local fits = {} -- [icon] = the label beside it: icons hide when the panel is too narrow for both
+		for i, t in TABS do
+			local on = G.page == t.name and not App.searching()
+			local b = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundTransparency = on and 0 or 1,
+				BackgroundColor3 = P.card,
+				LayoutOrder = i,
+				Parent = bar,
+			}, { corner(8) })
+			if on then
+				App.stroke(P.accentLine).Parent = b
+			end
+			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
+				new("UIListLayout", {
+					FillDirection = Enum.FillDirection.Horizontal,
+					HorizontalAlignment = Enum.HorizontalAlignment.Center,
+					VerticalAlignment = Enum.VerticalAlignment.Center,
+					Padding = UDim.new(0, 5),
+				}),
+			})
+			local fg = on and P.accent or P.dim
+			local ic = App.icon(t.icon, 13, fg)
+			ic.Parent = row
+			local text = label(t.name, 12, fg, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
+			fits[ic] = text
+			if not on then
+				b.MouseEnter:Connect(function()
+					text.TextColor3 = P.text
+					App.setIconColor(ic, P.text)
+				end)
+				b.MouseLeave:Connect(function()
+					text.TextColor3 = P.dim
+					App.setIconColor(ic, P.dim)
+				end)
+			end
+			b.MouseButton1Click:Connect(function()
+				App.goPage(t.name)
+			end)
+			hintOn(b, t.hint)
+			App.ui.tabs[t.name] = b
+		end
+		local function fit()
+			local cell = bar.AbsoluteSize.X / #TABS - 3
+			for ic, text in fits do
+				ic.Visible = cell >= text.TextBounds.X + 13 + 5 + 12
+			end
+		end
+		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+		task.defer(fit) -- once the labels have measured their text
+	end
+
+	local buildPage -- (below)
+	local function buildSearch(parent)
+		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
+		local st = App.stroke(P.line)
+		st.Parent = row
+		local ic = App.icon("search", 13, P.faint)
+		ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
+		ic.Parent = row
+		local tb = new("TextBox", {
+			Text = searchText,
+			PlaceholderText = "Search every setting",
+			Font = SANS,
+			TextSize = 13,
+			TextColor3 = P.text,
+			PlaceholderColor3 = P.faint,
+			BackgroundTransparency = 1,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Position = UDim2.fromOffset(30, 0),
+			Size = UDim2.new(1, -62, 1, 0),
+			Parent = row,
+		})
+		App.ui.search = tb
+		local x = App.iconButton("close", "Clear the search", function()
+			tb.Text = ""
+		end, false, 24)
+		x.AnchorPoint, x.Position = Vector2.new(1, 0.5), UDim2.new(1, -4, 0.5, 0)
+		x.Visible = searchText ~= ""
+		x.Parent = row
+		tb.Focused:Connect(function()
+			st.Color = P.accentLine
+		end)
+		tb.FocusLost:Connect(function()
+			st.Color = P.line
+		end)
+		local token = 0
+		tb:GetPropertyChangedSignal("Text"):Connect(function()
+			if tb.Text == searchText then
+				return
+			end
+			searchText = tb.Text
+			x.Visible = searchText ~= ""
+			token += 1
+			local my = token
+			task.delay(0.2, function()
+				if my ~= token or App.ui.search ~= tb then
+					return
+				end
+				App.setSearch(searchText)
+				buildPage()
+			end)
+		end)
+	end
+
+	local SHELL = {
+		"areaPick",
+		"areaName",
+		"plusBtn",
+		"tabs",
+		"search",
+		"foot",
+		"progress",
+		"progressSweep",
+		"genBtn",
+		"genSweep",
+		"genBar",
+		"liveGlow",
+		"toast",
+		"popup",
+	}
+
+	local function buildResults(page)
+		local any = false
+		for _, t in TABS do
+			local holder = col({ Parent = page }, { vlist(10) })
+			label(string.upper(t.name), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = holder })
+			local before = App.cardCount
+			App[t.build](holder)
+			if App.cardCount == before then
+				holder:Destroy()
+			else
+				any = true
+			end
+		end
+		if not any then
+			App.emptyState(page, "Nothing found", "Try another word, like road, colour, spacing or shortcut.")
+		end
+	end
+
+	function buildPage()
+		local sc = App.scroll
+		if not sc then
+			return
+		end
+		local keep = {}
+		for _, k in SHELL do
+			keep[k] = App.ui[k]
+		end
+		App.ui = keep
+		App.hideTip()
 		eachThumb(function(vp)
 			vp:Destroy()
 		end)
 		table.clear(thumbCache)
+		for _, ch in sc:GetChildren() do
+			if ch:IsA("GuiObject") then
+				ch:Destroy()
+			end
+		end
+		App.ui.builtShape = App.shapeKey()
+		local page = col({ Parent = sc }, { vlist(10) })
+		if App.searching() then
+			buildResults(page)
+		elseif not App.area and G.page ~= "Settings" then
+			App.buildWelcome(page)
+		else
+			App[TAB[G.page].build](page)
+		end
+		App.refreshScan()
+		App.refreshObjects()
+	end
+
+	local builtPage
+	App.rebuildAll = function()
+		if not TAB[G.page] then
+			G.page = homeTab()
+		end
+		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
+		local turned = builtPage ~= nil and builtPage ~= G.page -- another tab: it slides in
+		builtPage = G.page
+		if App.root then
+			App.root:Destroy()
+		end
 		App.ui = {}
 		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
 		local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
 		App.scroll = new("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -footHeight()),
+			Size = UDim2.new(1, 0, 1, -BAR_H),
 			CanvasSize = UDim2.new(),
 			BackgroundTransparency = 1,
 			AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -458,7 +556,7 @@ return function(App)
 			VerticalScrollBarInset = Enum.ScrollBarInset.Always,
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			Parent = App.root,
-		}, { pad(14, 12, 8, 24), vlist(2) })
+		}, { pad(14, 12, 10, 24), vlist(2) })
 		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
 		App.scroll.MouseEnter:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
@@ -467,6 +565,10 @@ return function(App)
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
 		end)
 		buildHeader(head)
+		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
+		buildTabs(head)
+		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
+		buildSearch(head)
 		box({ Size = UDim2.new(1, 0, 0, 10), Parent = head })
 		App.fadeLine(head, nil, 0.16)
 		App.sheen(App.root, 0.04, 140, 150)
@@ -474,21 +576,13 @@ return function(App)
 		local function fit()
 			local h = head.AbsoluteSize.Y
 			App.scroll.Position = UDim2.fromOffset(0, h)
-			App.scroll.Size = UDim2.new(1, 0, 1, -h - footHeight())
+			App.scroll.Size = UDim2.new(1, 0, 1, -h - BAR_H)
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()
-		if G.page == "Settings" then
-			buildGlobal(App.scroll)
-		elseif G.page == "Objects" and App.area then
-			App.buildObjectsPage(App.scroll)
-		else
-			buildArea(App.scroll)
-		end
-		buildFooter(App.root)
+		buildBar(App.root)
 		buildToast(App.root)
-		App.refreshScan()
-		App.refreshObjects()
+		buildPage()
 		if turned then
 			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
 			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
@@ -505,7 +599,7 @@ return function(App)
 		end
 	end
 
-	function applyTheme()
+	local function applyTheme()
 		makePalette()
 		App.rebuildAll()
 		rebuildOverlay()
@@ -514,6 +608,7 @@ return function(App)
 			App.drawSpline()
 		end
 	end
+	App.applyTheme = applyTheme
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
 end)()
@@ -2396,7 +2491,7 @@ return function(App)
 		local a = Engine.createArea("Path " .. n, nil)
 		a.folder:SetAttribute("SS_Kind", "Path")
 		endRec(rec)
-		G.page = "Main"
+		G.page = "" -- its home tab: where its first step is
 		saveG()
 		switchArea(a.folder)
 		ensureSpline()
@@ -2426,7 +2521,7 @@ return function(App)
 		App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 
 	local TOUR_KEY = "SmartScatter_tour"
-	local TOUR_V = 2 -- raise when the tour changes enough that everyone should see it again
+	local TOUR_V = 3 -- raise when the tour changes enough that everyone should see it again
 
 	local function ui(name)
 		local o = App.ui[name]
@@ -2434,6 +2529,10 @@ return function(App)
 	end
 	local function inArea()
 		return App.area ~= nil
+	end
+
+	local function shapeTab()
+		return inArea() and App.kindOf(App.area) == "Path" and "Map" or "Brush"
 	end
 
 	local STEPS = {
@@ -2475,6 +2574,20 @@ return function(App)
 			end,
 		},
 		{
+			chapter = "Areas",
+			title = "Four tabs",
+			text = "Scatter: what fills the area, its objects and their rules.\n"
+				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
+				.. "Map: the path, its road, and fixing what the scan sees.\n"
+				.. "Settings: the plugin itself.\n\n"
+				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
+				.. "below the tabs, like road or spacing.",
+			target = function()
+				local t = App.ui.tabs and App.ui.tabs.Scatter
+				return t and t.Parent or nil
+			end,
+		},
+		{
 			chapter = "Shape",
 			title = "Mark the ground",
 			text = function()
@@ -2485,6 +2598,7 @@ return function(App)
 					.. "Shift erases, F resizes the brush with the mouse, Esc stops.\n\n"
 					.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
 			end,
+			tab = shapeTab,
 			target = function()
 				return ui("step1Card") or ui("welcomeChoice")
 			end,
@@ -2507,10 +2621,13 @@ return function(App)
 		{
 			chapter = "Objects",
 			title = "Add your models",
-			text = "Open this, select models in the Explorer and press Add selected models. Keep the originals outside the "
+			text = "Select models in the Explorer and press Add selected models. Keep the originals outside the "
 				.. "area, for example in ServerStorage.\n\n"
 				.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. "
 				.. "Save a set you like as a preset to reuse it in any area.",
+			tab = function()
+				return "Scatter"
+			end,
 			target = function()
 				return ui("step2Card")
 			end,
@@ -2533,9 +2650,9 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Placing it all",
-			text = "With Live update on, every change rebuilds by itself. Too much for Studio? It pauses and asks first. "
-				.. "Turn Live update off to use a Generate button instead.\n\n"
-				.. "Shuffle gives a new random layout, Clear removes what was placed, and Ctrl+Z undoes any step.",
+			text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
+				.. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
+				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step.",
 			target = function()
 				return ui("foot")
 			end,
@@ -2547,13 +2664,13 @@ return function(App)
 				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
 				.. "Every shortcut is listed here too.",
 			target = function()
-				return ui("gearBtn")
+				return App.ui.tabs and App.ui.tabs.Settings
 			end,
 		},
 		{
 			chapter = "Finish",
 			title = "When you're done",
-			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it: its "
+			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it from the area menu: its "
 				.. "objects become plain models and the area steps aside.\n\n"
 				.. "Hover over anything for a tip, and right-click a slider to reset it. The plugin updates itself.",
 		},
@@ -2608,6 +2725,11 @@ return function(App)
 		end
 		local i = App.tour.i
 		local step = STEPS[i]
+		local tab = step.tab and inArea() and step.tab()
+		if tab and G.page ~= tab then
+			App.goPage(tab) -- rebuilds the panel, which shows this step again
+			return
+		end
 		local target = step.target and step.target()
 		if target then
 			scrollTo(target)
@@ -2811,8 +2933,8 @@ return function(App)
 			App.setMode("Off")
 		end
 		App.tour = { i = 1 }
-		if G.page ~= "Main" then
-			App.goPage("Main") -- rebuilds the panel, which shows the tour
+		if G.page == "Settings" then
+			App.goPage("") -- the area's home tab; rebuilds the panel, which shows the tour
 		else
 			App.renderTour()
 		end
