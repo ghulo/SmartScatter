@@ -10,6 +10,8 @@ round bends, and everything updates live as you tweak it.
 - **Paths** — draw a curve for roads, fences, walls, tiled paths or rows of lamps; branches and junctions join cleanly
 - **Rules per object** — size, spacing, clumping, piles, slopes, surfaces, height bands, distance from roads/water/buildings
 - **Keep-clear zones** — ground no area may place anything on (spawns, doorways)
+- **Map scan** — finds every repeated model in a finished map and groups the copies into kinds by shape (renamed,
+  turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click
 - **Biomes and presets** — start from a Forest/Meadow/Desert/Town mix made from your own models, or save your own sets
 - **Game-ready output** — optional streaming chunks, no-collision plants, shadow and click settings; a heaviness warning
 - **Undo everything** — every edit is one Ctrl+Z step
@@ -33,13 +35,13 @@ Loader.lua                the installed Script: picks the newest code (bundled, 
 src/
   Engine/                 placement, no UI            each module: return function(E, I) … end
     init.lua                entry: constants + ORDER
-    Scan · Assets · Areas · Paths · Planning · Placement · Lines · Generate
+    Scan · Assets · Areas · Paths · Planning · Placement · Lines · Pins · Generate · Kinds
   App/                    the plugin's panel and tools  each module: return function(App) … end
     init.lua                entry: ORDER + runner
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
                             Lifecycle (undo, cleanup; runs last)
     Viewport/               Overlay · Paint · Spline
-    Panel/                  Header (area menu) · AreaTools · ObjectTools (the controls) · Shell (tabs, search,
+    Panel/                  Header (area menu) · AreaTools · ObjectTools · MapTools (the controls) · Shell (tabs, search,
                             bottom bar) · Tour
       Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature
 tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,

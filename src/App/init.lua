@@ -6,7 +6,7 @@
 	hands back its cleanup (the last one returned runs when the plugin unloads or updates).
 	  Core/        state, UI kit, cards and search, generation jobs, and the undo/cleanup wiring that runs last
 	  Viewport/    what happens in the 3D view: the painted overlay, painting, the spline editor
-	  Panel/       the header, the controls for areas and objects, the shell (tabs, search, bottom bar), the tour
+	  Panel/       the header, the controls for areas, objects and the map, the shell (tabs, search, bottom bar), the tour
 	  Panel/Tabs/  one module per tab: Scatter, Brush, Map, Settings
 	To add a module: create it in the folder it belongs to and add its path to ORDER after what it uses.
 ]]
@@ -20,6 +20,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/MapTools",
 	"Panel/Tabs/Scatter",
 	"Panel/Tabs/Brush",
 	"Panel/Tabs/Map",

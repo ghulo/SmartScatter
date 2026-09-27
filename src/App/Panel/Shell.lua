@@ -310,7 +310,12 @@ return function(App)
 	local TABS = {
 		{ name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
 		{ name = "Brush", icon = "brush", hint = "Work by hand: paint the ground, brush one object, remove copies.", build = "buildBrushTab" },
-		{ name = "Map", icon = "spline", hint = "The path, its road, and telling the scan what's what.", build = "buildMapTab" },
+		{
+			name = "Map",
+			icon = "spline",
+			hint = "The path and its road, scanning a finished map for kinds, and the snapshot.",
+			build = "buildMapTab",
+		},
 		{ name = "Settings", icon = "settings", hint = "The plugin's look, output and shortcuts.", build = "buildSettingsTab" },
 	}
 	local TAB = {}
@@ -542,7 +547,7 @@ return function(App)
 		local page = col({ Parent = sc }, { vlist(10) })
 		if App.searching() then
 			buildResults(page)
-		elseif not App.area and G.page ~= "Settings" then
+		elseif not App.area and (G.page == "Scatter" or G.page == "Brush") then
 			App.buildWelcome(page)
 		else
 			App[TAB[G.page].build](page)

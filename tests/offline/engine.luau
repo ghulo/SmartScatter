@@ -221,6 +221,47 @@ do
 	check("no road, no width", E.roadWidth({ width = 30, surface = { on = false, width = 12 } }) == 0)
 end
 
+-- ── kinds: shapes matched by shape, not name ──────────────────────────────────────────
+do
+	local V = Vector3.new
+	local tree = {
+		{ kind = "Part:Block", size = V(1.2, 8, 1.2) },
+		{ kind = "MeshPart:rbxassetid://7", size = V(8, 6, 8) },
+	}
+	local key, unit = E.shapeKey(tree)
+	check("a shape has a key and a size", type(key) == "string" and unit == 8)
+	local turned = { -- the same parts, turned on their sides
+		{ kind = "MeshPart:rbxassetid://7", size = V(6, 8, 8) },
+		{ kind = "Part:Block", size = V(8, 1.2, 1.2) },
+	}
+	check("a turned copy matches", E.shapeKey(turned) == key)
+	local big = {
+		{ kind = "Part:Block", size = V(1.8, 12, 1.8) },
+		{ kind = "MeshPart:rbxassetid://7", size = V(12, 9, 12) },
+	}
+	local bkey, bunit = E.shapeKey(big)
+	check("a scaled copy matches, and its size says how much bigger", bkey == key and near(bunit / unit, 1.5))
+	local tiny = { -- float error from scaling back and forth doesn't split a kind
+		{ kind = "Part:Block", size = V(1.2000004, 7.9999996, 1.2) },
+		{ kind = "MeshPart:rbxassetid://7", size = V(8, 6.0000003, 8) },
+	}
+	check("tiny float differences still match", E.shapeKey(tiny) == key)
+	local other = {
+		{ kind = "Part:Block", size = V(1.2, 8, 1.2) },
+		{ kind = "MeshPart:rbxassetid://8", size = V(8, 6, 8) },
+	}
+	check("another mesh is another kind", E.shapeKey(other) ~= key)
+	local stretched = {
+		{ kind = "Part:Block", size = V(1.2, 12, 1.2) },
+		{ kind = "MeshPart:rbxassetid://7", size = V(8, 6, 8) },
+	}
+	check("different proportions are another kind", E.shapeKey(stretched) ~= key)
+	local extra = table.clone(tree)
+	table.insert(extra, { kind = "Part:Ball", size = V(1, 1, 1) })
+	check("an extra part is another kind", E.shapeKey(extra) ~= key)
+	check("no parts, no key", E.shapeKey({}) == nil)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

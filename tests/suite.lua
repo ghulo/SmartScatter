@@ -1203,6 +1203,102 @@ local ok, err = pcall(function()
 			string.format("%d kept, %d far copies rebuilt", stayed, moved)
 		)
 	end
+
+	-- map scan: copies grouped by shape (renamed, turned and scaled still match), nested copies left inside theirs,
+	-- and the snapshot putting a changed copy back
+	do
+		local map = Instance.new("Folder")
+		map.Name = "ScanMap"
+		map.Parent = world
+		local function hut(name, at, turn, scale)
+			local m = Instance.new("Model")
+			m.Name = name
+			local base = part({ Name = "Walls", Size = Vector3.new(10, 8, 12), CFrame = CFrame.new(0, 4, 0) })
+			base.Parent = m
+			local roof = part({ Name = "Roof", Size = Vector3.new(11, 2, 13), CFrame = CFrame.new(0, 9, 0), Color = Color3.new(0.6, 0.2, 0.1) })
+			roof.Parent = m
+			m.PrimaryPart = base
+			m.Parent = map
+			m:PivotTo(CFrame.new(O + at) * CFrame.Angles(0, math.rad(turn), 0))
+			if scale then
+				m:ScaleTo(scale)
+			end
+			return m
+		end
+		local a1 = hut("Hut", Vector3.new(-200, 0, 200), 0)
+		hut("Hut", Vector3.new(-170, 0, 200), 90)
+		local renamed = hut("Cabin (1)", Vector3.new(-140, 0, 200), 33)
+		local scaled = hut("Hut", Vector3.new(-110, 0, 200), 0, 1.5)
+		local lone = model("Lonely", { { Name = "Box", Size = Vector3.new(3, 3, 3), CFrame = CFrame.new(0, 1.5, 0) } })
+		lone.Parent = map
+		-- a village: one model holding two huts; the village is the copy, its huts stay inside it
+		local village = Instance.new("Model")
+		village.Name = "Village"
+		for i = 1, 2 do
+			local h = hut("Hut", Vector3.new(-200 + i * 30, 0, 250), 0)
+			h.Parent = village
+		end
+		village.Parent = map
+		local village2 = village:Clone()
+		village2.Name = "Village B"
+		village2:PivotTo(village:GetPivot() * CFrame.new(0, 0, 60))
+		village2.Parent = map
+		local kinds = E.scanKinds({ roots = { map } })
+		local huts, villages
+		for _, k in kinds do
+			for _, c in k.copies do
+				if c.inst == a1 then
+					huts = k
+				elseif c.inst == village then
+					villages = k
+				end
+			end
+		end
+		local hasRenamed, scaleOf = false, nil
+		for _, c in huts and huts.copies or {} do
+			hasRenamed = hasRenamed or c.inst == renamed
+			if c.inst == scaled then
+				scaleOf = c.scale
+			end
+		end
+		check(
+			"the map scan groups copies by shape: renamed, turned and scaled",
+			huts ~= nil and huts.count == 4 and hasRenamed and scaleOf ~= nil and math.abs(scaleOf - 1.5) < 0.01 and huts.name == "Hut",
+			string.format("%s huts, scaled %.2f, %d kinds", huts and huts.count or "no", scaleOf or -1, #kinds)
+		)
+		check(
+			"copies inside a copy stay part of it; a model with no twin isn't a kind",
+			villages ~= nil and villages.count == 2 and #kinds == 2,
+			string.format("%s villages, %d kinds", villages and villages.count or "no", #kinds)
+		)
+		E.clearSnapshot()
+		local saved = E.snapshot({ a1, scaled })
+		local again = E.snapshot({ a1 })
+		a1.Roof.Color = Color3.new(1, 1, 1) -- a season tool recolours it in place
+		E.snapshotChanged(a1)
+		local swapIn = lone:Clone() -- a swap tool replaces the scaled one
+		swapIn.Parent = map
+		E.snapshotChanged(scaled, swapIn)
+		scaled:Destroy()
+		local info = E.snapshotInfo()
+		local back = E.restoreSnapshot()
+		local roofs, lonely = 0, 0
+		for _, m in map:GetChildren() do
+			if m.Name == "Hut" and m:FindFirstChild("Roof") and m.Roof.Color == Color3.new(0.6, 0.2, 0.1) then
+				roofs += 1
+			elseif m.Name == "Lonely" then
+				lonely += 1
+			end
+		end
+		check(
+			"the snapshot keeps originals once and puts changed copies back",
+			saved == 2 and again == 0 and info.saved == 2 and info.changed == 2 and back == 2 and roofs == 3 and lonely == 1,
+			string.format("saved %d then %d, %d changed, %d back, %d red roofs, %d swapped left", saved, again, info.changed, back, roofs, lonely)
+		)
+		check("a restore leaves nothing marked changed", E.snapshotInfo().changed == 0, "")
+		E.clearSnapshot()
+		map:Destroy()
+	end
 end)
 if not ok then
 	check("suite ran without errors", false, tostring(err))
