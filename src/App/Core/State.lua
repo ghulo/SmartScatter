@@ -223,9 +223,13 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" | "Place" (one layer) · "Off"
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
-	local LAYER_MODES = { More = "paint", Less = "paint", Clear = "paint", Place = "pins" }
+	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
+	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
+	App.LAYER_LABEL = { Place = "Place", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+	App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)

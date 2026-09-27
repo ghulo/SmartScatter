@@ -399,42 +399,74 @@ return function(App)
 		})
 	end
 
+	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
+	local LAYER_HINT = {
+		Place = "Puts copies down exactly where you brush, at the object's spacing.",
+		More = "More of it where you brush (up to three times as much).",
+		Less = "Less of it where you brush; twice clears it.",
+		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
+		Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
+	}
 	local function buildLayerPaint(l, parent, more)
 		parent.add({
 			id = "layerpaint",
 			title = "Paint or place this object",
-			keys = "brush more less clear place pins",
+			keys = "brush more less erase reset place pins",
 			more = more,
 			build = function(b)
-				local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
-					return App.paintLayer == l and App.mode or nil
-				end, function(m)
-					App.setMode(m, l)
-				end, nil, nil, true)
+				local labels, modeOf = {}, {}
+				for _, m in App.LAYER_ORDER do
+					table.insert(labels, App.LAYER_LABEL[m])
+					modeOf[App.LAYER_LABEL[m]] = m
+				end
+				local seg, refresh = segmented(labels, function()
+					return App.paintLayer == l and App.LAYER_LABEL[App.mode] or nil
+				end, function(label)
+					App.setMode(modeOf[label], l)
+				end, nil, nil, true, nil, LAYER_HINT)
 				seg.Parent = b
-				explain(
-					b,
-					"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
-				)
-				App.ui.refreshLayerBrush = refresh
+				local what = App.para("", { Parent = b })
+				what.TextColor3 = P.dim
+				local function say()
+					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
+					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]]) .. ".")
+						or "Pick one, then brush over the area in the viewport."
+				end
+				say()
+				App.ui.refreshLayerBrush = function()
+					refresh()
+					say()
+				end
+				slider("Brush size", 4, 200, function()
+					return G.radius
+				end, function(v)
+					G.radius = v
+				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
+					b
+				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
+				local acts = buttonRow(b)
 				if l.pins then
-					gap(b, 4)
-					button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
-						l.pins = nil
-						commit(l)
-						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
+					hintOn(
+						button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+							l.pins = nil
+							commit(l)
+							App.refreshObjects()
+						end, { Parent = acts }),
+						"Takes out every copy of it you put down with Place."
+					)
 				end
 				if l.paint then
-					gap(b, 4)
-					button("Reset painting", nil, function()
-						l.paint = nil
-						if App.paintLayer == l then
-							recolorOverlay()
-						end
-						commit(l)
-						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
+					hintOn(
+						button("Reset all painting", nil, function()
+							l.paint = nil
+							if App.paintLayer == l then
+								recolorOverlay()
+							end
+							commit(l)
+							App.refreshObjects()
+						end, { Parent = acts }),
+						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+					)
 				end
 			end,
 		})
