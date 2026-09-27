@@ -29,6 +29,7 @@ local ORDER = {
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Spline",
+	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",
 }

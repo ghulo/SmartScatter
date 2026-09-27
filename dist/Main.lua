@@ -84,6 +84,7 @@ fillReach = 120,
 paintOn = {},
 scanSelection = false,
 history = true,
+focus = true,
 page = "",
 }
 do
@@ -6456,6 +6457,7 @@ local ORDER = {
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Spline",
+	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",
 }

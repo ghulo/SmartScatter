@@ -839,8 +839,13 @@ return function(App)
 	-- Shift turns a brush into its opposite: the ring shows it the moment the key goes down or up
 	local function shiftChanged(input)
 		local k = input.KeyCode
-		if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" and App.gz.folder then
-			updateGizmo(mouseHit())
+		if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" then
+			if App.gz.folder then
+				updateGizmo(mouseHit())
+			end
+			if App.refreshFocus then
+				App.refreshFocus()
+			end
 		end
 	end
 	track(UIS.InputBegan:Connect(shiftChanged))
@@ -909,6 +914,9 @@ return function(App)
 		if App.drawSpline then
 			App.drawSpline()
 		end
+		if App.refreshFocus then
+			App.refreshFocus()
+		end
 		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
 			if App.ui[k] then
 				App.ui[k]()
@@ -967,6 +975,9 @@ return function(App)
 		clearPath()
 		if App.ui.refreshTool then
 			App.ui.refreshTool()
+		end
+		if App.refreshFocus then
+			App.refreshFocus()
 		end
 		if App.mode ~= "Paint" and App.mode ~= "Erase" then
 			App.setMode("Paint")

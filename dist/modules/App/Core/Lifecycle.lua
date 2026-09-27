@@ -106,6 +106,9 @@ return function(App)
 		removeGizmo()
 		removeSplineViz()
 		clearOverlay()
+		if App.clearFocus then
+			App.clearFocus()
+		end
 		if App.root then
 			App.root:Destroy()
 			App.root = nil

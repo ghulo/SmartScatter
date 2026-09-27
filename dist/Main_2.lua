@@ -431,6 +431,23 @@ App.rebuildOverlay()
 App.drawSpline()
 end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
 b
+switchRow(
+"Focus when a tool is on",
+function()
+return G.focus
+end,
+function(v)
+G.focus = v
+end,
+function()
+saveG()
+if App.refreshFocus then
+App.refreshFocus()
+end
+end,
+"While painting, drawing a path or brushing an object, the world greys and dims a little, a thin frame runs round the viewport and the corner says what the tool is doing, like Blender's edit mode."
+).Parent =
+b
 switchRow("History timeline", function()
 return G.history
 end, function(v)
@@ -2127,8 +2144,13 @@ end
 end))
 local function shiftChanged(input)
 local k = input.KeyCode
-if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" and App.gz.folder then
+if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" then
+if App.gz.folder then
 updateGizmo(mouseHit())
+end
+if App.refreshFocus then
+App.refreshFocus()
+end
 end
 end
 track(UIS.InputBegan:Connect(shiftChanged))
@@ -2193,6 +2215,9 @@ rebuildOverlay()
 if App.drawSpline then
 App.drawSpline()
 end
+if App.refreshFocus then
+App.refreshFocus()
+end
 for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
 if App.ui[k] then
 App.ui[k]()
@@ -2250,6 +2275,9 @@ App.polyPts = nil
 clearPath()
 if App.ui.refreshTool then
 App.ui.refreshTool()
+end
+if App.refreshFocus then
+App.refreshFocus()
 end
 if App.mode ~= "Paint" and App.mode ~= "Erase" then
 App.setMode("Paint")
@@ -3206,6 +3234,177 @@ App.ensureSplineFn = ensureSpline
 App.removeSplineViz = removeSplineViz
 end
 end)()
+-- #module Viewport/Focus
+MODULES["Viewport/Focus"] = (function()
+--[[
+Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
+brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
+edit mode and local view feel: the scene fades toward grey and dims (a colour correction on the camera, never
+saved with the place), a faint frame in the accent runs round the viewport, and quiet text in its top-left corner
+says the mode and what it's working on, Blender style. Red while it takes things away. Settings › Viewport can
+turn it off.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, P, tween, MED, FAST = App.G, App.P, App.tween, App.MED, App.FAST
+local new, box, corner, label = App.new, App.box, App.corner, App.label
+local SANS_M, SANS_B = App.SANS_M, App.SANS_B
+local LAYER_MODES = App.LAYER_MODES
+local LOOK = { Saturation = -0.35, Brightness = -0.05, Contrast = -0.06 }
+local cc
+local gui, group, frame, glowLine, dot, title, detail
+local function describe()
+local m = App.mode
+local shift = App.shiftHeld and App.shiftHeld()
+local area = App.area and App.area.folder.Name or nil
+local function on(...)
+local bits = {}
+for _, b in { ... } do
+if b then
+table.insert(bits, b)
+end
+end
+return table.concat(bits, "  ·  ")
+end
+if m == "Paint" or m == "Erase" then
+local erase = (m == "Erase") ~= (shift == true)
+return erase and "Erasing ground" or "Painting ground", on(G.tool, area), erase
+elseif m == "Spline" then
+return "Drawing the path", on(area), false
+elseif m == "Remove" then
+return "Removing copies", on("click one to take it out", area), true
+elseif LAYER_MODES[m] then
+local act = shift and App.LAYER_OPPOSITE[m] or m
+local name = App.paintLayer and App.paintLayer.inst.Name or "object"
+return App.LAYER_LABEL[act] .. " · one object", on(name, area), act == "None" or act == "Less"
+end
+return nil, nil, false
+end
+local function build()
+gui = new("ScreenGui", {
+Name = "SmartScatterFocus",
+Archivable = false,
+IgnoreGuiInset = true,
+DisplayOrder = 50,
+ResetOnSpawn = false,
+ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+})
+group = new("CanvasGroup", { BackgroundTransparency = 1, GroupTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
+frame = box({ Size = UDim2.fromScale(1, 1), Parent = group })
+local line = App.stroke(P.accent)
+line.Thickness, line.Transparency = 2, 0.55
+line.Parent = frame
+local inner = box({ Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), Parent = group })
+glowLine = App.stroke(P.accent)
+glowLine.Thickness, glowLine.Transparency = 6, 0.9
+glowLine.Parent = inner
+local cornerText =
+box({ Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = group })
+dot = box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.accent,
+Position = UDim2.fromOffset(0, 6),
+Size = UDim2.fromOffset(7, 7),
+Parent = cornerText,
+}, { corner(4) })
+local lines = box(
+{ Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = cornerText },
+{
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
+}
+)
+title = label(
+"",
+14,
+Color3.new(1, 1, 1),
+SANS_B,
+{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 1, Parent = lines }
+)
+detail = label(
+"",
+12,
+Color3.fromRGB(215, 215, 215),
+SANS_M,
+{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Parent = lines }
+)
+for _, t in { title, detail } do
+t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
+t.TextTruncate = Enum.TextTruncate.None
+end
+pcall(function()
+gui.Parent = game:GetService("CoreGui")
+end)
+end
+local shown = false
+App.refreshFocus = function()
+local what, where, erase = describe()
+local on = G.focus ~= false and what ~= nil
+if on then
+if not (gui and gui.Parent) then
+build()
+end
+local col = erase and P.danger or P.accent
+frame:FindFirstChildOfClass("UIStroke").Color = col
+glowLine.Color = col
+dot.BackgroundColor3 = col
+title.Text = what
+detail.Text = (where ~= "" and (where .. "  ·  ") or "") .. App.keyText("cancel") .. " to stop"
+local cam = workspace.CurrentCamera
+if cam and not (cc and cc.Parent == cam) then
+cc = new(
+"ColorCorrectionEffect",
+{ Name = "SmartScatterFocus", Archivable = false, Saturation = 0, Brightness = 0, Contrast = 0, Parent = cam }
+)
+end
+if not shown then
+tween(group, MED, { GroupTransparency = 0 })
+if cc then
+tween(cc, MED, LOOK)
+end
+end
+if cc then
+cc.TintColor = Color3.new(1, 1, 1):Lerp(col, 0.05)
+end
+shown = true
+elseif shown then
+shown = false
+if group then
+tween(group, FAST, { GroupTransparency = 1 })
+end
+if cc then
+local gone = cc
+cc = nil
+tween(gone, MED, { Saturation = 0, Brightness = 0, Contrast = 0 })
+task.delay(0.3, function()
+gone:Destroy()
+end)
+end
+end
+end
+App.clearFocus = function()
+shown = false
+if cc then
+cc:Destroy()
+cc = nil
+end
+if gui then
+gui:Destroy()
+gui = nil
+end
+end
+local cam = workspace.CurrentCamera
+local old = cam and cam:FindFirstChild("SmartScatterFocus")
+if old then
+old:Destroy()
+end
+pcall(function()
+local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterFocus")
+if g then
+g:Destroy()
+end
+end)
+end
+end)()
 -- #module Panel/Tour
 MODULES["Panel/Tour"] = (function()
 --[[
@@ -3742,6 +3941,9 @@ end
 removeGizmo()
 removeSplineViz()
 clearOverlay()
+if App.clearFocus then
+App.clearFocus()
+end
 if App.root then
 App.root:Destroy()
 App.root = nil
