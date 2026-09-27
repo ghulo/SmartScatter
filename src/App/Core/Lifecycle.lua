@@ -109,6 +109,9 @@ return function(App)
 		if App.clearFocus then
 			App.clearFocus()
 		end
+		if App.closePalette then
+			App.closePalette()
+		end
 		if App.root then
 			App.root:Destroy()
 			App.root = nil

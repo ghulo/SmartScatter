@@ -13,7 +13,11 @@ return function(App)
 	local new, box, label, corner, stroke, pad = App.new, App.box, App.label, App.corner, App.stroke, App.pad
 	local SANS, SANS_M, SANS_B = App.SANS, App.SANS_M, App.SANS_B
 	local UIS = game:GetService("UserInputService")
-	local ROW, HEAD, SHOWN, WIDTH = 30, 22, 10, 440 -- row heights, rows in view, the menu's width
+	local ROW, HEAD, SHOWN, WIDTH = 30, 22, 10, 500 -- row heights, rows in view, the menu's width
+	-- while it's open the world steps back, like a focus mode: a soft blur and a little less colour and light (on the
+	-- camera, never saved with the place; the menu itself stays sharp)
+	local BLUR, DIM = 6, { Saturation = -0.25, Brightness = -0.04 }
+	local SEE = 0.08 -- how see-through the menu is
 	local RECENT = 5
 
 	--------------------------------------------------------------------------------
@@ -547,6 +551,25 @@ return function(App)
 	-- The menu
 	--------------------------------------------------------------------------------
 	local gui, conns, closing = nil, {}, false
+	local blur, dim -- the camera's effects while it's open
+
+	local function stepBack(on)
+		local cam = workspace.CurrentCamera
+		if on and cam then
+			blur = new("BlurEffect", { Name = "SmartScatterPaletteBlur", Archivable = false, Size = 0, Parent = cam })
+			dim = new("ColorCorrectionEffect", { Name = "SmartScatterPaletteDim", Archivable = false, Parent = cam })
+			App.tween(blur, App.FAST, { Size = BLUR })
+			App.tween(dim, App.FAST, DIM)
+			return
+		end
+		for _, e in { blur, dim } do
+			App.tween(e, App.FAST, e:IsA("BlurEffect") and { Size = 0 } or { Saturation = 0, Brightness = 0 })
+			task.delay(0.25, function()
+				e:Destroy()
+			end)
+		end
+		blur, dim = nil, nil
+	end
 
 	local function close()
 		for _, c in conns do
@@ -556,6 +579,7 @@ return function(App)
 		if gui then
 			gui:Destroy()
 			gui = nil
+			stepBack(false)
 		end
 	end
 	App.closePalette = close
@@ -592,6 +616,7 @@ return function(App)
 			return
 		end
 		local all = actions()
+		stepBack(true)
 		gui = new("ScreenGui", {
 			Name = "SmartScatterPalette",
 			Archivable = false,
@@ -613,7 +638,7 @@ return function(App)
 		local height = 40 + 1 + SHOWN * ROW + 8 + 24
 		local mx, my = App.rawMouse.X, App.rawMouse.Y
 		local win = box({
-			BackgroundTransparency = 0,
+			BackgroundTransparency = SEE,
 			BackgroundColor3 = P.card,
 			Position = UDim2.fromOffset(
 				math.clamp(mx - 60, 8, math.max(view.X - WIDTH - 8, 8)),
@@ -817,4 +842,18 @@ return function(App)
 			end
 		end)
 	end
+	-- (what an earlier load of the plugin left: the menu, or the world's blur)
+	local cam = workspace.CurrentCamera
+	for _, name in { "SmartScatterPaletteBlur", "SmartScatterPaletteDim" } do
+		local e = cam and cam:FindFirstChild(name)
+		if e then
+			e:Destroy()
+		end
+	end
+	pcall(function()
+		local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterPalette")
+		if g then
+			g:Destroy()
+		end
+	end)
 end
