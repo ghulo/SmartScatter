@@ -1498,11 +1498,11 @@ local ok, err = pcall(function()
 		map:Destroy()
 	end
 
-	-- the ground under non-collidable parts: a big one (a floating island's mesh) is ground, a small one (a leaf) and
+	-- the ground under non-collidable parts: a big one (an island top named Grass) is ground, a small one (a leaf) and
 	-- an invisible one are passed through
 	do
 		local island =
-			part({ Name = "IslandTop", Size = Vector3.new(60, 4, 60), CFrame = CFrame.new(O + Vector3.new(-250, 40, -250)), CanCollide = false })
+			part({ Name = "Grass", Size = Vector3.new(60, 4, 60), CFrame = CFrame.new(O + Vector3.new(-250, 40, -250)), CanCollide = false })
 		local leaf = part({ Name = "Leaf", Size = Vector3.new(4, 4, 4), CFrame = CFrame.new(O + Vector3.new(-200, 10, -250)), CanCollide = false })
 		local ghost = part({
 			Name = "Zone",
