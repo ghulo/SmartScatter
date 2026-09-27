@@ -41,6 +41,50 @@ return function(App)
 		runGenerate(true)
 	end
 
+	-- Generate: places the real models now (a live preview's boxes too); while a job runs, stops it
+	App.generateNow = function()
+		if App.busy() then
+			App.cancelJob()
+			App.status("Stopped. Nothing was changed.")
+			return
+		end
+		local ok, why = canGenerate()
+		if not ok then -- (greyed out: say what's missing)
+			App.status(why or "Nothing to generate yet.")
+			return
+		end
+		if App.worldChanged() then -- read the ground again only if something under the area changed
+			App.analysisDirty = true
+		end
+		runGenerate(true, nil, nil, true)
+	end
+	-- Live on or off (the pill in the bottom bar)
+	App.toggleLive = function()
+		G.live = not G.live
+		saveG()
+		if App.ui.liveLook then
+			App.ui.liveLook()
+		end
+		if G.live then
+			commit()
+		end
+		App.status(
+			G.live
+					and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+				or "Live off: changes wait for Generate."
+		)
+	end
+	-- undo or redo one step (the bottom bar's button, and the search menu)
+	App.undoStep = function(redo)
+		local chs = App.ChangeHistoryService
+		local ok, can = pcall(redo and chs.GetCanRedo or chs.GetCanUndo, chs)
+		if ok and can == false then
+			App.status(redo and "Nothing to redo." or "Nothing to undo.")
+			return
+		end
+		pcall(redo and chs.Redo or chs.Undo, chs)
+	end
+
 	-- the bar pinned to the bottom: Generate, Live update, Shuffle and Undo. Messages show as toasts above it. A thin
 	-- line along its top edge fills while a job runs.
 	local buildTimeline -- (below)
@@ -208,22 +252,7 @@ return function(App)
 		App.ui.genBtn.MouseButton1Up:Connect(function()
 			tween(press, MED, { Scale = 1 })
 		end)
-		App.ui.genBtn.MouseButton1Click:Connect(function()
-			if App.busy() then -- while generating the button stops it
-				App.cancelJob()
-				App.status("Stopped. Nothing was changed.")
-				return
-			end
-			local ok, why = canGenerate()
-			if not ok then -- (greyed out: say what's missing)
-				App.status(why or "Nothing to generate yet.")
-				return
-			end
-			if App.worldChanged() then -- read the ground again only if something under the area changed
-				App.analysisDirty = true
-			end
-			runGenerate(true, nil, nil, true) -- the real models, a live preview's boxes too
-		end)
+		App.ui.genBtn.MouseButton1Click:Connect(App.generateNow)
 		hintOn(App.ui.genBtn, function()
 			if App.busy() then
 				return "Click to stop. Nothing changes until it's done."
@@ -265,19 +294,8 @@ return function(App)
 			liveText.TextColor3 = G.live and P.accent or P.dim
 		end
 		liveLook()
-		live.MouseButton1Click:Connect(function()
-			G.live = not G.live
-			saveG()
-			liveLook()
-			if G.live then
-				commit()
-			end
-			App.status(
-				G.live
-						and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
-					or "Live off: changes wait for Generate."
-			)
-		end)
+		App.ui.liveLook = liveLook
+		live.MouseButton1Click:Connect(App.toggleLive)
 		hintOn(
 			live,
 			"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
@@ -287,13 +305,7 @@ return function(App)
 		shuffle.LayoutOrder = 2
 		shuffle.Parent = right
 		local undo = App.iconButton("undo", "Undo the last step (Ctrl+Z)", function()
-			local chs = App.ChangeHistoryService
-			local ok, can = pcall(chs.GetCanUndo, chs)
-			if ok and can == false then
-				App.status("Nothing to undo.")
-				return
-			end
-			pcall(chs.Undo, chs)
+			App.undoStep()
 		end, false, 38)
 		undo.LayoutOrder = 3
 		undo.Parent = right
@@ -581,7 +593,7 @@ return function(App)
 		ic.Parent = row
 		local tb = new("TextBox", {
 			Text = searchText,
-			PlaceholderText = "Search every setting",
+			PlaceholderText = "Search every setting  ·  " .. App.keyText("palette") .. " in the viewport: every action",
 			Font = SANS,
 			TextSize = 13,
 			TextColor3 = P.text,

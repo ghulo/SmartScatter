@@ -80,6 +80,7 @@ accent = "Sage",
 keys = {},
 liveBoxes = true,
 stampRandom = false,
+recent = {},
 tool = "Brush",
 shape = "Circle",
 fillReach = 120,
@@ -137,6 +138,7 @@ local KEYMAP = {
 { id = "turn", group = "Stamp", label = "Turn the stamp (Shift: back)", key = "T" },
 { id = "model", group = "Stamp", label = "Next model", key = "V" },
 { id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
+{ id = "palette", group = "Anywhere while working", label = "Search every action (the viewport's menu)", key = "Space" },
 { id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 }
 local KEY_TEXT = {
@@ -1887,6 +1889,7 @@ s.TextColor3 = P.dim
 end
 local body = col({ Parent = c }, { vlist(6) })
 spec.build(body, c)
+c:SetAttribute("SS_Card", spec.id)
 return c
 end
 App.cards = function(parent, id)
@@ -1970,6 +1973,28 @@ order += 1
 return card(parent, spec, order)
 end
 return cs
+end
+App.openCard = function(tab, id, fold)
+if fold then
+G.groups["more:" .. fold] = true
+saveG()
+end
+App.goPage(tab)
+App.rebuildAll()
+for _, d in App.root:GetDescendants() do
+if d:GetAttribute("SS_Card") == id then
+App.scrollIntoView(d)
+local edge = d:FindFirstChildOfClass("UIStroke")
+if edge then
+edge.Color = P.accent
+task.delay(0.9, function()
+App.tween(edge, App.MED, { Color = P.line })
+end)
+end
+return true
+end
+end
+return false
 end
 App.goNote = function(parent, text, buttonText, tab)
 local wrap = col({ Parent = parent }, { vlist(8) })
@@ -2908,6 +2933,60 @@ App.ui.popup:Destroy()
 App.ui.popup = nil
 end
 end
+App.toggleLock = function()
+local a = App.area
+if not a then
+return
+end
+local rec = beginRec(a.locked and "Smart Scatter: Unlock area" or "Smart Scatter: Lock area")
+a.locked = not a.locked or nil
+saveArea()
+endRec(rec)
+if a.locked and App.mode ~= "Off" then
+App.setMode("Off")
+end
+App.rebuildAll()
+App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
+end
+App.clearPlaced = function()
+if not App.area then
+return
+end
+local rec = beginRec("Smart Scatter: Clear")
+Engine.clearOutputs(App.area)
+endRec(rec)
+App.lastCounts, App.lastTotal = {}, 0
+App.refreshCounts()
+App.status("Cleared. The area and objects are kept; Generate brings it all back.")
+end
+App.bakeArea = function()
+if not App.area then
+return
+end
+local a = App.area
+local n = Engine.roadOf(a) and 1 or 0
+for _, f in a.folder:GetChildren() do
+n += #f:GetChildren()
+end
+if n == 0 then
+App.status("Nothing to bake yet. Generate first.")
+return
+end
+if Engine.isPreview(a) then
+App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
+return
+end
+App.cancelJob()
+local rec = beginRec("Smart Scatter: Bake")
+local out, count = Engine.bake(a)
+a.locked = true
+saveArea()
+endRec(rec)
+Selection:Set({ out })
+App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
+App.rebuildAll()
+App.status(string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name))
+end
 local function openAreaMenu(pick)
 closePopup()
 local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
@@ -3006,18 +3085,7 @@ end)
 end
 if App.area then
 box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-item(App.area.locked and "Unlock area" or "Lock area", function()
-local a = App.area
-local rec = beginRec(a.locked and "Smart Scatter: Unlock area" or "Smart Scatter: Lock area")
-a.locked = not a.locked or nil
-saveArea()
-endRec(rec)
-if a.locked and App.mode ~= "Off" then
-App.setMode("Off")
-end
-App.rebuildAll()
-App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
-end, P.dim)
+item(App.area.locked and "Unlock area" or "Lock area", App.toggleLock, P.dim)
 if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
 item("Copy settings from…", function()
 task.defer(openAreaMenu, {
@@ -3032,42 +3100,9 @@ end,
 end, P.dim)
 end
 if App.kindOf(App.area) ~= "Clear" then
-item("Clear placed objects", function()
-local rec = beginRec("Smart Scatter: Clear")
-Engine.clearOutputs(App.area)
-endRec(rec)
-App.lastCounts, App.lastTotal = {}, 0
-App.refreshCounts()
-App.status("Cleared. The area and objects are kept; Generate brings it all back.")
-end, P.dim)
+item("Clear placed objects", App.clearPlaced, P.dim)
 end
-item("Bake to plain models", function()
-local a = App.area
-local n = Engine.roadOf(a) and 1 or 0
-for _, f in a.folder:GetChildren() do
-n += #f:GetChildren()
-end
-if n == 0 then
-App.status("Nothing to bake yet. Generate first.")
-return
-end
-if Engine.isPreview(a) then
-App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
-return
-end
-App.cancelJob()
-local rec = beginRec("Smart Scatter: Bake")
-local out, count = Engine.bake(a)
-a.locked = true
-saveArea()
-endRec(rec)
-Selection:Set({ out })
-App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-App.rebuildAll()
-App.status(
-string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name)
-)
-end, P.dim)
+item("Bake to plain models", App.bakeArea, P.dim)
 item("Delete area", deleteArea, P.danger)
 end
 end
@@ -3425,6 +3460,21 @@ end
 return list
 end
 App.overlayLegendRows = legend
+App.eraseAllPaint = function()
+if not App.area or App.area.count == 0 then
+return
+end
+local rec = beginRec("Smart Scatter: Erase area")
+App.area.rows, App.area.count = {}, 0
+Engine.clearOutputs(App.area)
+saveArea()
+endRec(rec)
+App.analysisDirty = true
+App.lastCounts, App.lastTotal = {}, 0
+rebuildOverlay()
+App.rebuildAll()
+App.status("Area erased. Objects and settings are kept, paint a new one.")
+end
 local function buildPaintTools(parent)
 local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 local tiles = App.toolTiles(parent, 3, 36)
@@ -3525,21 +3575,7 @@ end
 if App.area and App.area.count > 0 then
 gap(parent, 2)
 App.fadeLine(parent, nil, 0.14)
-local clr = App.dangerButton("Erase all paint", function()
-if not App.area or App.area.count == 0 then
-return
-end
-local rec = beginRec("Smart Scatter: Erase area")
-App.area.rows, App.area.count = {}, 0
-Engine.clearOutputs(App.area)
-saveArea()
-endRec(rec)
-App.analysisDirty = true
-App.lastCounts, App.lastTotal = {}, 0
-rebuildOverlay()
-App.rebuildAll()
-App.status("Area erased. Objects and settings are kept, paint a new one.")
-end, { confirm = "Click again to erase everything", full = true })
+local clr = App.dangerButton("Erase all paint", App.eraseAllPaint, { confirm = "Click again to erase everything", full = true })
 clr.Parent = parent
 hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 end
@@ -5840,6 +5876,7 @@ local ORDER = {
 	"Viewport/Shapes",
 	"Viewport/Stamp",
 	"Viewport/Focus",
+	"Panel/Palette",
 	"Panel/Tour",
 	"Core/Lifecycle",
 }

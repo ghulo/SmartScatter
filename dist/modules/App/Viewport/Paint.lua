@@ -819,7 +819,7 @@ return function(App)
 	local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 	local lastKeyAt = {}
 	local function onKey(name)
-		if App.mode == "Off" then
+		if App.mode == "Off" and name ~= "palette" then
 			return
 		end
 		-- keys arrive through UserInputService and, while the viewport has focus, through the plugin mouse too
@@ -828,6 +828,12 @@ return function(App)
 			return
 		end
 		lastKeyAt[name] = os.clock()
+		if name == "palette" then -- the search menu opens anywhere in the viewport while the panel is open, tool or not
+			if App.widget.Enabled and App.openPalette then
+				App.openPalette()
+			end
+			return
+		end
 		if App.mode == "Stamp" and App.stampKey(name) then -- the stamp's own keys (turn, size, model, a random one)
 			return
 		end

@@ -43,6 +43,23 @@ return function(App)
 	end
 	App.overlayLegendRows = legend
 
+	-- every painted cell out of the area, and what stood on it (objects and settings stay)
+	App.eraseAllPaint = function()
+		if not App.area or App.area.count == 0 then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Erase area")
+		App.area.rows, App.area.count = {}, 0
+		Engine.clearOutputs(App.area)
+		saveArea()
+		endRec(rec)
+		App.analysisDirty = true
+		App.lastCounts, App.lastTotal = {}, 0
+		rebuildOverlay()
+		App.rebuildAll()
+		App.status("Area erased. Objects and settings are kept, paint a new one.")
+	end
+
 	local function buildPaintTools(parent)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 		local tiles = App.toolTiles(parent, 3, 36)
@@ -146,21 +163,7 @@ return function(App)
 		if App.area and App.area.count > 0 then
 			gap(parent, 2)
 			App.fadeLine(parent, nil, 0.14)
-			local clr = App.dangerButton("Erase all paint", function()
-				if not App.area or App.area.count == 0 then
-					return
-				end
-				local rec = beginRec("Smart Scatter: Erase area")
-				App.area.rows, App.area.count = {}, 0
-				Engine.clearOutputs(App.area)
-				saveArea()
-				endRec(rec)
-				App.analysisDirty = true
-				App.lastCounts, App.lastTotal = {}, 0
-				rebuildOverlay()
-				App.rebuildAll()
-				App.status("Area erased. Objects and settings are kept, paint a new one.")
-			end, { confirm = "Click again to erase everything", full = true })
+			local clr = App.dangerButton("Erase all paint", App.eraseAllPaint, { confirm = "Click again to erase everything", full = true })
 			clr.Parent = parent
 			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 		end

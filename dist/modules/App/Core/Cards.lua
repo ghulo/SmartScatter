@@ -99,6 +99,7 @@ return function(App)
 		end
 		local body = col({ Parent = c }, { vlist(6) })
 		spec.build(body, c)
+		c:SetAttribute("SS_Card", spec.id) -- (App.openCard finds it by this)
 		return c
 	end
 
@@ -185,6 +186,31 @@ return function(App)
 			return card(parent, spec, order)
 		end
 		return cs
+	end
+
+	-- opens a tab at one of its cards (by id), unfolding "More options" if it's in there (fold: the tab's cards id),
+	-- scrolls to it and lights its edge for a moment. Returns false when the card isn't there (not for this area).
+	App.openCard = function(tab, id, fold)
+		if fold then
+			G.groups["more:" .. fold] = true
+			saveG()
+		end
+		App.goPage(tab)
+		App.rebuildAll()
+		for _, d in App.root:GetDescendants() do
+			if d:GetAttribute("SS_Card") == id then
+				App.scrollIntoView(d)
+				local edge = d:FindFirstChildOfClass("UIStroke")
+				if edge then
+					edge.Color = P.accent
+					task.delay(0.9, function()
+						App.tween(edge, App.MED, { Color = P.line })
+					end)
+				end
+				return true
+			end
+		end
+		return false
 	end
 
 	-- a note, with a button that goes to another tab when given ("Paint an area first" → Brush)
