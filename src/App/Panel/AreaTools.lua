@@ -607,9 +607,13 @@ return function(App)
 			button("Rescan", nil, function()
 				App.analysisDirty = true
 				rebuildOverlay(true)
-				runGenerate(true)
+				if G.live then
+					runGenerate(true)
+				else
+					App.status("Ground read again. Press Generate to place with it.")
+				end
 			end, { Parent = buttonRow(parent) }),
-			"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
+			"Reads the ground again, e.g. after you moved a house or added a road. With Live on it also regenerates."
 		)
 	end
 

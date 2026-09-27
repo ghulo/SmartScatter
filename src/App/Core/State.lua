@@ -73,7 +73,8 @@ return function(App)
 		radius = 24,
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
-		live = true,
+		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
+		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
 		groups = {},
 		walk = true,
@@ -101,6 +102,9 @@ return function(App)
 					G[k] = v
 				end
 			end
+		end
+		if not G.liveAsked then
+			G.live, G.liveAsked = false, true
 		end
 	end
 	G.page = "" -- every session opens on the area's home tab
