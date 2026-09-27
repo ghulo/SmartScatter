@@ -28,6 +28,7 @@ local ORDER = {
 	"Panel/Tabs/Settings",
 	"Panel/Shell",
 	"Viewport/Paint",
+	"Viewport/Grid",
 	"Viewport/Spline",
 	"Viewport/Focus",
 	"Panel/Tour",

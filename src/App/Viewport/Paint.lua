@@ -196,6 +196,9 @@ return function(App)
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local function updateGizmo(hit)
 		if App.mode == "Spline" or App.mode == "Remove" then
+			if App.clearGrid then -- (no grid for these tools)
+				App.clearGrid()
+			end
 			return
 		end
 		gizmoFolder()
@@ -213,6 +216,9 @@ return function(App)
 		App.gz.sq.Visible = brush and G.shape == "Square"
 		App.gz.dot.Visible = show
 		App.gz.bb.Enabled = show
+		if App.drawGrid then -- the floor grid round the brush (Viewport/Grid)
+			App.drawGrid(show and hit.Position or nil)
+		end
 		if not show then
 			return
 		end

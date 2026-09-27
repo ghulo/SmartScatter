@@ -90,6 +90,7 @@ return function(App)
 		scanSelection = false, -- the map scan looks only inside the selection
 		history = true, -- the history timeline over the bottom bar
 		focus = true, -- the world steps back while a tool is on (Viewport/Focus)
+		grid = true, -- the floor grid round the brush (Viewport/Grid)
 		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do
