@@ -33,13 +33,22 @@ return function(App)
 		end
 		App.rebuildAll()
 	end
-	-- takes an object out of the area, with what it placed (one undo step); back to the list
+	-- takes an object out of the area, with what it placed, right away (Live on or off); one undo step, and undo
+	-- rebuilds its copies from the settings it brings back. Back to the list.
 	local function removeObject(l)
 		local i = App.area and table.find(App.area.layers, l)
 		if not i then
 			return
 		end
 		table.remove(App.area.layers, i)
+		local key = Engine.layerKey(l)
+		for _, f in App.area.folder:GetChildren() do
+			if f:GetAttribute("SS_Key") == key then
+				Engine.dropOutput(f)
+			end
+		end
+		App.lastTotal = math.max((App.lastTotal or 0) - (App.lastCounts[l] or 0), 0)
+		App.lastCounts[l] = nil
 		if App.heatLayer == l then
 			App.heatLayer = nil
 		end
