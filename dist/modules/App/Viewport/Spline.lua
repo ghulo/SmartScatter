@@ -119,11 +119,27 @@ return function(App)
 				"WireframeHandleAdornment",
 				{ Adornee = T, AlwaysOnTop = true, Thickness = 1.5, ZIndex = 2, Transparency = 0.45, Color3 = VIEW.paper, Parent = sv.folder }
 			)
-			-- the neon glow under the curve: the same lines, wide and faint
+			-- the glow under the curve: the same lines twice more, wider and fainter each time, so it fades out softly
+			-- instead of ending in a hard edge
+			sv.glow = new(
+				"WireframeHandleAdornment",
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 5, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
+			)
 			sv.halo = new(
 				"WireframeHandleAdornment",
-				{ Adornee = T, AlwaysOnTop = true, Thickness = 7, ZIndex = 1, Transparency = 0.9, Color3 = VIEW.edge, Parent = sv.folder }
+				{ Adornee = T, AlwaysOnTop = true, Thickness = 10, ZIndex = 1, Transparency = 0.92, Color3 = VIEW.edge, Parent = sv.folder }
 			)
+			-- while drawing by hand: the line from the last point dropped to the mouse, so the stroke keeps up
+			sv.tail = new("LineHandleAdornment", {
+				Adornee = T,
+				AlwaysOnTop = true,
+				Thickness = 3,
+				ZIndex = 3,
+				Transparency = 0.25,
+				Color3 = VIEW.accent,
+				Visible = false,
+				Parent = sv.folder,
+			})
 		end
 		for _, k in { "hOut", "hIn" } do
 			sv[k] = dot(9)
@@ -238,7 +254,7 @@ return function(App)
 				approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 			end
 		end
-		local step = math.max(1, approx / 500) -- display resolution: ~500 segments for the whole network
+		local step = math.clamp(approx / 900, 0.35, 4) -- display resolution: fine enough that bends look round
 		sv.curves = {}
 		local lines = {}
 		for _, cv in editCurves() do
@@ -255,10 +271,12 @@ return function(App)
 		if sv.wire then
 			sv.wire:Clear()
 			sv.edge:Clear()
+			sv.glow:Clear()
 			sv.halo:Clear()
 			for _, L in lines do
 				for k = 1, #L - 1 do
 					sv.wire:AddLine(L[k], L[k + 1])
+					sv.glow:AddLine(L[k], L[k + 1])
 					sv.halo:AddLine(L[k], L[k + 1])
 				end
 			end
@@ -531,6 +549,15 @@ return function(App)
 		end
 		if drawing then
 			local hit = pointHit()
+			if hit and sv.tail then -- the stroke's live end, from the last point to the mouse
+				local from = drawing.anchor + Vector3.new(0, 0.3, 0)
+				local to = hit.Position + hit.Normal * 0.3
+				local len = (to - from).Magnitude
+				sv.tail.Visible = len > 0.05
+				if len > 0.05 then
+					sv.tail.CFrame, sv.tail.Length = CFrame.lookAt(from, to), len
+				end
+			end
 			if hit and (hit.Position - drawing.anchor).Magnitude >= drawing.spacing then
 				local q = { p = hit.Position, n = hit.Normal }
 				local cv = drawing.cv
@@ -682,7 +709,7 @@ return function(App)
 			end
 			-- keep holding and drag to draw: a point drops every few studs (spacing grows with camera distance)
 			local camDist = (workspace.CurrentCamera.CFrame.Position - hit.Position).Magnitude
-			drawing = { cv = cv, prepend = prepend, anchor = hit.Position, spacing = math.clamp(camDist * 0.07, 2, 40), pts = { q } }
+			drawing = { cv = cv, prepend = prepend, anchor = hit.Position, spacing = math.clamp(camDist * 0.045, 1.2, 30), pts = { q } }
 			dragMoved = true
 			selectPt({ cv = cv, i = prepend and 1 or #cv.pts })
 			hoverIns = nil
@@ -713,6 +740,9 @@ return function(App)
 	local function finishDrawing()
 		local d = drawing
 		drawing = nil
+		if sv.tail then
+			sv.tail.Visible = false
+		end
 		local hit = pointHit()
 		local cv = d.cv
 		if hit and (hit.Position - d.anchor).Magnitude >= d.spacing * 0.4 then

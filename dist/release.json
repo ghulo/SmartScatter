@@ -1,6 +1,6 @@
 {
- "version": "9.79",
- "build": 143,
+ "version": "9.80",
+ "build": 144,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -92,11 +92,11 @@
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
-   "sum": 49500848
+   "sum": 470932864
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 151541779
+   "sum": 707083040
   },
   "App/Viewport/Shapes": {
    "path": "modules/App/Viewport/Shapes.lua",
@@ -104,7 +104,7 @@
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
-   "sum": 86384811
+   "sum": 367184328
   },
   "App/Viewport/Stamp": {
    "path": "modules/App/Viewport/Stamp.lua",

@@ -2598,6 +2598,7 @@ local ray = mouse.UnitRay
 return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 end
 local sizing
+local smoothUp, lastRingAt
 local function updateGizmo(hit)
 if App.mode == "Stamp" then
 gizmoFolder()
@@ -2635,7 +2636,13 @@ if not show then
 return
 end
 local p = hit.Position
-local up = Engine.rotateUp(hit.Normal)
+if not smoothUp or not lastRingAt or (p - lastRingAt).Magnitude > R * 1.5 then
+smoothUp = hit.Normal
+else
+smoothUp = smoothUp:Lerp(hit.Normal, 0.3).Unit
+end
+lastRingAt = p
+local up = Engine.rotateUp(smoothUp)
 local flat = CFrame.new(p) * up
 App.gz.ring.Radius, App.gz.ring.InnerRadius = R, math.max(R - math.max(0.3, R * 0.025), 0)
 App.gz.ring.CFrame = flat * CFrame.Angles(math.pi / 2, 0, 0)
@@ -3688,10 +3695,24 @@ sv.edge = new(
 "WireframeHandleAdornment",
 { Adornee = T, AlwaysOnTop = true, Thickness = 1.5, ZIndex = 2, Transparency = 0.45, Color3 = VIEW.paper, Parent = sv.folder }
 )
+sv.glow = new(
+"WireframeHandleAdornment",
+{ Adornee = T, AlwaysOnTop = true, Thickness = 5, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
+)
 sv.halo = new(
 "WireframeHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, Thickness = 7, ZIndex = 1, Transparency = 0.9, Color3 = VIEW.edge, Parent = sv.folder }
+{ Adornee = T, AlwaysOnTop = true, Thickness = 10, ZIndex = 1, Transparency = 0.92, Color3 = VIEW.edge, Parent = sv.folder }
 )
+sv.tail = new("LineHandleAdornment", {
+Adornee = T,
+AlwaysOnTop = true,
+Thickness = 3,
+ZIndex = 3,
+Transparency = 0.25,
+Color3 = VIEW.accent,
+Visible = false,
+Parent = sv.folder,
+})
 end
 for _, k in { "hOut", "hIn" } do
 sv[k] = dot(9)
@@ -3802,7 +3823,7 @@ for i = 2, #cv.pts do
 approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 end
 end
-local step = math.max(1, approx / 500)
+local step = math.clamp(approx / 900, 0.35, 4)
 sv.curves = {}
 local lines = {}
 for _, cv in editCurves() do
@@ -3819,10 +3840,12 @@ end
 if sv.wire then
 sv.wire:Clear()
 sv.edge:Clear()
+sv.glow:Clear()
 sv.halo:Clear()
 for _, L in lines do
 for k = 1, #L - 1 do
 sv.wire:AddLine(L[k], L[k + 1])
+sv.glow:AddLine(L[k], L[k + 1])
 sv.halo:AddLine(L[k], L[k + 1])
 end
 end
@@ -4083,6 +4106,15 @@ return
 end
 if drawing then
 local hit = pointHit()
+if hit and sv.tail then
+local from = drawing.anchor + Vector3.new(0, 0.3, 0)
+local to = hit.Position + hit.Normal * 0.3
+local len = (to - from).Magnitude
+sv.tail.Visible = len > 0.05
+if len > 0.05 then
+sv.tail.CFrame, sv.tail.Length = CFrame.lookAt(from, to), len
+end
+end
 if hit and (hit.Position - drawing.anchor).Magnitude >= drawing.spacing then
 local q = { p = hit.Position, n = hit.Normal }
 local cv = drawing.cv
@@ -4232,7 +4264,7 @@ cv = validPt(selPt) and selPt.cv or sp
 table.insert(cv.pts, q)
 end
 local camDist = (workspace.CurrentCamera.CFrame.Position - hit.Position).Magnitude
-drawing = { cv = cv, prepend = prepend, anchor = hit.Position, spacing = math.clamp(camDist * 0.07, 2, 40), pts = { q } }
+drawing = { cv = cv, prepend = prepend, anchor = hit.Position, spacing = math.clamp(camDist * 0.045, 1.2, 30), pts = { q } }
 dragMoved = true
 selectPt({ cv = cv, i = prepend and 1 or #cv.pts })
 hoverIns = nil
@@ -4260,6 +4292,9 @@ end
 local function finishDrawing()
 local d = drawing
 drawing = nil
+if sv.tail then
+sv.tail.Visible = false
+end
 local hit = pointHit()
 local cv = d.cv
 if hit and (hit.Position - d.anchor).Magnitude >= d.spacing * 0.4 then

@@ -2344,17 +2344,16 @@ end
 cls = cls or probe(cx, cz).cls
 return classColor(cls)
 end
-local function onEdge(cx, cz)
-local a = App.area
-return not (
-Engine.hasCell(a, cx + 1, cz)
-and Engine.hasCell(a, cx - 1, cz)
-and Engine.hasCell(a, cx, cz + 1)
-and Engine.hasCell(a, cx, cz - 1)
-)
-end
+local FILL = 0.66
+local RIM, RIM_W = 0.3, 0.26
 local edgeStrips = setmetatable({}, { __mode = "k" })
-local EDGE_REST = 0.25
+local EDGE_REST = RIM
+local function strip(props)
+props.Anchored, props.CanCollide, props.CanQuery, props.CanTouch = true, false, false, false
+props.CastShadow, props.Locked, props.Archivable = false, true, false
+props.Parent = overlayFolder
+return new("Part", props)
+end
 local function buildRow(cz)
 local old = rowParts[cz]
 if old then
@@ -2363,7 +2362,8 @@ p:Destroy()
 end
 rowParts[cz] = nil
 end
-local row = App.area and App.area.rows[cz]
+local a = App.area
+local row = a and a.rows[cz]
 if not row then
 return
 end
@@ -2375,51 +2375,77 @@ for cx in row do
 table.insert(xs, cx)
 end
 table.sort(xs)
-local c, parts, i = App.area.cell, {}, 1
-local zone = App.kindOf(App.area) == "Clear"
+local c, parts = a.cell, {}
+local zone = App.kindOf(a) == "Clear"
 local painting = App.paintLayer and LAYER_MODES[App.mode] ~= nil
-local function style(cx)
-local col = cellColor(cx, cz, zone)
-if not painting and onEdge(cx, cz) then
-return col == VIEW.accent and VIEW.edge or col, true
-end
-return col, false
-end
+local i = 1
 while i <= #xs do
 local sx = xs[i]
 local y0 = probe(sx, cz).y
-local col, edge = style(sx)
+local col = cellColor(sx, cz, zone)
 local ymax, j = y0, i
 while j < #xs and xs[j + 1] == xs[j] + 1 and j - i < 31 do
 local ny = probe(xs[j + 1], cz).y
-local col2, edge2 = style(xs[j + 1])
-if math.abs(ny - y0) > 0.6 or col2 ~= col or edge2 ~= edge then
+if math.abs(ny - y0) > 0.6 or cellColor(xs[j + 1], cz, zone) ~= col then
 break
 end
 ymax = math.max(ymax, ny)
 j += 1
 end
 local n = j - i + 1
-local strip = new("Part", {
-Anchored = true,
-CanCollide = false,
-CanQuery = false,
-CanTouch = false,
-CastShadow = false,
-Locked = true,
-Archivable = false,
+table.insert(
+parts,
+strip({
 Material = Enum.Material.SmoothPlastic,
-Transparency = edge and EDGE_REST or 0.62,
+Transparency = FILL,
 Color = col,
-Size = Vector3.new(n * c - 0.3, edge and 0.16 or 0.1, c - 0.3),
-CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.2, (cz + 0.5) * c),
-Parent = overlayFolder,
+Size = Vector3.new(n * c, 0.06, c),
+CFrame = CFrame.new(sx * c + n * c / 2, ymax + 0.18, (cz + 0.5) * c),
 })
-table.insert(parts, strip)
-if edge then
-edgeStrips[strip] = true
-end
+)
 i = j + 1
+end
+if painting then
+rowParts[cz] = parts
+return
+end
+local function rimColor(cx)
+local col = cellColor(cx, cz, zone)
+return col == VIEW.accent and VIEW.edge or col
+end
+local function line(cf, size, col)
+local p = strip({ Material = Enum.Material.Neon, Transparency = RIM, Color = col, Size = size, CFrame = cf })
+edgeStrips[p] = true
+table.insert(parts, p)
+end
+for _, side in { -1, 1 } do
+local k = 1
+while k <= #xs do
+local cx = xs[k]
+if not Engine.hasCell(a, cx, cz + side) then
+local y0, col, m = probe(cx, cz).y, rimColor(cx), k
+while m < #xs and xs[m + 1] == xs[m] + 1 and not Engine.hasCell(a, xs[m + 1], cz + side) do
+if math.abs(probe(xs[m + 1], cz).y - y0) > 0.6 or rimColor(xs[m + 1]) ~= col then
+break
+end
+m += 1
+end
+local n = xs[m] - cx + 1
+local z = (side < 0 and cz or cz + 1) * c
+line(CFrame.new(cx * c + n * c / 2, y0 + 0.22, z), Vector3.new(n * c + RIM_W, 0.08, RIM_W), col)
+k = m + 1
+else
+k += 1
+end
+end
+end
+for _, cx in xs do
+for _, side in { -1, 1 } do
+if not Engine.hasCell(a, cx + side, cz) then
+local x = (side < 0 and cx or cx + 1) * c
+line(CFrame.new(x, probe(cx, cz).y + 0.22, (cz + 0.5) * c), Vector3.new(RIM_W, 0.08, c + RIM_W), rimColor(cx))
+end
+end
 end
 rowParts[cz] = parts
 end
