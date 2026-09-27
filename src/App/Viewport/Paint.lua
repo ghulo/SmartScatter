@@ -201,6 +201,7 @@ return function(App)
 	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
 	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
+	local smoothUp, lastRingAt -- the ring's eased tilt, and where it was last drawn
 	local function updateGizmo(hit)
 		if App.mode == "Stamp" then -- the stamp shows the model itself (Viewport/Stamp), not a brush
 			gizmoFolder()
@@ -238,7 +239,15 @@ return function(App)
 			return
 		end
 		local p = hit.Position
-		local up = Engine.rotateUp(hit.Normal)
+		-- the ring tilts with the ground, eased so it glides over bumps instead of flicking at every one (a jump
+		-- elsewhere starts afresh)
+		if not smoothUp or not lastRingAt or (p - lastRingAt).Magnitude > R * 1.5 then
+			smoothUp = hit.Normal
+		else
+			smoothUp = smoothUp:Lerp(hit.Normal, 0.3).Unit
+		end
+		lastRingAt = p
+		local up = Engine.rotateUp(smoothUp)
 		local flat = CFrame.new(p) * up
 		App.gz.ring.Radius, App.gz.ring.InnerRadius = R, math.max(R - math.max(0.3, R * 0.025), 0)
 		App.gz.ring.CFrame = flat * CFrame.Angles(math.pi / 2, 0, 0)
