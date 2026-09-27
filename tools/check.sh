@@ -24,6 +24,11 @@ PY
 sed -e "s/__BUILD__/1/" Loader.lua > "$T/Loader.lua"
 for f in $MODULES "$T"/*.lua tests/suite.lua; do "$S/luau-compile" --binary -O0 -g2 "$f" >/dev/null || { echo "compile: $f"; exit 1; }; done
 python3 tools/lint_dupes.py
+# the map tools change the user's own models: what they take out is unparented, never :Destroy()ed, or Ctrl+Z
+# can't bring it back (a destroyed instance's Parent is locked)
+if grep -n ":Destroy()" src/Engine/Kinds.lua src/Engine/Layout.lua src/Engine/Seasons.lua | grep -v -- "--"; then
+  echo "map tools must unparent, not :Destroy() (undo can't restore it)"; exit 1
+fi
 # anything the analyzer doesn't know that isn't a Roblox global we already use is a typo or a missing local/import
 for f in $MODULES "$T/Loader.lua"; do
   "$S/luau-analyze" "$f" 2>&1 | grep -o "Unknown global '[^']*'" | sort -u | comm -23 - tools/known_globals.txt > "$T/globals.txt" || true

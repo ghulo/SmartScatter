@@ -627,7 +627,7 @@ return function(E, I)
 		for _, inst in plan.removes do
 			if inst.Parent then
 				E.snapshotChanged(inst, false)
-				inst:Destroy()
+				inst.Parent = nil
 			end
 		end
 		return added
