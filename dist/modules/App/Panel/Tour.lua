@@ -146,7 +146,8 @@ return function(App)
 			title = "Placing it all",
 			text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
 				.. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
-				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step.",
+				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
+				.. "are your history: click one to jump back (or forward) to that step.",
 			target = function()
 				return ui("foot")
 			end,

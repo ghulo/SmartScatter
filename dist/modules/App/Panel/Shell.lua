@@ -43,14 +43,102 @@ return function(App)
 
 	-- the bar pinned to the bottom: Generate, Live update, Shuffle and Undo. Messages show as toasts above it. A thin
 	-- line along its top edge fills while a job runs.
-	local BAR_H = 60
+	local buildTimeline -- (below)
+	-- its height: the buttons, and the history timeline above them when it's shown (Settings)
+	local STRIP_H = 22
+	local function barH()
+		return 60 + (G.history and STRIP_H or 0)
+	end
+	--------------------------------------------------------------------------------
+	-- The history timeline: a tick per step Smart Scatter took (Core/History), like ZBrush's undo history
+	--------------------------------------------------------------------------------
+	local SHOWN_STEPS = 60 -- the newest ones; older steps are still undone on the way back
+	local function ago(t)
+		local d = os.time() - t
+		return d < 60 and "just now" or d < 3600 and (math.floor(d / 60) .. " min ago") or (math.floor(d / 3600) .. " h ago")
+	end
+	function buildTimeline(foot)
+		local strip = box({ Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, STRIP_H - 6), Parent = foot })
+		App.ui.history = strip
+		local function draw()
+			strip:ClearAllChildren()
+			local H = App.history
+			local n = #H.list
+			if n == 0 then
+				label("History · your steps show up here", 11, P.faint, SANS, { Size = UDim2.fromScale(1, 1), Parent = strip })
+				return
+			end
+			local first = math.max(0, n - SHOWN_STEPS) -- (0: the start, before any step)
+			local count = n - first + 1
+			-- a faint baseline the ticks stand on
+			box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.line,
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.fromScale(0, 1),
+				Size = UDim2.new(1, 0, 0, 1),
+				Parent = strip,
+			})
+			for i = first, n do
+				local x = count > 1 and (i - first) / (count - 1) or 0
+				local here, done = i == H.pos, i < H.pos
+				local hit = new("TextButton", {
+					Text = "",
+					AutoButtonColor = false,
+					BackgroundTransparency = 1,
+					AnchorPoint = Vector2.new(0.5, 0),
+					Position = UDim2.new(x, 0, 0, 0),
+					Size = UDim2.new(0, 10, 1, 0),
+					Parent = strip,
+				})
+				local line = box({
+					BackgroundTransparency = 0,
+					BackgroundColor3 = here and P.accent or done and P.dim or P.line,
+					AnchorPoint = Vector2.new(0.5, 1),
+					Position = UDim2.new(0.5, 0, 1, 0),
+					Size = UDim2.fromOffset(here and 3 or 2, here and 16 or (i == 0 and 6 or 10)),
+					Parent = hit,
+				}, { corner(1) })
+				hit.MouseEnter:Connect(function()
+					if not here then
+						line.BackgroundColor3 = P.text
+					end
+				end)
+				hit.MouseLeave:Connect(function()
+					line.BackgroundColor3 = here and P.accent or done and P.dim or P.line
+				end)
+				hintOn(hit, function()
+					local what = i == 0 and "Before your first step" or string.gsub(H.list[i].name, "^Smart Scatter: ", "")
+					local when = i > 0 and ("  ·  " .. ago(H.list[i].time)) or ""
+					return what .. when .. (here and "  ·  you're here" or "  ·  click to go here (Studio edits in between go with it)")
+				end)
+				hit.MouseButton1Click:Connect(function()
+					if i ~= App.history.pos then
+						local from = App.history.pos
+						App.historyJump(i)
+						App.status(
+							i < from and string.format("Went back %d step%s.", from - i, from - i == 1 and "" or "s")
+								or string.format("Went forward %d step%s.", i - from, i - from == 1 and "" or "s")
+						)
+					end
+				end)
+			end
+		end
+		draw()
+		App.onHistoryChanged = function()
+			if App.ui.history == strip and strip.Parent then
+				draw()
+			end
+		end
+	end
+
 	local function buildBar(parent)
 		local foot = box({
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.header,
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.new(1, 0, 0, BAR_H),
+			Size = UDim2.new(1, 0, 0, barH()),
 			ZIndex = 3,
 			Parent = parent,
 		})
@@ -68,7 +156,10 @@ return function(App)
 		})
 		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
 		App.sheen(foot, 0.025, 40)
-		local inner = box({ Position = UDim2.fromOffset(12, 11), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
+		if G.history then
+			buildTimeline(foot)
+		end
+		local inner = box({ Position = UDim2.fromOffset(12, 11 + (G.history and STRIP_H or 0)), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
 		local right = box({
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.fromScale(1, 0),
@@ -288,8 +379,8 @@ return function(App)
 		t.dot.BackgroundColor3 = err and P.danger or P.accent
 		t.glow:set(err)
 		if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
-			t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
-			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
+			t.group.Position = UDim2.new(0.5, 0, 1, -barH() - 2)
+			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -barH() - 10) })
 		end
 		-- long enough to read, no longer: a quick note goes in a couple of seconds, a problem stays a while
 		task.delay(err and 6 + #msg * 0.02 or math.min(2.2 + #msg * 0.012, 5), function()
@@ -311,7 +402,7 @@ return function(App)
 			BackgroundTransparency = 1,
 			GroupTransparency = 1,
 			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -BAR_H - 10),
+			Position = UDim2.new(0.5, 0, 1, -barH() - 10),
 			Size = UDim2.new(1, -24, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 60,
@@ -545,6 +636,7 @@ return function(App)
 		"genSweep",
 		"genBar",
 		"liveGlow",
+		"history",
 		"toast",
 		"popup",
 	}
@@ -659,7 +751,7 @@ return function(App)
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls
 		local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
 		App.scroll = new("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -BAR_H),
+			Size = UDim2.new(1, 0, 1, -barH()),
 			CanvasSize = UDim2.new(),
 			BackgroundTransparency = 1,
 			AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -689,7 +781,7 @@ return function(App)
 		local function fit()
 			local h = head.AbsoluteSize.Y
 			App.scroll.Position = UDim2.fromOffset(0, h)
-			App.scroll.Size = UDim2.new(1, 0, 1, -h - BAR_H)
+			App.scroll.Size = UDim2.new(1, 0, 1, -h - barH())
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()

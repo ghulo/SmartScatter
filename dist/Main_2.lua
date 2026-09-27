@@ -1,6 +1,133 @@
 -- GENERATED part 2 of src/App by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
+-- #module Panel/Tabs/Scatter
+MODULES["Panel/Tabs/Scatter"] = (function()
+--[[
+Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
+when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
+performance report under More options.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local vlist, col = App.vlist, App.col
+local function buildObject(page)
+App.pageHead(page, "All objects", nil, function()
+App.showObject(nil)
+end)
+App.objectInspector(col({ Parent = page }, { vlist(10) }))
+end
+App.buildScatterTab = function(page)
+local a = App.area
+if a and App.expanded and not App.searching() then
+buildObject(page)
+return
+end
+local cs = App.cards(page, "scatter")
+local kind = a and App.kindOf(a)
+if kind == "Clear" then
+cs.add({
+id = "clearzone",
+title = "Keep-clear zone",
+icon = "clear",
+sub = "Nothing from any area goes here: spawns, doorways, a quest NPC's spot",
+build = function(b)
+App.goNote(b, "This zone holds no objects. Paint where to keep clear on the Brush tab.", "Paint the zone", "Brush")
+end,
+})
+return
+end
+local shaped = a and ((a.count or 0) > 0 or App.hasPath())
+cs.add({
+id = "objects",
+title = "Objects",
+icon = "layers",
+sub = "The models that fill this area, and how much of everything",
+keys = "add models amount size everything list lost",
+build = function(b)
+if a and not shaped then
+if kind == "Path" then
+App.goNote(b, "Draw the path first, on the Map tab. Then add what lines it.", "Draw the path", "Map")
+else
+App.goNote(b, "Paint the ground first, on the Brush tab. Then add what fills it.", "Paint the area", "Brush")
+end
+end
+if a then
+App.objectList(b)
+else
+App.emptyState(b, "No area yet", "Make a scatter area or a path first: the + next to the area picker.")
+end
+App.ui.step2Card = b.Parent
+end,
+})
+if not a then
+return
+end
+local empty = #a.layers == 0
+cs.add({
+id = "biomes",
+title = "Start from a biome",
+sub = "A ready mix of objects made from your models",
+keys = "forest meadow desert town sample models",
+more = not empty,
+build = App.buildBiomes,
+})
+cs.add({
+id = "pattern",
+title = "Pattern",
+sub = "Where everything thickens and thins together",
+keys = "groves natural islands veins spots bands strength noise patches",
+more = true,
+build = App.buildPattern,
+})
+cs.add({
+id = "zones",
+title = "Colour zones",
+sub = "Tint objects by the pattern: autumn, dry, lush, frost",
+keys = "color mood autumn dry lush frost tint season",
+more = true,
+build = App.buildZones,
+})
+cs.add({
+id = "edges",
+title = "Edges and wind",
+sub = "Fade into the surroundings, and which way things lean",
+keys = "soft edges border fade wind direction lean",
+more = true,
+build = function(b)
+App.buildEdges(b)
+App.buildWind(b)
+end,
+})
+cs.add({
+id = "presets",
+title = "Presets",
+keys = "save share code import reuse",
+more = true,
+build = App.presetsBox,
+})
+cs.add({
+id = "performance",
+title = "Performance",
+sub = "Which objects cost the most parts",
+keys = "report parts meshes heavy lag simplify",
+more = true,
+build = App.buildReport,
+})
+if App.searching() then
+for i, l in a.layers do
+local holder = col({ LayoutOrder = 200000 + i, Parent = page }, { vlist(10) })
+App.label(l.inst.Name, 13, App.P.text, App.SANS_B, { Parent = holder })
+local before = App.cardCount
+App.objectRules(l, holder)
+if App.cardCount == before then
+holder:Destroy()
+end
+end
+end
+end
+end
+end)()
 -- #module Panel/Tabs/Brush
 MODULES["Panel/Tabs/Brush"] = (function()
 --[[
@@ -304,6 +431,15 @@ App.rebuildOverlay()
 App.drawSpline()
 end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
 b
+switchRow("History timeline", function()
+return G.history
+end, function(v)
+G.history = v
+end, function()
+saveG()
+task.defer(App.rebuildAll)
+end, "A tick for every step Smart Scatter takes, over the bottom bar: click one to go back (or forward) to it.").Parent =
+b
 end
 local function buildOutput(b)
 local function outSwitch(text, key, hint)
@@ -478,14 +614,96 @@ saveArea()
 endRec(rec)
 runGenerate(true)
 end
-local BAR_H = 60
+local buildTimeline
+local STRIP_H = 22
+local function barH()
+return 60 + (G.history and STRIP_H or 0)
+end
+local SHOWN_STEPS = 60
+local function ago(t)
+local d = os.time() - t
+return d < 60 and "just now" or d < 3600 and (math.floor(d / 60) .. " min ago") or (math.floor(d / 3600) .. " h ago")
+end
+function buildTimeline(foot)
+local strip = box({ Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, STRIP_H - 6), Parent = foot })
+App.ui.history = strip
+local function draw()
+strip:ClearAllChildren()
+local H = App.history
+local n = #H.list
+if n == 0 then
+label("History · your steps show up here", 11, P.faint, SANS, { Size = UDim2.fromScale(1, 1), Parent = strip })
+return
+end
+local first = math.max(0, n - SHOWN_STEPS)
+local count = n - first + 1
+box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.line,
+AnchorPoint = Vector2.new(0, 1),
+Position = UDim2.fromScale(0, 1),
+Size = UDim2.new(1, 0, 0, 1),
+Parent = strip,
+})
+for i = first, n do
+local x = count > 1 and (i - first) / (count - 1) or 0
+local here, done = i == H.pos, i < H.pos
+local hit = new("TextButton", {
+Text = "",
+AutoButtonColor = false,
+BackgroundTransparency = 1,
+AnchorPoint = Vector2.new(0.5, 0),
+Position = UDim2.new(x, 0, 0, 0),
+Size = UDim2.new(0, 10, 1, 0),
+Parent = strip,
+})
+local line = box({
+BackgroundTransparency = 0,
+BackgroundColor3 = here and P.accent or done and P.dim or P.line,
+AnchorPoint = Vector2.new(0.5, 1),
+Position = UDim2.new(0.5, 0, 1, 0),
+Size = UDim2.fromOffset(here and 3 or 2, here and 16 or (i == 0 and 6 or 10)),
+Parent = hit,
+}, { corner(1) })
+hit.MouseEnter:Connect(function()
+if not here then
+line.BackgroundColor3 = P.text
+end
+end)
+hit.MouseLeave:Connect(function()
+line.BackgroundColor3 = here and P.accent or done and P.dim or P.line
+end)
+hintOn(hit, function()
+local what = i == 0 and "Before your first step" or string.gsub(H.list[i].name, "^Smart Scatter: ", "")
+local when = i > 0 and ("  ·  " .. ago(H.list[i].time)) or ""
+return what .. when .. (here and "  ·  you're here" or "  ·  click to go here (Studio edits in between go with it)")
+end)
+hit.MouseButton1Click:Connect(function()
+if i ~= App.history.pos then
+local from = App.history.pos
+App.historyJump(i)
+App.status(
+i < from and string.format("Went back %d step%s.", from - i, from - i == 1 and "" or "s")
+or string.format("Went forward %d step%s.", i - from, i - from == 1 and "" or "s")
+)
+end
+end)
+end
+end
+draw()
+App.onHistoryChanged = function()
+if App.ui.history == strip and strip.Parent then
+draw()
+end
+end
+end
 local function buildBar(parent)
 local foot = box({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.header,
 AnchorPoint = Vector2.new(0, 1),
 Position = UDim2.fromScale(0, 1),
-Size = UDim2.new(1, 0, 0, BAR_H),
+Size = UDim2.new(1, 0, 0, barH()),
 ZIndex = 3,
 Parent = parent,
 })
@@ -502,7 +720,10 @@ Parent = line,
 })
 App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
 App.sheen(foot, 0.025, 40)
-local inner = box({ Position = UDim2.fromOffset(12, 11), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
+if G.history then
+buildTimeline(foot)
+end
+local inner = box({ Position = UDim2.fromOffset(12, 11 + (G.history and STRIP_H or 0)), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
 local right = box({
 AnchorPoint = Vector2.new(1, 0),
 Position = UDim2.fromScale(1, 0),
@@ -708,8 +929,8 @@ t.text.Text = msg
 t.dot.BackgroundColor3 = err and P.danger or P.accent
 t.glow:set(err)
 if t.group.GroupTransparency > 0.5 then
-t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
-tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
+t.group.Position = UDim2.new(0.5, 0, 1, -barH() - 2)
+tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -barH() - 10) })
 end
 task.delay(err and 6 + #msg * 0.02 or math.min(2.2 + #msg * 0.012, 5), function()
 if my == toastToken and App.ui.toast == t then
@@ -729,7 +950,7 @@ local group = new("CanvasGroup", {
 BackgroundTransparency = 1,
 GroupTransparency = 1,
 AnchorPoint = Vector2.new(0.5, 1),
-Position = UDim2.new(0.5, 0, 1, -BAR_H - 10),
+Position = UDim2.new(0.5, 0, 1, -barH() - 10),
 Size = UDim2.new(1, -24, 0, 0),
 AutomaticSize = Enum.AutomaticSize.Y,
 ZIndex = 60,
@@ -944,6 +1165,7 @@ local SHELL = {
 "genSweep",
 "genBar",
 "liveGlow",
+"history",
 "toast",
 "popup",
 }
@@ -1048,7 +1270,7 @@ App.ui = {}
 App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
 local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
 App.scroll = new("ScrollingFrame", {
-Size = UDim2.new(1, 0, 1, -BAR_H),
+Size = UDim2.new(1, 0, 1, -barH()),
 CanvasSize = UDim2.new(),
 BackgroundTransparency = 1,
 AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -1078,7 +1300,7 @@ App.halftone(App.root, 0.07, 4, 150)
 local function fit()
 local h = head.AbsoluteSize.Y
 App.scroll.Position = UDim2.fromOffset(0, h)
-App.scroll.Size = UDim2.new(1, 0, 1, -h - BAR_H)
+App.scroll.Size = UDim2.new(1, 0, 1, -h - barH())
 end
 head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 fit()
@@ -3126,7 +3348,8 @@ chapter = "Placing",
 title = "Placing it all",
 text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
 .. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
-.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step.",
+.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
+.. "are your history: click one to jump back (or forward) to that step.",
 target = function()
 return ui("foot")
 end,
@@ -3436,11 +3659,7 @@ local removeSplineViz = App.removeSplineViz
 local function alive(folder)
 return folder ~= nil and folder:IsDescendantOf(workspace)
 end
-local function onHistory(name)
-if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
-return
-end
-task.defer(function()
+local function afterHistory()
 local f = App.area and App.area.folder
 local keep = App.expanded and Engine.layerKey(App.expanded)
 App.resetSplineDrag(true)
@@ -3460,7 +3679,18 @@ end
 if App.canGenerate() then
 App.runGenerate(false)
 end
-end)
+end
+App.afterHistory = afterHistory
+local function onHistory(name)
+local echoes = App.historyEchoes
+if echoes and echoes.rebuild > 0 then
+echoes.rebuild -= 1
+return
+end
+if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
+return
+end
+task.defer(afterHistory)
 end
 track(ChangeHistoryService.OnUndo:Connect(onHistory))
 track(ChangeHistoryService.OnRedo:Connect(onHistory))

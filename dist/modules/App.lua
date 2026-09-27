@@ -17,6 +17,7 @@ local ORDER = {
 	"Core/Cards",
 	"Viewport/Overlay",
 	"Core/Generation",
+	"Core/History",
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",

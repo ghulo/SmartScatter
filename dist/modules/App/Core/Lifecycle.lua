@@ -15,31 +15,38 @@ return function(App)
 
 	-- Ctrl+Z / Ctrl+Y on anything Smart Scatter did: reload the area from its (restored) saved state and rebuild its
 	-- objects from it (they're never in the undo history themselves; see the engine's generate)
+	local function afterHistory()
+		local f = App.area and App.area.folder
+		local keep = App.expanded and Engine.layerKey(App.expanded)
+		App.resetSplineDrag(true) -- a drag the undo just rolled back is dropped, not committed
+		App.stopGestures()
+		if LAYER_MODES[App.mode] then
+			App.setMode("Off")
+		end
+		switchArea(alive(f) and f or Engine.listAreas()[1])
+		if keep and App.area then
+			for _, l in App.area.layers do
+				if Engine.layerKey(l) == keep then
+					App.expanded = l
+				end
+			end
+			App.rebuildAll()
+		end
+		if App.canGenerate() then
+			App.runGenerate(false)
+		end
+	end
+	App.afterHistory = afterHistory -- (a jump along the history timeline runs it once, at the end)
 	local function onHistory(name)
+		local echoes = App.historyEchoes
+		if echoes and echoes.rebuild > 0 then -- one step of a jump along the timeline: it rebuilds once, at its end
+			echoes.rebuild -= 1
+			return
+		end
 		if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
 			return
 		end
-		task.defer(function()
-			local f = App.area and App.area.folder
-			local keep = App.expanded and Engine.layerKey(App.expanded)
-			App.resetSplineDrag(true) -- a drag the undo just rolled back is dropped, not committed
-			App.stopGestures()
-			if LAYER_MODES[App.mode] then
-				App.setMode("Off")
-			end
-			switchArea(alive(f) and f or Engine.listAreas()[1])
-			if keep and App.area then
-				for _, l in App.area.layers do
-					if Engine.layerKey(l) == keep then
-						App.expanded = l
-					end
-				end
-				App.rebuildAll()
-			end
-			if App.canGenerate() then
-				App.runGenerate(false)
-			end
-		end)
+		task.defer(afterHistory)
 	end
 	track(ChangeHistoryService.OnUndo:Connect(onHistory))
 	track(ChangeHistoryService.OnRedo:Connect(onHistory))

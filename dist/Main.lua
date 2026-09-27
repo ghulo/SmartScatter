@@ -41,6 +41,9 @@ cancel and Enum.FinishRecordingOperation.Cancel or Enum.FinishRecordingOperation
 elseif not cancel then
 pcall(ChangeHistoryService.SetWaypoint, ChangeHistoryService, h.name)
 end
+if not cancel and App.historyPush then
+App.historyPush(h.name)
+end
 end
 local plugin = ctx.plugin
 local Engine = ctx.Engine
@@ -80,6 +83,7 @@ shape = "Circle",
 fillReach = 120,
 paintOn = {},
 scanSelection = false,
+history = true,
 page = "",
 }
 do
@@ -2580,6 +2584,131 @@ App.thumbCache = thumbCache
 App.eachThumb = eachThumb
 App.thumbnail = thumbnail
 App.pruneThumbs = pruneThumbs
+end
+end)()
+-- #module Core/History
+MODULES["Core/History"] = (function()
+--[[
+Smart Scatter — History: the steps Smart Scatter took this session, as a timeline you can jump along (like
+ZBrush's undo history). Every step it records goes on the list; Ctrl+Z and Ctrl+Y move the marker with Studio;
+a jump undoes or redoes, one Studio step at a time, until the marker is where you clicked. Studio edits in
+between are undone and redone with them, as a timeline does.
+Studio doesn't let a plugin read its undo list, so the list is Smart Scatter's own; before each step of a jump
+it checks the name of the step Studio would undo or redo next, so the two never drift apart.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local CHS, track = App.ChangeHistoryService, App.track
+local MAX = 200
+App.history = { list = {}, pos = 0 }
+local H = App.history
+local function changed()
+if App.onHistoryChanged then
+App.onHistoryChanged()
+end
+end
+App.historyPush = function(name)
+for i = #H.list, H.pos + 1, -1 do
+table.remove(H.list, i)
+end
+table.insert(H.list, { name = name, time = os.time() })
+if #H.list > MAX then
+table.remove(H.list, 1)
+end
+H.pos = #H.list
+changed()
+end
+local function nextName(redo)
+local ok, can, name = pcall(redo and CHS.GetCanRedo or CHS.GetCanUndo, CHS)
+if ok and can then
+return name or ""
+end
+return nil
+end
+App.historyEchoes = { marker = 0, rebuild = 0 }
+local echoes = App.historyEchoes
+track(CHS.OnUndo:Connect(function(name)
+if echoes.marker > 0 then
+echoes.marker -= 1
+elseif H.pos > 0 and H.list[H.pos].name == name then
+H.pos -= 1
+changed()
+end
+end))
+track(CHS.OnRedo:Connect(function(name)
+if echoes.marker > 0 then
+echoes.marker -= 1
+elseif H.list[H.pos + 1] and H.list[H.pos + 1].name == name then
+H.pos += 1
+changed()
+end
+end))
+App.historyJump = function(target)
+target = math.clamp(target, 0, #H.list)
+if target == H.pos or App.historyJumping then
+return 0
+end
+App.historyJumping = true
+local steps, back = 0, target < H.pos
+for _ = 1, 400 do
+if H.pos == target then
+break
+end
+local name = nextName(not back)
+if not name then
+if not back then
+for i = #H.list, H.pos + 1, -1 do
+table.remove(H.list, i)
+end
+end
+break
+end
+if back then
+local j = H.pos
+while j > 0 and H.list[j].name ~= name do
+j -= 1
+end
+if j > 0 and j < H.pos and H.pos - j <= 3 then
+for i = H.pos, j + 1, -1 do
+table.remove(H.list, i)
+end
+target = math.min(target, #H.list)
+H.pos = j
+end
+if H.pos <= target then
+break
+end
+echoes.marker += 1
+echoes.rebuild += 1
+if not pcall(CHS.Undo, CHS) then
+echoes.marker -= 1
+echoes.rebuild -= 1
+break
+end
+if H.list[H.pos] and H.list[H.pos].name == name then
+H.pos -= 1
+end
+else
+echoes.marker += 1
+echoes.rebuild += 1
+if not pcall(CHS.Redo, CHS) then
+echoes.marker -= 1
+echoes.rebuild -= 1
+break
+end
+if H.list[H.pos + 1] and H.list[H.pos + 1].name == name then
+H.pos += 1
+end
+end
+steps += 1
+end
+App.historyJumping = false
+if steps > 0 and App.afterHistory then
+task.defer(App.afterHistory)
+end
+changed()
+return steps
+end
 end
 end)()
 -- #module Panel/Header
@@ -6279,133 +6408,6 @@ end
 end
 end
 end)()
--- #module Panel/Tabs/Scatter
-MODULES["Panel/Tabs/Scatter"] = (function()
---[[
-Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
-when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
-performance report under More options.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local vlist, col = App.vlist, App.col
-local function buildObject(page)
-App.pageHead(page, "All objects", nil, function()
-App.showObject(nil)
-end)
-App.objectInspector(col({ Parent = page }, { vlist(10) }))
-end
-App.buildScatterTab = function(page)
-local a = App.area
-if a and App.expanded and not App.searching() then
-buildObject(page)
-return
-end
-local cs = App.cards(page, "scatter")
-local kind = a and App.kindOf(a)
-if kind == "Clear" then
-cs.add({
-id = "clearzone",
-title = "Keep-clear zone",
-icon = "clear",
-sub = "Nothing from any area goes here: spawns, doorways, a quest NPC's spot",
-build = function(b)
-App.goNote(b, "This zone holds no objects. Paint where to keep clear on the Brush tab.", "Paint the zone", "Brush")
-end,
-})
-return
-end
-local shaped = a and ((a.count or 0) > 0 or App.hasPath())
-cs.add({
-id = "objects",
-title = "Objects",
-icon = "layers",
-sub = "The models that fill this area, and how much of everything",
-keys = "add models amount size everything list lost",
-build = function(b)
-if a and not shaped then
-if kind == "Path" then
-App.goNote(b, "Draw the path first, on the Map tab. Then add what lines it.", "Draw the path", "Map")
-else
-App.goNote(b, "Paint the ground first, on the Brush tab. Then add what fills it.", "Paint the area", "Brush")
-end
-end
-if a then
-App.objectList(b)
-else
-App.emptyState(b, "No area yet", "Make a scatter area or a path first: the + next to the area picker.")
-end
-App.ui.step2Card = b.Parent
-end,
-})
-if not a then
-return
-end
-local empty = #a.layers == 0
-cs.add({
-id = "biomes",
-title = "Start from a biome",
-sub = "A ready mix of objects made from your models",
-keys = "forest meadow desert town sample models",
-more = not empty,
-build = App.buildBiomes,
-})
-cs.add({
-id = "pattern",
-title = "Pattern",
-sub = "Where everything thickens and thins together",
-keys = "groves natural islands veins spots bands strength noise patches",
-more = true,
-build = App.buildPattern,
-})
-cs.add({
-id = "zones",
-title = "Colour zones",
-sub = "Tint objects by the pattern: autumn, dry, lush, frost",
-keys = "color mood autumn dry lush frost tint season",
-more = true,
-build = App.buildZones,
-})
-cs.add({
-id = "edges",
-title = "Edges and wind",
-sub = "Fade into the surroundings, and which way things lean",
-keys = "soft edges border fade wind direction lean",
-more = true,
-build = function(b)
-App.buildEdges(b)
-App.buildWind(b)
-end,
-})
-cs.add({
-id = "presets",
-title = "Presets",
-keys = "save share code import reuse",
-more = true,
-build = App.presetsBox,
-})
-cs.add({
-id = "performance",
-title = "Performance",
-sub = "Which objects cost the most parts",
-keys = "report parts meshes heavy lag simplify",
-more = true,
-build = App.buildReport,
-})
-if App.searching() then
-for i, l in a.layers do
-local holder = col({ LayoutOrder = 200000 + i, Parent = page }, { vlist(10) })
-App.label(l.inst.Name, 13, App.P.text, App.SANS_B, { Parent = holder })
-local before = App.cardCount
-App.objectRules(l, holder)
-if App.cardCount == before then
-holder:Destroy()
-end
-end
-end
-end
-end
-end)()
 
 -- the rest of the modules are in sibling parts; an older loader that only copies Main finds them in the
 -- live mirror instead
@@ -6442,6 +6444,7 @@ local ORDER = {
 	"Core/Cards",
 	"Viewport/Overlay",
 	"Core/Generation",
+	"Core/History",
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
