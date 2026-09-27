@@ -85,6 +85,7 @@ paintOn = {},
 scanSelection = false,
 history = true,
 focus = true,
+grid = true,
 page = "",
 }
 do
@@ -6472,6 +6473,7 @@ local ORDER = {
 	"Panel/Tabs/Settings",
 	"Panel/Shell",
 	"Viewport/Paint",
+	"Viewport/Grid",
 	"Viewport/Spline",
 	"Viewport/Focus",
 	"Panel/Tour",

@@ -66,6 +66,17 @@ return function(App)
 			"While painting, drawing a path or brushing an object, the world greys and dims a little, a thin frame runs round the viewport and the corner says what the tool is doing, like Blender's edit mode."
 		).Parent =
 			b
+		switchRow("Brush grid", function()
+			return G.grid
+		end, function(v)
+			G.grid = v
+		end, function()
+			saveG()
+			if App.clearGrid then
+				App.clearGrid()
+			end
+		end, "A grid on the ground round the brush, on the area's cells: it shows what a stroke fills. Like Blender's floor grid.").Parent =
+			b
 		switchRow("History timeline", function()
 			return G.history
 		end, function(v)
