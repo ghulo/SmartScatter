@@ -1175,6 +1175,7 @@ end
 if not table.find(list, picked) then
 picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 end
+App.handLayer = picked
 for _, l in list do
 local on = picked == l
 local row = App.new("TextButton", {
@@ -1218,6 +1219,7 @@ if App.LAYER_MODES[App.mode] then
 App.setMode(App.mode, l)
 end
 picked = l
+App.handLayer = l
 App.rebuildAll()
 end
 end)
@@ -1460,6 +1462,18 @@ App.refreshFocus()
 end
 end,
 "While a tool is on, the world loses a little colour so the tool stands out, and the viewport's top left says what the tool is doing and on what, like Blender's."
+).Parent =
+b
+switchRow(
+"Tools in the viewport",
+function()
+return G.toolbar
+end,
+function(v)
+G.toolbar = v
+end,
+saveG,
+"A strip of tool buttons down the viewport's left edge, and a bar along its top with the settings of the tool in use, like Blender's. The panel keeps everything too."
 ).Parent =
 b
 switchRow("Brush grid", function()
@@ -3072,7 +3086,7 @@ drawPath(pts, false, toolColor())
 end
 end)
 mouse.Button1Down:Connect(function()
-if App.mode == "Off" or App.mode == "Spline" then
+if App.mode == "Off" or App.mode == "Spline" or (App.overViewportUI and App.overViewportUI()) then
 return
 end
 if sizing then
@@ -4167,7 +4181,7 @@ end
 splineLabel(hit, text)
 end)
 mouse.Button1Down:Connect(function()
-if App.mode ~= "Spline" then
+if App.mode ~= "Spline" or (App.overViewportUI and App.overViewportUI()) then
 return
 end
 if App.shapeTool then
@@ -5147,6 +5161,535 @@ end
 end)
 end
 end)()
+-- #module App/Viewport/Toolbar
+MODULES["App/Viewport/Toolbar"] = (function()
+--[[
+Smart Scatter — Toolbar: the viewport's own tools, like Blender's. Down the left edge, a strip of small square
+tool buttons in groups (painting the ground; stamping and spraying the object in hand; the path and removing
+copies; the search menu), the one in use lit. Along the top, while a tool is on, a bar with just that tool's
+settings (the brush's size and shape, the stamp's turn, size and model, the path's shapes), so the eyes can stay
+on the viewport. The panel stays the full menu; these only reach what's needed while working.
+Both follow the state they show (looked at ten times a second, rebuilt only when it changes), so no other module
+has to tell them. Settings › Viewport turns them off.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, saveG, P, Engine = App.G, App.saveG, App.P, App.Engine
+local new, box, label, corner, stroke, pad = App.new, App.box, App.label, App.corner, App.stroke, App.pad
+local SANS, SANS_B = App.SANS, App.SANS_B
+local BTN, SEE = 30, 0.12
+local TOOL_ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
+local gui, strip, bar, tip
+local stripKey, barKey
+local looks = {}
+local function handLayer()
+local a = App.area
+if not a then
+return nil
+end
+local function ok(l)
+return l ~= nil and table.find(a.layers, l) ~= nil and not (Engine.isLine(l) and l.s.follow == "Spline")
+end
+if ok(App.paintLayer) then
+return App.paintLayer
+elseif ok(App.handLayer) then
+return App.handLayer
+end
+for _, l in a.layers do
+if ok(l) then
+return l
+end
+end
+return nil
+end
+local function tools()
+local a = App.area
+local kind = a and App.kindOf(a)
+local groups = {}
+if kind ~= "Path" then
+local g = {}
+for i, t in App.TOOLS do
+table.insert(g, {
+icon = TOOL_ICON[t],
+name = t,
+key = "tool" .. i,
+on = function()
+return App.mode == "Paint" and G.tool == t
+end,
+click = function()
+if App.mode == "Paint" and G.tool == t then
+App.setMode("Off")
+else
+App.setTool(t)
+end
+end,
+})
+end
+table.insert(g, {
+icon = "trash",
+name = "Erase ground",
+key = "erase",
+danger = true,
+on = function()
+return App.mode == "Erase"
+end,
+click = function()
+App.setMode(App.mode == "Erase" and "Off" or "Erase")
+end,
+})
+table.insert(groups, g)
+end
+local l = kind ~= "Path" and kind ~= "Clear" and handLayer() or nil
+if l then
+local g = {}
+for _, h in { { "Stamp", "stamp", "Stamp" }, { "Place", "spray", "Spray" } } do
+table.insert(g, {
+icon = h[2],
+name = h[3] .. " " .. l.inst.Name,
+on = function()
+return App.mode == h[1] and App.paintLayer == l
+end,
+click = function()
+App.setMode(h[1], l)
+end,
+})
+end
+table.insert(groups, g)
+end
+local g = {}
+if kind ~= "Clear" then
+table.insert(g, {
+icon = "spline",
+name = "Draw the path",
+on = function()
+return App.mode == "Spline"
+end,
+click = function()
+if App.mode ~= "Spline" then
+App.ensureSplineFn()
+end
+App.setMode("Spline")
+end,
+})
+end
+if a and kind ~= "Clear" then
+table.insert(g, {
+icon = "close",
+name = "Remove single copies",
+danger = true,
+on = function()
+return App.mode == "Remove"
+end,
+click = function()
+App.setMode("Remove")
+end,
+})
+end
+if #g > 0 then
+table.insert(groups, g)
+end
+table.insert(groups, {
+{
+icon = "search",
+name = "Search every action",
+key = "palette",
+on = function()
+return false
+end,
+click = function()
+App.openPalette()
+end,
+},
+})
+return groups
+end
+local function showTip(b, text)
+tip.Visible = text ~= nil
+if text then
+tip.Text = text
+tip.Position = UDim2.fromOffset(strip.AbsolutePosition.X + strip.AbsoluteSize.X + 6, b.AbsolutePosition.Y + (BTN - 24) / 2)
+end
+end
+local function buildStrip()
+for _, c in strip:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+table.clear(looks)
+for gi, group in tools() do
+if gi > 1 then
+box({ Size = UDim2.fromOffset(BTN, 7), Parent = strip }, {
+new("Frame", {
+BackgroundColor3 = P.line,
+BorderSizePixel = 0,
+Position = UDim2.fromOffset(5, 3),
+Size = UDim2.new(1, -10, 0, 1),
+}),
+})
+end
+for _, t in group do
+local b = new("TextButton", {
+Text = "",
+AutoButtonColor = false,
+BackgroundColor3 = P.accent,
+BackgroundTransparency = 1,
+Size = UDim2.fromOffset(BTN, BTN),
+Parent = strip,
+}, { corner(6) })
+local ic = App.icon(t.icon, 16, P.dim)
+ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+ic.Parent = b
+local hot = false
+local function look()
+local on = t.on()
+local tint = t.danger and P.danger or P.accent
+b.BackgroundColor3 = on and tint or P.hover
+b.BackgroundTransparency = on and 0 or hot and 0.2 or 1
+App.setIconColor(
+ic,
+on and (t.danger and Color3.new(1, 1, 1) or P.onAccent) or hot and P.text or (t.danger and tint:Lerp(P.dim, 0.3) or P.dim)
+)
+end
+look()
+table.insert(looks, look)
+b.MouseEnter:Connect(function()
+hot = true
+look()
+showTip(b, t.name .. (t.key and ("   " .. App.keyText(t.key)) or ""))
+end)
+b.MouseLeave:Connect(function()
+hot = false
+look()
+showTip(b, nil)
+end)
+b.MouseButton1Click:Connect(function()
+t.click()
+for _, f in looks do
+f()
+end
+end)
+end
+end
+end
+local function stepRadius(up)
+G.radius = math.clamp(math.floor(G.radius * (up and 1.2 or 1 / 1.2) + 0.5), 4, 200)
+saveG()
+App.refreshSliders()
+end
+local function stampChanged()
+if App.ui.refreshStamp then
+App.ui.refreshStamp()
+end
+end
+local function options()
+local m = App.mode
+if m == "Off" then
+return nil
+end
+local items = {}
+local title
+local brushSize = {
+step = "Size",
+value = string.format("%d", G.radius),
+dec = function()
+stepRadius(false)
+end,
+inc = function()
+stepRadius(true)
+end,
+}
+if m == "Paint" or m == "Erase" then
+title = (m == "Erase" and "Erase" or "Paint") .. " · " .. G.tool
+if G.tool == "Brush" then
+table.insert(items, brushSize)
+for _, s in { "Circle", "Square" } do
+table.insert(items, {
+button = s,
+on = G.shape == s,
+click = function()
+G.shape = s
+saveG()
+end,
+})
+end
+elseif G.tool == "Fill" then
+table.insert(items, {
+step = "Reach",
+value = string.format("%d", G.fillReach),
+dec = function()
+G.fillReach = math.clamp(G.fillReach - 16, 16, 400)
+saveG()
+App.refreshSliders()
+end,
+inc = function()
+G.fillReach = math.clamp(G.fillReach + 16, 16, 400)
+saveG()
+App.refreshSliders()
+end,
+})
+else
+table.insert(items, { text = App.TOOL_HINT and App.TOOL_HINT[G.tool] or "" })
+end
+elseif m == "Stamp" and App.paintLayer then
+local l, st = App.paintLayer, App.stamp
+title = "Stamp · " .. l.inst.Name
+table.insert(items, {
+step = "Turn",
+value = string.format("%d°", math.floor(math.deg(st.yaw) + 0.5) % 360),
+dec = function()
+App.setStamp(math.deg(st.yaw) - 15)
+stampChanged()
+end,
+inc = function()
+App.setStamp(math.deg(st.yaw) + 15)
+stampChanged()
+end,
+})
+table.insert(items, {
+step = "Size",
+value = string.format("%.2f×", st.k),
+dec = function()
+App.setStamp(nil, math.max(st.k / 1.1, 0.05))
+stampChanged()
+end,
+inc = function()
+App.setStamp(nil, math.min(st.k * 1.1, 20))
+stampChanged()
+end,
+})
+if #l.variants > 1 then
+local v = l.variants[st.vi] or l.variants[1]
+table.insert(items, {
+step = "Model",
+value = v.inst.Name,
+dec = function()
+App.setStamp(nil, nil, (st.vi - 2) % #l.variants + 1)
+stampChanged()
+end,
+inc = function()
+App.setStamp(nil, nil, st.vi % #l.variants + 1)
+stampChanged()
+end,
+})
+end
+table.insert(items, { button = "Random", click = App.rollStamp })
+elseif App.LAYER_MODES[m] and App.paintLayer then
+title = App.LAYER_LABEL[m] .. " · " .. App.paintLayer.inst.Name
+table.insert(items, brushSize)
+elseif m == "Spline" then
+title = App.shapeTool and ("Path · " .. App.shapeTool) or "Path"
+for _, d in Engine.SHAPES do
+table.insert(items, {
+button = d.name,
+on = App.shapeTool == d.name,
+click = function()
+App.pickShape(d.name)
+end,
+})
+end
+if App.hasPath() then
+table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
+end
+elseif m == "Remove" then
+title = "Remove copies"
+table.insert(items, { text = "Click a copy to take it out" })
+else
+return nil
+end
+return title, items
+end
+local function buildBar()
+for _, c in bar:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+local title, items = options()
+bar.Visible = title ~= nil
+if not title then
+return
+end
+label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+local function small(text, click, on)
+local b = new("TextButton", {
+Text = text,
+Font = SANS,
+TextSize = 12,
+TextColor3 = on and P.onAccent or P.text,
+AutoButtonColor = false,
+BackgroundColor3 = on and P.accent or P.raised,
+Size = UDim2.fromOffset(0, 24),
+AutomaticSize = Enum.AutomaticSize.X,
+Parent = bar,
+}, { corner(5), pad(8, 8, 0, 0) })
+b.MouseEnter:Connect(function()
+if not on then
+b.BackgroundColor3 = P.hover
+end
+end)
+b.MouseLeave:Connect(function()
+b.BackgroundColor3 = on and P.accent or P.raised
+end)
+b.MouseButton1Click:Connect(click)
+return b
+end
+for _, it in items do
+box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.fromOffset(1, 16), Parent = bar })
+if it.text then
+label(it.text, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+elseif it.step then
+label(it.step, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+small("−", it.dec).Size = UDim2.fromOffset(22, 24)
+label(it.value, 12, P.text, SANS_B, {
+Size = UDim2.fromOffset(0, 24),
+AutomaticSize = Enum.AutomaticSize.X,
+TextXAlignment = Enum.TextXAlignment.Center,
+Parent = bar,
+})
+small("+", it.inc).Size = UDim2.fromOffset(22, 24)
+else
+small(it.button, it.click, it.on)
+end
+end
+end
+local function build()
+gui = new("ScreenGui", {
+Name = "SmartScatterToolbar",
+Archivable = false,
+IgnoreGuiInset = true,
+DisplayOrder = 55,
+ResetOnSpawn = false,
+ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+})
+local function panel(props, layout)
+local f = box(props, { corner(8), stroke(P.line), layout })
+f.BackgroundTransparency, f.BackgroundColor3 = SEE, P.card
+return f
+end
+strip = panel(
+{ AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = gui },
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) })
+)
+pad(3, 3, 3, 3).Parent = strip
+bar = panel(
+{
+AnchorPoint = Vector2.new(0.5, 0),
+Position = UDim2.new(0.5, 0, 0, 10),
+AutomaticSize = Enum.AutomaticSize.XY,
+Visible = false,
+Parent = gui,
+},
+new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+SortOrder = Enum.SortOrder.LayoutOrder,
+Padding = UDim.new(0, 6),
+})
+)
+pad(10, 5, 4, 4).Parent = bar
+tip = label("", 12, P.text, SANS, {
+BackgroundTransparency = 0,
+BackgroundColor3 = P.raised,
+Size = UDim2.fromOffset(0, 24),
+AutomaticSize = Enum.AutomaticSize.X,
+Visible = false,
+Parent = gui,
+})
+corner(5).Parent = tip
+pad(8, 8, 0, 0).Parent = tip
+stripKey, barKey = nil, nil
+if not pcall(function()
+gui.Parent = game:GetService("CoreGui")
+end) then
+gui:Destroy()
+gui = nil
+end
+end
+local function keys()
+local a = App.area
+local l = handLayer()
+local s = string.format("%s|%s|%s|%d", a and a.folder.Name or "", a and App.kindOf(a) or "", l and l.inst.Name or "", a and #a.layers or 0)
+local st = App.stamp or {}
+local b = table.concat({
+App.mode,
+G.tool,
+G.radius,
+G.shape,
+G.fillReach,
+tostring(App.paintLayer and App.paintLayer.inst.Name),
+tostring(App.shapeTool),
+tostring(App.hasPath and App.hasPath()),
+string.format("%.3f|%.3f|%s", st.yaw or 0, st.k or 0, tostring(st.vi)),
+}, "|")
+return s, b
+end
+local function refresh()
+local want = App.widget.Enabled and G.toolbar ~= false
+if not want then
+if gui then
+gui.Enabled = false
+end
+return
+end
+if not (gui and gui.Parent) then
+build()
+if not gui then
+return
+end
+end
+gui.Enabled = true
+local s, b = keys()
+if s ~= stripKey then
+stripKey = s
+buildStrip()
+else
+for _, f in looks do
+f()
+end
+end
+if b ~= barKey then
+barKey = b
+buildBar()
+end
+end
+App.refreshToolbar = refresh
+local last = 0
+App.track(App.RunService.Heartbeat:Connect(function()
+if os.clock() - last >= 0.1 then
+last = os.clock()
+refresh()
+end
+end))
+App.overViewportUI = function()
+if not (gui and gui.Enabled) then
+return false
+end
+local m = Vector2.new(App.rawMouse.X, App.rawMouse.Y)
+for _, f in { strip, bar } do
+if f.Visible then
+local p, sz = f.AbsolutePosition, f.AbsoluteSize
+if m.X >= p.X and m.X <= p.X + sz.X and m.Y >= p.Y and m.Y <= p.Y + sz.Y then
+return true
+end
+end
+end
+return false
+end
+App.clearToolbar = function()
+if gui then
+gui:Destroy()
+gui = nil
+end
+end
+pcall(function()
+local old = game:GetService("CoreGui"):FindFirstChild("SmartScatterToolbar")
+if old then
+old:Destroy()
+end
+end)
+end
+end)()
 -- #module App/Panel/Palette
 MODULES["App/Panel/Palette"] = (function()
 --[[
@@ -5508,6 +6051,13 @@ for _, s in
 "Focus while a tool is on",
 function()
 App.refreshFocus()
+end,
+},
+{
+"toolbar",
+"Tools in the viewport",
+function()
+App.refreshToolbar()
 end,
 },
 {
@@ -5965,568 +6515,6 @@ if g then
 g:Destroy()
 end
 end)
-end
-end)()
--- #module App/Panel/Tour
-MODULES["App/Panel/Tour"] = (function()
---[[
-Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
-Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
-person who installs the plugin gets it once on their own machine.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local plugin, P, G, RunService = App.plugin, App.P, App.G, App.RunService
-local SANS, SANS_M, SANS_B = App.SANS, App.SANS_M, App.SANS_B
-local new, corner, stroke, pad, vlist, hlist, box, col, label, para =
-App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
-local TOUR_KEY = "SmartScatter_tour"
-local TOUR_V = 3
-local function ui(name)
-local o = App.ui[name]
-return o and o.Parent and o or nil
-end
-local function inArea()
-return App.area ~= nil
-end
-local function shapeTab()
-return inArea() and App.kindOf(App.area) == "Path" and "Map" or "Brush"
-end
-local STEPS = {
-{
-chapter = "Welcome",
-image = "mark",
-title = "Welcome to Smart Scatter",
-text = "It fills your map by rules instead of by hand. You mark where things go, pick your models, and it places "
-.. "them: trees keep off roads and roofs, rocks cluster, lamps line a road, fences meet round bends.\n\n"
-.. "This tour shows everything in about three minutes. You can leave it any time and replay it from Settings.",
-},
-{
-chapter = "Welcome",
-title = "What it's good for",
-text = "• Forests, jungles and flower fields that look natural\n"
-.. "• Rocks, rubble and debris around cliffs and ruins\n"
-.. "• Villages: crates, barrels and props around houses\n"
-.. "• Street lamps, fences, walls and tiled paths along a curve\n"
-.. "• Dressing a big open world or an obby's themed zones in minutes\n\n"
-.. "Not for: one special prop you'd rather place by hand.",
-},
-{
-chapter = "Areas",
-title = "Your areas",
-text = "Everything you make lives in an area. Click here to switch between them, rename one, lock it so nothing "
-.. "changes, bake it into plain models when you're done, or delete it.",
-target = function()
-return ui("areaPick")
-end,
-},
-{
-chapter = "Areas",
-title = "Three kinds",
-text = "Scatter area: paint ground and fill it.\n"
-.. "Path: draw a curve for fences, lamps, tiled paths or a road.\n"
-.. "Keep-clear zone: ground no area may put anything on, like a spawn, a doorway or a quest spot.",
-target = function()
-return ui("plusBtn")
-end,
-},
-{
-chapter = "Areas",
-title = "Four tabs",
-text = "Scatter: what fills the area, its objects and their rules.\n"
-.. "Brush: work by hand, painting ground or one object, removing copies.\n"
-.. "Map: the path and its road; scanning a finished map to swap, re-space or re-season it.\n"
-.. "Settings: the plugin itself.\n\n"
-.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
-.. "below the tabs, like road or spacing.",
-target = function()
-local t = App.ui.tabs and App.ui.tabs.Scatter
-return t and t.Parent or nil
-end,
-},
-{
-chapter = "Shape",
-title = "Mark the ground",
-text = function()
-if inArea() and App.kindOf(App.area) == "Path" then
-return "Press Draw path, then click in the viewport to place points. Hold and drag to draw freely."
-end
-return "Brush paints, Lasso and Box fill a shape, Polygon clicks corners, Fill takes a whole field in one click. "
-.. "Shift erases, "
-.. App.keyText("size")
-.. " resizes the brush with the mouse, "
-.. App.keyText("cancel")
-.. " stops.\n\n"
-.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
-end,
-tab = shapeTab,
-target = function()
-return ui("step1Card") or ui("welcomeChoice")
-end,
-},
-{
-chapter = "Shape",
-title = "It reads the map for you",
-text = "Each area is scanned: roads, paths, water, roofs and walls are found by their material and names, so "
-.. "trees stay off the road and out of the pond on their own.\n\n"
-.. "If it guesses wrong, select the part and use Mark selected as. Soft edges thin things out toward the "
-.. "border so an area fades into its surroundings.",
-},
-{
-chapter = "Paths",
-title = "Drawing paths",
-text = function()
-return "Click to add points; drag one to move it. Shift+drag changes its height, "
-.. App.keyText("corner")
-.. " makes a sharp corner, "
-.. App.keyText("delete")
-.. " deletes a point. Select a point and click the ground to branch off; drop an end on another "
-.. "point to join them.\n\n"
-.. "Give the path a width and turn on Road to lay a real road or dirt path along it."
-end,
-},
-{
-chapter = "Objects",
-title = "Add your models",
-text = "Select models in the Explorer and press Add selected models. Keep the originals outside the "
-.. "area, for example in ServerStorage.\n\n"
-.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. "
-.. "Save a set you like as a preset to reuse it in any area.",
-tab = function()
-return "Scatter"
-end,
-target = function()
-return ui("step2Card")
-end,
-},
-{
-chapter = "Objects",
-title = "Rules for each object",
-text = "Click an object for its settings. Its type (tree, rock, bush…) sets smart defaults; then tune amount, "
-.. "size, spacing and clumping, piles, which ground it grows on, what it keeps away from, slopes and looks.\n\n"
-.. "Mix several models in one object, Swap one for another in place, or Lock an object to keep its copies "
-.. "exactly where they are.",
-},
-{
-chapter = "Objects",
-title = "Along a line",
-text = "Set an object to Along and it follows a line instead of spreading out: a road edge, the area's border "
-.. "or your path. Fences and walls resize so their pieces meet end to end, even round bends; lamps keep a "
-.. "steady gap and face the road.",
-},
-{
-chapter = "Placing",
-title = "Placing it all",
-text = "This bar stays at the bottom. Generate places the real models. Turn Live on for a quick preview: every "
-.. "change shows right away as see-through boxes, and Generate turns them into the models.\n\n"
-.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
-.. "are your history: click one to jump back (or forward) to that step.",
-target = function()
-return ui("foot")
-end,
-},
-{
-chapter = "Placing",
-title = "Settings",
-text = "Text size, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
-.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
-.. "Every shortcut is listed here too.",
-target = function()
-return App.ui.tabs and App.ui.tabs.Settings
-end,
-},
-{
-chapter = "Finish",
-title = "When you're done",
-text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it from the area menu: its "
-.. "objects become plain models and the area steps aside.\n\n"
-.. "Hover over anything for a tip, and right-click a slider to reset it. The plugin updates itself.",
-},
-{
-chapter = "Finish",
-image = "card",
-title = "Have fun building",
-text = "Smart Scatter is made by Ghulo.\n\n" .. "Replay this tour any time from Settings.",
-},
-}
-local layer
-local function finish()
-App.tour = nil
-pcall(function()
-plugin:SetSetting(TOUR_KEY, TOUR_V)
-end)
-if layer then
-layer:Destroy()
-layer = nil
-end
-end
-local function scrollTo(target)
-local sc = App.scroll
-if not (sc and target:IsDescendantOf(sc)) then
-return
-end
-local top = target.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
-sc.CanvasPosition = Vector2.new(0, math.max(top - 12, 0))
-end
-local render
-local function go(i)
-if not App.tour then
-return
-end
-App.tour.i = math.clamp(i, 1, #STEPS)
-render()
-end
-render = function()
-if layer then
-layer:Destroy()
-layer = nil
-end
-local root = App.root
-App.hideTip()
-if not App.tour or not root then
-return
-end
-local i = App.tour.i
-local step = STEPS[i]
-local tab = step.tab and inArea() and step.tab()
-if tab and G.page ~= tab then
-App.goPage(tab)
-return
-end
-local target = step.target and step.target()
-if target then
-scrollTo(target)
-end
-if App.tour.root ~= root then
-App.tour.root = root
-root:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-if App.tour and App.root == root then
-App.renderTour()
-end
-end)
-end
-layer = box({ Size = UDim2.fromScale(1, 1), ZIndex = 300, Parent = root })
-local my = layer
-RunService.Heartbeat:Wait()
-if layer ~= my or not root.Parent then
-return
-end
-local rw, rh = root.AbsoluteSize.X, root.AbsoluteSize.Y
-local ox, oy = root.AbsolutePosition.X, root.AbsolutePosition.Y
-local function shade(x, y, w, h)
-if w <= 0 or h <= 0 then
-return
-end
-new("TextButton", {
-Text = "",
-AutoButtonColor = false,
-BackgroundColor3 = Color3.new(0, 0, 0),
-BackgroundTransparency = 0.45,
-Position = UDim2.fromOffset(x, y),
-Size = UDim2.fromOffset(w, h),
-ZIndex = 301,
-Parent = layer,
-})
-end
-local hx, hy, hw, hh
-if target then
-local m = 4
-hx = math.clamp(target.AbsolutePosition.X - ox - m, 0, rw)
-hy = math.clamp(target.AbsolutePosition.Y - oy - m, 0, rh)
-hw = math.clamp(target.AbsoluteSize.X + m * 2, 0, rw - hx)
-hh = math.clamp(target.AbsoluteSize.Y + m * 2, 0, rh - hy)
-shade(0, 0, rw, hy)
-shade(0, hy + hh, rw, rh - hy - hh)
-shade(0, hy, hx, hh)
-shade(hx + hw, hy, rw - hx - hw, hh)
-local ring = box({
-Position = UDim2.fromOffset(hx, hy),
-Size = UDim2.fromOffset(hw, hh),
-ZIndex = 302,
-Parent = layer,
-}, { corner(10) })
-local st = stroke(P.accent)
-st.Thickness = 2
-st.Parent = ring
-else
-shade(0, 0, rw, rh)
-end
-local w = math.min(rw - 24, 300)
-local card = col({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.card,
-Size = UDim2.fromOffset(w, 0),
-ZIndex = 303,
-Parent = layer,
-}, { corner(12), stroke(P.line), pad(16, 16, 14, 14), vlist(8) })
-local function z(o)
-o.ZIndex = 304
-for _, d in o:GetDescendants() do
-if d:IsA("GuiObject") then
-d.ZIndex = 304
-end
-end
-return o
-end
-local dots = z(box({ Size = UDim2.new(1, 0, 0, 8), Parent = card }, { hlist(5) }))
-for k = 1, #STEPS do
-z(box({
-BackgroundTransparency = 0,
-BackgroundColor3 = k == i and P.accent or P.line,
-Size = UDim2.fromOffset(k == i and 18 or 8, 6),
-Parent = dots,
-}, { corner(3) }))
-end
-z(label(string.upper(step.chapter) .. "  ·  " .. i .. " of " .. #STEPS, 10, P.faint, SANS_B, { Parent = card }))
-if step.image == "mark" then
-z(new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(56, 56), Parent = card }))
-elseif step.image == "card" then
-local holder = z(box({ Size = UDim2.new(1, 0, 0, 160), Parent = card }))
-z(new("ImageLabel", {
-Image = App.LOGO.card,
-BackgroundTransparency = 1,
-AnchorPoint = Vector2.new(0.5, 0),
-Position = UDim2.fromScale(0.5, 0),
-Size = UDim2.fromOffset(131, 160),
-Parent = holder,
-}))
-end
-local t = z(label(step.title, 17, P.text, SANS_B, { Parent = card }))
-t.TextWrapped = true
-t.TextTruncate = Enum.TextTruncate.None
-t.AutomaticSize = Enum.AutomaticSize.Y
-t.Size = UDim2.new(1, 0, 0, 0)
-local body = z(para(type(step.text) == "function" and step.text() or step.text, { Parent = card }))
-body.TextSize = App.textSize(13)
-body.TextColor3 = P.dim
-box({ Size = UDim2.new(1, 0, 0, 4), Parent = card })
-local row = z(box({ Size = UDim2.new(1, 0, 0, 32), Parent = card }))
-local function btn(text, primary, onClick)
-local b = new("TextButton", {
-Text = text,
-Font = primary and SANS_B or SANS_M,
-TextSize = 13,
-TextColor3 = primary and P.onAccent or P.text,
-BackgroundColor3 = primary and P.accent or P.raised,
-AutoButtonColor = false,
-Size = UDim2.fromOffset(0, 32),
-AutomaticSize = Enum.AutomaticSize.X,
-ZIndex = 304,
-}, { corner(8), pad(14, 14, 0, 0) })
-local rest = b.BackgroundColor3
-b.MouseEnter:Connect(function()
-b.BackgroundColor3 = rest:Lerp(Color3.new(1, 1, 1), 0.1)
-end)
-b.MouseLeave:Connect(function()
-b.BackgroundColor3 = rest
-end)
-b.MouseButton1Click:Connect(onClick)
-return b
-end
-local last = i == #STEPS
-if not last then
-local skip = new("TextButton", {
-Text = "Skip tour",
-Font = SANS,
-TextSize = 13,
-TextColor3 = P.faint,
-BackgroundTransparency = 1,
-Size = UDim2.fromOffset(70, 32),
-TextXAlignment = Enum.TextXAlignment.Left,
-ZIndex = 304,
-Parent = row,
-})
-skip.MouseEnter:Connect(function()
-skip.TextColor3 = P.text
-end)
-skip.MouseLeave:Connect(function()
-skip.TextColor3 = P.faint
-end)
-skip.MouseButton1Click:Connect(finish)
-end
-local right = box({
-Size = UDim2.new(0, 0, 1, 0),
-AutomaticSize = Enum.AutomaticSize.X,
-AnchorPoint = Vector2.new(1, 0),
-Position = UDim2.fromScale(1, 0),
-ZIndex = 304,
-Parent = row,
-}, { hlist(6) })
-if i > 1 then
-btn("Back", false, function()
-go(i - 1)
-end).Parent = right
-end
-btn(last and "Got it" or (i == 1 and "Show me" or "Next"), true, function()
-if last then
-finish()
-else
-go(i + 1)
-end
-end).Parent =
-right
-local x = math.floor((rw - w) / 2)
-card.Position = UDim2.fromOffset(x, 0)
-RunService.Heartbeat:Wait()
-if layer ~= my then
-return
-end
-local ch = card.AbsoluteSize.Y
-local y
-if not target then
-y = (rh - ch) / 2
-elseif hy + hh + 10 + ch <= rh - 8 then
-y = hy + hh + 10
-elseif hy - 10 - ch >= 8 then
-y = hy - 10 - ch
-else
-y = rh - ch - 12
-end
-card.Position = UDim2.fromOffset(x, math.floor(math.max(y, 8)))
-end
-App.renderTour = function()
-task.spawn(render)
-end
-App.startTour = function()
-if App.mode ~= "Off" then
-App.setMode("Off")
-end
-App.tour = { i = 1 }
-if G.page == "Settings" then
-App.goPage("")
-else
-App.renderTour()
-end
-end
-App.maybeStartTour = function()
-local ok, seen = pcall(function()
-return plugin:GetSetting(TOUR_KEY)
-end)
-if ok and type(seen) == "number" and seen >= TOUR_V then
-return
-end
-if not App.widget.Enabled then
-return
-end
-task.delay(0.5, function()
-if App.root and not App.tour then
-App.startTour()
-end
-end)
-end
-end
-end)()
--- #module App/Core/Lifecycle
-MODULES["App/Core/Lifecycle"] = (function()
---[[
-Smart Scatter — Lifecycle: undo/redo reload, wiring and cleanup.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local ChangeHistoryService, ctx, plugin, Engine, conns = App.ChangeHistoryService, App.ctx, App.plugin, App.Engine, App.conns
-local track, LAYER_MODES, toggleBtn, clearOverlay = App.track, App.LAYER_MODES, App.toggleBtn, App.clearOverlay
-local switchArea, eachThumb, closePopup, removeGizmo = App.switchArea, App.eachThumb, App.closePopup, App.removeGizmo
-local removeSplineViz = App.removeSplineViz
-local function alive(folder)
-return folder ~= nil and folder:IsDescendantOf(workspace)
-end
-local function afterHistory()
-local f = App.area and App.area.folder
-local keep = App.expanded and Engine.layerKey(App.expanded)
-App.resetSplineDrag(true)
-App.stopGestures()
-if LAYER_MODES[App.mode] then
-App.setMode("Off")
-end
-switchArea(alive(f) and f or Engine.listAreas()[1])
-if keep and App.area then
-for _, l in App.area.layers do
-if Engine.layerKey(l) == keep then
-App.expanded = l
-end
-end
-App.rebuildAll()
-end
-if App.canGenerate() then
-App.runGenerate(false)
-end
-end
-App.afterHistory = afterHistory
-local function onHistory(name)
-local echoes = App.historyEchoes
-if echoes and echoes.rebuild > 0 then
-echoes.rebuild -= 1
-return
-end
-if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
-return
-end
-task.defer(afterHistory)
-end
-track(ChangeHistoryService.OnUndo:Connect(onHistory))
-track(ChangeHistoryService.OnRedo:Connect(onHistory))
-track(toggleBtn.Click:Connect(function()
-App.widget.Enabled = not App.widget.Enabled
-end))
-track(App.widget:GetPropertyChangedSignal("Enabled"):Connect(function()
-toggleBtn:SetActive(App.widget.Enabled)
-if App.widget.Enabled then
-local f = App.area and App.area.folder
-switchArea(alive(f) and f or Engine.listAreas()[1])
-App.maybeStartTour()
-else
-if App.mode ~= "Off" then
-App.setMode("Off")
-end
-closePopup()
-clearOverlay()
-App.drawSpline()
-end
-end))
-switchArea(Engine.listAreas()[1])
-toggleBtn:SetActive(App.widget.Enabled)
-App.maybeStartTour()
-ctx.offerUpdate = function(version, apply)
-App.dialog(
-"Update available",
-"Smart Scatter " .. tostring(version) .. " is ready. Updating takes a second, needs no restart and changes nothing in your place.",
-{ { "Update now", "accent", apply }, { "Later", nil, function() end } },
-"info",
-"accent"
-)
-end
-if ctx.reloaded then
-App.status("Updated to v" .. tostring(ctx.version) .. ".")
-end
-return function()
-App.cancelJob()
-pcall(App.stopGestures)
-if App.mode ~= "Off" then
-App.mode = "Off"
-pcall(function()
-plugin:Deactivate()
-end)
-end
-for _, c in conns do
-c:Disconnect()
-end
-removeGizmo()
-removeSplineViz()
-clearOverlay()
-if App.clearFocus then
-App.clearFocus()
-end
-if App.closePalette then
-App.closePalette()
-end
-if App.root then
-App.root:Destroy()
-App.root = nil
-end
-eachThumb(function(vp)
-vp:Destroy()
-end)
-end
 end
 end)()
 

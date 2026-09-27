@@ -89,6 +89,7 @@ scanSelection = false,
 history = true,
 focus = true,
 grid = true,
+toolbar = true,
 page = "",
 }
 do
@@ -5847,7 +5848,7 @@ end
 	puts its state and functions on App, and later modules read them from there. A module that returns a function
 	hands back its cleanup (the last one returned runs when the plugin unloads or updates).
 	  Core/        state, UI kit, cards and search, generation jobs, and the undo/cleanup wiring that runs last
-	  Viewport/    what happens in the 3D view: the painted overlay, painting, the spline editor
+	  Viewport/    what happens in the 3D view: the painted overlay, painting, the spline editor, the tool strip
 	  Panel/       the header, the controls for areas, objects and the map, the shell (tabs, search, bottom bar), the tour
 	  Panel/Tabs/  one module per tab: Scatter, Brush, Map, Settings
 	To add a module: create it in the folder it belongs to and add its path to ORDER after what it uses.
@@ -5876,6 +5877,7 @@ local ORDER = {
 	"Viewport/Shapes",
 	"Viewport/Stamp",
 	"Viewport/Focus",
+	"Viewport/Toolbar",
 	"Panel/Palette",
 	"Panel/Tour",
 	"Core/Lifecycle",

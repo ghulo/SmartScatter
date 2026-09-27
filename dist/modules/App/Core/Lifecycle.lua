@@ -112,6 +112,9 @@ return function(App)
 		if App.closePalette then
 			App.closePalette()
 		end
+		if App.clearToolbar then
+			App.clearToolbar()
+		end
 		if App.root then
 			App.root:Destroy()
 			App.root = nil

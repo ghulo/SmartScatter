@@ -66,6 +66,18 @@ return function(App)
 			"While a tool is on, the world loses a little colour so the tool stands out, and the viewport's top left says what the tool is doing and on what, like Blender's."
 		).Parent =
 			b
+		switchRow(
+			"Tools in the viewport",
+			function()
+				return G.toolbar
+			end,
+			function(v)
+				G.toolbar = v
+			end,
+			saveG,
+			"A strip of tool buttons down the viewport's left edge, and a bar along its top with the settings of the tool in use, like Blender's. The panel keeps everything too."
+		).Parent =
+			b
 		switchRow("Brush grid", function()
 			return G.grid
 		end, function(v)
