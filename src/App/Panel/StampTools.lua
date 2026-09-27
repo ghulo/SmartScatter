@@ -17,7 +17,7 @@ return function(App)
 	local function controls(parent, rebuild)
 		local st = App.stamp
 		if #st.models > 1 then
-			local grid = chipGrid(parent, 3, 28)
+			local grid = chipGrid(parent, 3, 28, 104)
 			for i, inst in st.models do
 				chip(grid, inst.Name, function()
 					return st.vi == i
@@ -111,7 +111,7 @@ return function(App)
 			local a = App.area
 			if a and #a.layers > 0 then -- or one of the area's own objects (all its models)
 				App.label("OR ONE OF THIS AREA'S OBJECTS", 11, P.faint, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
-				local grid = chipGrid(box, 3, 28)
+				local grid = chipGrid(box, 3, 28, 104)
 				for _, l in a.layers do
 					chip(grid, l.inst.Name, nil, function()
 						App.startStamp(l)

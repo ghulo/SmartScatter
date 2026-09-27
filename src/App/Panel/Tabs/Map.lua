@@ -53,7 +53,6 @@ return function(App)
 		cs.add({
 			id = "swap",
 			title = "Swap models",
-			icon = "refresh",
 			sub = "Replace every copy of a kind with another model or a mix",
 			keys = "swap replace model mix kind copies preview try",
 			build = App.buildSwap,
@@ -61,7 +60,6 @@ return function(App)
 		cs.add({
 			id = "layout",
 			title = "Improve layout",
-			icon = "layers",
 			sub = "Re-space crowded and empty spots, by the placement rules",
 			keys = "layout spacing crowded empty holes gaps respace even tidy hand placed",
 			build = App.buildImproveLayout,

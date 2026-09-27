@@ -79,7 +79,9 @@ return function(App)
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
 		})
-		App.icon(t.icon, 15, color).Parent = head
+		local ic = App.icon(t.icon, 15, color)
+		ic.LayoutOrder = 0
+		ic.Parent = head
 		label(string.upper(t.text) .. "  ·  " .. l.inst.Name, 12, color, SANS_B, {
 			Size = UDim2.fromOffset(0, 18),
 			AutomaticSize = Enum.AutomaticSize.X,
@@ -140,7 +142,7 @@ return function(App)
 				local groups = {}
 				for _, g in GROUPS do
 					label(string.upper(g.title), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
-					local tiles = App.toolTiles(b, 2, 44)
+					local tiles = App.toolTiles(b, 2, 52, 120)
 					for _, t in ipairs(g) do
 						tiles.add({
 							icon = t.icon,

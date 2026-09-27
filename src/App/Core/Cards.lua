@@ -28,6 +28,50 @@ return function(App)
 		output = "Collision, shadows, streaming",
 	}
 
+	-- every card's badge, by its id (a card may pass its own `icon`)
+	local ICON = {
+		objects = "layers",
+		biomes = "leaf",
+		pattern = "grid",
+		zones = "blend",
+		edges = "wind",
+		presets = "bookmark",
+		performance = "chart",
+		clearzone = "clear",
+		paint = "brush",
+		stamp = "stamp",
+		objectbrush = "spray",
+		layerpaint = "spray",
+		removecopies = "close",
+		paintfilter = "filter",
+		tidy = "wand",
+		pathbrush = "spline",
+		path = "spline",
+		curve = "spline",
+		line = "spline",
+		road = "road",
+		mapscan = "search",
+		swap = "swap",
+		layout = "spread",
+		seasons = "snow",
+		snapshot = "camera",
+		scanfix = "pin",
+		look = "palette",
+		viewport = "eye",
+		output = "cube",
+		about = "info",
+		shortcuts = "keyboard",
+		placement = "tag",
+		variants = "layers",
+		size = "scale",
+		spread = "spread",
+		groups = "stack",
+		surfaces = "leaf",
+		avoid = "shield",
+		attract = "magnet",
+		terrain = "mountain",
+	}
+
 	-- the search box's words, lowercased ({} when not searching)
 	App.searchWords = {}
 	App.searching = function()
@@ -66,14 +110,15 @@ return function(App)
 		App.topLight(c, 0.06, 12)
 		local head = col({ Parent = c })
 		local x = 0
-		if spec.icon then
+		local badgeIcon = spec.icon or ICON[spec.id]
+		if badgeIcon then
 			local badge = box({
 				BackgroundTransparency = 0,
 				BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
 				Size = UDim2.fromOffset(28, 28),
 				Parent = head,
 			}, { corner(7) })
-			local ic = icon(spec.icon, 14, P.accent)
+			local ic = icon(badgeIcon, 15, P.accent)
 			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 			ic.Parent = badge
 			x = 38

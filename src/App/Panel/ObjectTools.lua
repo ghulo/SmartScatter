@@ -258,7 +258,8 @@ return function(App)
 				if not s.fit and Engine.looksLikeSegment(l) then
 					-- a tile or panel spaced out by a fixed gap leaves gaps on straights and overlaps on bends
 					local row = col({ Parent = b }, { vlist(4) })
-					label("Pieces don't meet. Resize them to fit?", 12, P.dim, SANS, { Parent = row })
+					local q = para("Pieces don't meet. Resize them to fit?", { Parent = row })
+					q.TextColor3 = P.dim
 					button("Resize pieces to fit", "accent", function()
 						s.fit = true
 						c.changed(true)
@@ -1193,7 +1194,8 @@ return function(App)
 			{ BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = list },
 			{ corner(10), stroke(P.danger:Lerp(P.line, 0.5)), pad(12, 12, 10, 12), vlist(4) }
 		)
-		label(#lost == 1 and "1 object lost its model" or (#lost .. " objects lost their model"), 13, P.danger, SANS_B, { Parent = card })
+		local head = para(#lost == 1 and "1 object lost its model" or (#lost .. " objects lost their model"), { Parent = card })
+		head.TextColor3, head.Font, head.TextSize = P.danger, SANS_B, App.textSize(13)
 		explain(
 			card,
 			"The model was moved, renamed or deleted, so nothing is placed. The settings are kept: select the model in the Explorer and press Use selected."
