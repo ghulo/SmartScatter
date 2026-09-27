@@ -7,6 +7,7 @@
 
 return function(E, I)
 	local STEP = 40 -- a side is known to 1/40 of the copy's longest side: tells shapes apart, forgives float error
+	local MAX_PARTS = 400 -- a model with more parts than this is a container (a map, a district), not a copy
 	local SNAPSHOT = "SmartScatter Snapshot"
 
 	--------------------------------------------------------------------------------
@@ -93,16 +94,22 @@ return function(E, I)
 	function E.scanKinds(opts)
 		opts = opts or {}
 		local roots = opts.roots or { workspace }
-		-- every candidate's key, and how many share it
-		local keyOf, sizeOf, count, seen = {}, {}, {}, 0
+		-- every candidate's key, and how many share it. Worked out from the bottom up, counting parts on the way, so
+		-- a container too big to be a copy (a whole map, a region: over MAX_PARTS parts) is never measured, only
+		-- looked inside
+		local keyOf, sizeOf, partsOf, count, seen = {}, {}, {}, {}, 0
 		local function visit(inst)
 			if skipped(inst) then
-				return
+				return 0
 			end
-			if inst:IsA("Model") or (inst:IsA("BasePart") and shapedPart(inst)) then
+			local n = inst:IsA("BasePart") and 1 or 0
+			for _, c in inst:GetChildren() do
+				n += visit(c)
+			end
+			if n > 0 and n <= MAX_PARTS and (inst:IsA("Model") or (inst:IsA("BasePart") and shapedPart(inst))) then
 				local key, size = E.keyOf(inst)
 				if key then
-					keyOf[inst], sizeOf[inst] = key, size
+					keyOf[inst], sizeOf[inst], partsOf[inst] = key, size, n
 					count[key] = (count[key] or 0) + 1
 				end
 			end
@@ -110,9 +117,7 @@ return function(E, I)
 			if opts.pause and seen % 3000 == 0 then
 				opts.pause()
 			end
-			for _, c in inst:GetChildren() do
-				visit(c)
-			end
+			return n
 		end
 		for _, r in roots do
 			visit(r)
@@ -127,7 +132,7 @@ return function(E, I)
 			if key and count[key] >= 2 then
 				local k = byKey[key]
 				if not k then
-					k = { key = key, copies = {}, names = {}, parts = #describe(inst) }
+					k = { key = key, copies = {}, names = {}, parts = partsOf[inst] }
 					byKey[key] = k
 					table.insert(list, k)
 				end

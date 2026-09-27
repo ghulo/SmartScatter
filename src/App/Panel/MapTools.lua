@@ -29,12 +29,22 @@ return function(App)
 		return out
 	end
 
-	local function runScan()
+	-- again: after a change to the map (a swap, a restore), the same scan over the same place, quietly
+	local lastRoots, lastScanned = nil, false
+	local runScan
+	local function scanAgain()
+		if lastScanned then
+			runScan(lastRoots or false, true)
+		end
+	end
+	-- roots: where to look (nil: as the card says, the selection or the whole map; false: the whole map)
+	function runScan(roots, quiet)
 		if scanning then
 			return
 		end
-		local roots
-		if G.scanSelection then
+		if roots == false then
+			roots = nil
+		elseif roots == nil and G.scanSelection then
 			roots = {}
 			for _, s in Selection:Get() do
 				table.insert(roots, s)
@@ -44,9 +54,17 @@ return function(App)
 				return
 			end
 		end
+		for _, r in roots or {} do
+			if not r.Parent then -- (a scanned folder that's gone since)
+				return
+			end
+		end
 		scanning = true
+		lastRoots, lastScanned = roots, true
 		App.rebuildAll()
-		App.status("Scanning the map…")
+		if not quiet then
+			App.status("Scanning the map…")
+		end
 		task.spawn(function()
 			local ok, kinds = pcall(Engine.scanKinds, { roots = roots, pause = task.wait })
 			scanning = false
@@ -61,7 +79,9 @@ return function(App)
 			for _, k in kinds do
 				copies += k.count
 			end
-			App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+			if not quiet then
+				App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+			end
 			App.rebuildAll()
 		end)
 	end
@@ -128,7 +148,9 @@ return function(App)
 			saveG()
 		end, "On: scans only inside the models and folders selected in the Explorer. Off: the whole Workspace.").Parent =
 			b
-		local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), runScan)
+		local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), function()
+			runScan()
+		end)
 		go.Parent = b
 		hintOn(
 			go,
@@ -228,8 +250,8 @@ return function(App)
 		end
 		-- the kind
 		local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-		local th = App.thumbnail(k.copies[1].inst, 30)
-		th.Position = UDim2.fromOffset(0, 3)
+		local th = App.thumbnail(k.copies[1].inst, 32) -- (not 30: that one is in the kind's row in the scan list)
+		th.Position = UDim2.fromOffset(0, 2)
 		th.Parent = head
 		label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
 		label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
@@ -390,7 +412,7 @@ return function(App)
 							num(#done + #(swap.preview or {}))
 						)
 					)
-					App.kinds = nil -- the map changed: scan again to see its kinds now
+					scanAgain() -- the map changed: the list shows its kinds as they are now
 					swap.key, swap.preview, swap.ref = nil, nil, nil
 				end
 				App.rebuildAll()
@@ -947,7 +969,7 @@ return function(App)
 				local rec = beginRec("Smart Scatter: Restore original")
 				local back = Engine.restoreSnapshot()
 				endRec(rec, back == 0)
-				App.kinds = nil -- the copies in the map are new instances now
+				scanAgain() -- the copies in the map are new instances now
 				App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
 				App.rebuildAll()
 			end, { Parent = row })

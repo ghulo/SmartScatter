@@ -74,7 +74,8 @@ return function(E, I)
 
 	-- is it greenery? its material, its colour (clearly green) or its name
 	local LEAF_WORDS = { "leaf", "leaves", "foliage", "bush", "shrub", "grass", "canopy", "needle", "pine", "fern", "hedge", "ivy", "moss" }
-	local function isFoliage(p, c)
+	-- names: [name] = whether it names greenery (a map repeats the same few names thousands of times)
+	local function isFoliage(p, c, names)
 		if p.Material == Enum.Material.Grass or p.Material == Enum.Material.LeafyGrass then
 			return true
 		end
@@ -82,7 +83,15 @@ return function(E, I)
 		if h > 0.17 and h < 0.45 and s > 0.25 and v > 0.12 then
 			return true
 		end
-		return hasKeyword(p.Name, LEAF_WORDS) or (p.Parent and hasKeyword(p.Parent.Name, LEAF_WORDS))
+		local function leafy(name)
+			local k = names[name]
+			if k == nil then
+				k = hasKeyword(name, LEAF_WORDS)
+				names[name] = k
+			end
+			return k
+		end
+		return leafy(p.Name) or (p.Parent ~= nil and leafy(p.Parent.Name))
 	end
 	-- does snow settle on it: a roof, or a flat slab facing up
 	local function isTop(p)
@@ -94,11 +103,17 @@ return function(E, I)
 		return (p:IsA("WedgePart") and up > 0.5) or (up > 0.9 and s.Y <= math.min(s.X, s.Z) * 0.5)
 	end
 	-- a number 0-1 that's the same for every part of one copy, and differs between copies
-	local function pickOf(p)
+	-- picks: [model] = its number, worked out once for all its parts
+	local function pickOf(p, picks)
 		local unit = p.Parent and p.Parent:IsA("Model") and p.Parent or p
-		local pos = unit:GetPivot().Position
-		local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
-		return n - math.floor(n)
+		local v = picks[unit]
+		if not v then
+			local pos = unit:GetPivot().Position
+			local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
+			v = n - math.floor(n)
+			picks[unit] = v
+		end
+		return v
 	end
 
 	--------------------------------------------------------------------------------
@@ -123,12 +138,18 @@ return function(E, I)
 		end
 		return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil
 	end
-	-- sets a colour property, keeping the first value it ever had as the original
+	-- sets a colour property, keeping the first value it ever had as the original. Returns whether it changed
+	-- (a colour the season leaves as it is gets no attribute at all)
 	local function setKept(obj, prop, to)
-		if obj:GetAttribute(ORIG) == nil then
+		local kept = obj:GetAttribute(ORIG) ~= nil
+		if not kept and obj[prop] == to then
+			return false
+		end
+		if not kept then
 			obj:SetAttribute(ORIG, obj[prop])
 		end
 		obj[prop] = to
+		return true
 	end
 	local function original(obj, prop)
 		local o = obj:GetAttribute(ORIG)
@@ -201,11 +222,12 @@ return function(E, I)
 			return strength * (1 - patchy + patchy * E.patternAt(noise, pos.X, pos.Z))
 		end
 		local n, seen = 0, 0
+		local names, picks = {}, {}
 		local function recolor(p)
 			local base = original(p, "Color")
 			local amount = amountAt(p.Position)
-			local kind = { foliage = isFoliage(p, base), top = season == "Snow" and isTop(p), pick = pickOf(p) }
-			setKept(p, "Color", E.seasonColor(base, season, amount, kind))
+			local kind = { foliage = isFoliage(p, base, names), top = season == "Snow" and isTop(p), pick = pickOf(p, picks) }
+			local changed = setKept(p, "Color", E.seasonColor(base, season, amount, kind))
 			for _, d in p:GetChildren() do
 				if d:IsA("SurfaceAppearance") then
 					pcall(function() -- (older Studio builds have no SurfaceAppearance.Color)
@@ -215,7 +237,7 @@ return function(E, I)
 					setKept(d, "Color3", E.seasonColor(original(d, "Color3"), season, amount, kind))
 				end
 			end
-			n += 1
+			n += changed and 1 or 0
 		end
 		local function visit(inst)
 			if skipped(inst) then
