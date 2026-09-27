@@ -41,7 +41,11 @@ def order(entry_src):
 
 
 def check(t):
-    """every module is listed exactly once, and every listed module exists"""
+    """every module is listed exactly once, every listed module exists, and no module has a multi-line string (slim()
+    takes indentation out of flattened copies, which would change one)"""
+    for path, src in t.items():
+        code = re.sub(r"--\[(=*)\[.*?\]\1\]", "", src, flags=re.S)
+        assert not re.search(r"\[=*\[", code), path + ": a multi-line string; slim() would change its text"
     for entry in ENTRIES:
         listed = order(t[entry])
         have = sorted(p[len(entry) + 1:] for p in t if p.startswith(entry + "/"))
@@ -52,8 +56,9 @@ def check(t):
 
 
 def slim(src):
-    """drops whole-line comments (not block openers): a flattened copy is only run, never read, and must fit"""
-    return "\n".join(l for l in src.split("\n") if not (l.lstrip().startswith("--") and not l.lstrip().startswith("--[")))
+    """drops whole-line comments (not block openers) and indentation: a flattened copy is only run, never read, and
+    must fit (the source has no multi-line strings, whose insides indentation would belong to; check() makes sure)"""
+    return "\n".join(l.lstrip("\t") for l in src.split("\n") if not (l.lstrip().startswith("--") and not l.lstrip().startswith("--[")))
 
 
 def flatten(t, entry, part_name=None):

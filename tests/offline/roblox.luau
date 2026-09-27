@@ -112,15 +112,48 @@ Random = {
 }
 
 -- the rest: stand-ins -------------------------------------------------------------
+-- Color3 -----------------------------------------------------------------------
+-- real colour maths (the seasons are tested through it): lerping and HSV, as Roblox does them
+local C3 = {}
+C3.__index = C3
+local function c3(r, g, b)
+	return setmetatable({ R = r, G = g, B = b }, C3)
+end
+C3.__eq = function(a, b)
+	return a.R == b.R and a.G == b.G and a.B == b.B
+end
+function C3.Lerp(a, b, t)
+	return c3(a.R + (b.R - a.R) * t, a.G + (b.G - a.G) * t, a.B + (b.B - a.B) * t)
+end
+function C3.ToHSV(c)
+	local mx, mn = math.max(c.R, c.G, c.B), math.min(c.R, c.G, c.B)
+	local d, h = mx - mn, 0
+	if d > 0 then
+		if mx == c.R then
+			h = ((c.G - c.B) / d) % 6
+		elseif mx == c.G then
+			h = (c.B - c.R) / d + 2
+		else
+			h = (c.R - c.G) / d + 4
+		end
+		h /= 6
+	end
+	return h, mx > 0 and d / mx or 0, mx
+end
 Color3 = {
-	new = function(r, g, b)
-		return { R = r, G = g, B = b }
-	end,
+	new = c3,
 	fromRGB = function(r, g, b)
-		return { R = r / 255, G = g / 255, B = b / 255 }
+		return c3(r / 255, g / 255, b / 255)
 	end,
 	fromHex = function()
-		return { R = 0, G = 0, B = 0 }
+		return c3(0, 0, 0)
+	end,
+	fromHSV = function(h, s, v)
+		local i = math.floor(h * 6) % 6
+		local f = h * 6 - math.floor(h * 6)
+		local p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
+		local row = ({ { v, t, p }, { q, v, p }, { p, v, t }, { p, q, v }, { t, p, v }, { v, p, q } })[i + 1]
+		return c3(row[1], row[2], row[3])
 	end,
 }
 -- any Enum.X.Y is a unique marker, so tables keyed by materials still work

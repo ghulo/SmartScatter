@@ -262,6 +262,60 @@ do
 	check("no parts, no key", E.shapeKey({}) == nil)
 end
 
+-- ── seasons: colours ─────────────────────────────────────────────────────────────────
+do
+	local green = Color3.fromRGB(70, 140, 60)
+	local wall = Color3.fromRGB(150, 120, 100)
+	local function hueOf(c)
+		local h = c:ToHSV()
+		return h
+	end
+	local function satOf(c)
+		local _, s = c:ToHSV()
+		return s
+	end
+	local function valOf(c)
+		local _, _, v = c:ToHSV()
+		return v
+	end
+	check("the HSV stand-in round-trips", (Color3.fromHSV(green:ToHSV()).G - green.G) < 1e-9)
+	for _, season in E.SEASONS do
+		check(season .. ": no amount, no change", E.seasonColor(green, season, 0, { foliage = true }) == green)
+		check(season .. " has a hint", type(E.SEASON_HINT[season]) == "string")
+	end
+	local snowLeaf = E.seasonColor(green, "Snow", 1, { foliage = true })
+	check(
+		"snow turns leaves nearly white",
+		valOf(snowLeaf) > 0.85 and satOf(snowLeaf) < 0.2,
+		string.format("v %.2f s %.2f", valOf(snowLeaf), satOf(snowLeaf))
+	)
+	local roof = E.seasonColor(wall, "Snow", 1, { top = true })
+	local side = E.seasonColor(wall, "Snow", 1, {})
+	check("snow settles on tops more than on walls", valOf(roof) > valOf(side) and satOf(side) < satOf(wall))
+	local picks = {}
+	for i = 0, 4 do
+		local c = E.seasonColor(green, "Autumn", 1, { foliage = true, pick = i / 5 + 0.01 })
+		local h = hueOf(c)
+		check("autumn leaves are warm (" .. i .. ")", h < 0.17 or h > 0.95, string.format("hue %.2f", h))
+		picks[string.format("%.3f", h)] = true
+	end
+	local n = 0
+	for _ in picks do
+		n += 1
+	end
+	check("autumn gives trees different colours", n >= 4, tostring(n))
+	local dry = E.seasonColor(green, "Dry", 1, { foliage = true, pick = 0.2 })
+	check("dry grass is straw, not green", hueOf(dry) < 0.17, string.format("hue %.2f", hueOf(dry)))
+	local half = E.seasonColor(green, "Snow", 0.5, { foliage = true })
+	check("half strength is in between", valOf(half) > valOf(green) and valOf(half) < valOf(snowLeaf))
+	local darkLeaf = Color3.fromRGB(20, 50, 20)
+	check(
+		"dark leaves stay darker than light ones in autumn",
+		valOf(E.seasonColor(darkLeaf, "Autumn", 1, { foliage = true, pick = 0.1 }))
+			< valOf(E.seasonColor(green, "Autumn", 1, { foliage = true, pick = 0.1 }))
+	)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

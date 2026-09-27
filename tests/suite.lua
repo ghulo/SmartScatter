@@ -1396,6 +1396,107 @@ local ok, err = pcall(function()
 		E.clearSnapshot()
 		map:Destroy()
 	end
+
+	-- seasons: leaves, roofs and walls each change their own way, one season replaces another from the original
+	-- colours, and taking it off puts every colour and the terrain back exactly
+	do
+		local map = Instance.new("Folder")
+		map.Name = "SeasonMap"
+		map.Parent = world
+		local at = O + Vector3.new(120, 36, 0) -- over the terrain mound's top
+		local green, brown, wallC = Color3.fromRGB(70, 140, 60), Color3.fromRGB(110, 80, 50), Color3.fromRGB(150, 120, 100)
+		local leaves = part({ Name = "Leaves", Size = Vector3.new(8, 8, 8), CFrame = CFrame.new(at), Color = green, Parent = map })
+		local trunk =
+			part({ Name = "Trunk", Size = Vector3.new(1, 6, 1), CFrame = CFrame.new(at - Vector3.new(0, 7, 0)), Color = brown, Parent = map })
+		local roof =
+			part({ Name = "Slab", Size = Vector3.new(12, 1, 12), CFrame = CFrame.new(at + Vector3.new(20, 0, 0)), Color = wallC, Parent = map })
+		local wall =
+			part({ Name = "Wall", Size = Vector3.new(12, 10, 1), CFrame = CFrame.new(at + Vector3.new(20, -6, 6)), Color = wallC, Parent = map })
+		local sa = Instance.new("SurfaceAppearance")
+		sa.Parent = leaves
+		local decal = Instance.new("Decal")
+		decal.Color3 = wallC
+		decal.Parent = wall
+		local saBefore = select(
+			2,
+			pcall(function()
+				return sa.Color
+			end)
+		)
+		local function val(c)
+			return select(3, c:ToHSV())
+		end
+		local function sat(c)
+			return select(2, c:ToHSV())
+		end
+		local grassBefore = workspace.Terrain:GetMaterialColor(Enum.Material.Grass)
+		local function count(material)
+			local r = Region3.new(O + Vector3.new(104, 12, -16), O + Vector3.new(136, 36, 16)):ExpandToGrid(4)
+			local mats = workspace.Terrain:ReadVoxels(r, 4)
+			local n = 0
+			for x = 1, #mats do
+				for y = 1, #mats[x] do
+					for z = 1, #mats[x][y] do
+						n += mats[x][y][z] == material and 1 or 0
+					end
+				end
+			end
+			return n
+		end
+		local grassCells = count(Enum.Material.Grass)
+		local n, terrainOk = E.applySeason({ season = "Snow", strength = 1, roots = { map }, terrainColors = true, terrainMaterials = true })
+		check(
+			"snow: leaves go white, a flat top whiter than a wall, the wall paler",
+			n == 4 and val(leaves.Color) > 0.85 and sat(leaves.Color) < 0.2 and val(roof.Color) > val(wall.Color) and sat(wall.Color) < sat(wallC),
+			string.format(
+				"%d parts, leaves v%.2f s%.2f, top v%.2f, wall v%.2f s%.2f",
+				n,
+				val(leaves.Color),
+				sat(leaves.Color),
+				val(roof.Color),
+				val(wall.Color),
+				sat(wall.Color)
+			)
+		)
+		local snowCells = count(Enum.Material.Snow)
+		check(
+			"snow turns the terrain's grass to snow, and tints its grass colour",
+			terrainOk and grassCells > 0 and snowCells >= grassCells and workspace.Terrain:GetMaterialColor(Enum.Material.Grass) ~= grassBefore,
+			string.format("%d grass cells before, %d snow after, terrain ok %s", grassCells, snowCells, tostring(terrainOk))
+		)
+		E.applySeason({ season = "Autumn", strength = 1, roots = { map }, terrainColors = true })
+		local h = leaves.Color:ToHSV()
+		check(
+			"autumn replaces snow from the original colours",
+			(h < 0.17 or h > 0.95) and sat(leaves.Color) > 0.3 and count(Enum.Material.Grass) == grassCells,
+			string.format("leaves hue %.2f s%.2f, %d grass cells", h, sat(leaves.Color), count(Enum.Material.Grass))
+		)
+		local info = E.seasonInfo()
+		local back = E.clearSeason({ roots = { map } })
+		local saAfter = select(
+			2,
+			pcall(function()
+				return sa.Color
+			end)
+		)
+		check(
+			"taking the season off puts every colour back exactly",
+			info
+				and info.season == "Autumn"
+				and back == 4
+				and leaves.Color == green
+				and trunk.Color == brown
+				and roof.Color == wallC
+				and wall.Color == wallC
+				and decal.Color3 == wallC
+				and saAfter == saBefore
+				and leaves:GetAttribute("SS_SeasonOrig") == nil
+				and workspace.Terrain:GetMaterialColor(Enum.Material.Grass) == grassBefore
+				and E.seasonInfo() == nil,
+			string.format("%d back, info %s", back, info and info.season or "none")
+		)
+		map:Destroy()
+	end
 end)
 if not ok then
 	check("suite ran without errors", false, tostring(err))

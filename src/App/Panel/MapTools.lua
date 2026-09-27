@@ -1,7 +1,8 @@
 --[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
-	first), and the snapshot (the originals kept before anything changes them, and putting them back).
+	first), seasons (snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything
+	changes them, and putting them back).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -395,6 +396,143 @@ return function(App)
 			end, { Parent = acts }),
 			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
 		)
+	end
+
+	-- seasons: what the Seasons card is set to (this session)
+	local season = {
+		name = "Snow",
+		strength = 1,
+		patchy = 0,
+		patchSize = 90,
+		selection = false,
+		terrainColors = true,
+		terrainMaterials = false,
+	}
+	local seasonBusy = false
+
+	local function runSeason(off)
+		if seasonBusy then
+			return
+		end
+		local roots
+		if season.selection then
+			roots = Selection:Get()
+			if #roots == 0 then
+				App.status("Select the models or folders to change in the Explorer first, or turn off Only the selection.")
+				return
+			end
+		end
+		seasonBusy = true
+		App.status(off and "Taking the season off…" or ("Turning the map " .. string.lower(season.name) .. "…"))
+		App.rebuildAll()
+		task.spawn(function()
+			local rec = beginRec(off and "Smart Scatter: Season off" or ("Smart Scatter: " .. season.name))
+			local ok, n, terrainOk = pcall(function()
+				if off then
+					return Engine.clearSeason({ roots = roots, pause = task.wait })
+				end
+				return Engine.applySeason({
+					season = season.name,
+					strength = season.strength,
+					patchy = season.patchy,
+					patchSize = season.patchSize,
+					seed = 7,
+					roots = roots,
+					terrainColors = season.terrainColors,
+					terrainMaterials = season.terrainMaterials,
+					pause = task.wait,
+				})
+			end)
+			endRec(rec, not ok)
+			seasonBusy = false
+			if not ok then
+				App.status("Stopped: " .. tostring(n), "error")
+			elseif off then
+				App.status(string.format("Season off: %s parts back to their own colours.", num(n)))
+			else
+				App.status(
+					string.format("%s: %s parts changed.", season.name, num(n))
+						.. (terrainOk == false and " The terrain was too big to keep a copy of, so its grass stayed; try Only the selection." or "")
+				)
+			end
+			App.rebuildAll()
+		end)
+	end
+
+	App.buildSeasons = function(b)
+		local grid = App.chipGrid(b, 3, 30)
+		for i, name in Engine.SEASONS do
+			local c = App.chip(grid, name, function()
+				return season.name == name
+			end, function()
+				season.name = name
+				App.rebuildAll() -- (the terrain options differ)
+			end)
+			c.LayoutOrder = i
+			hintOn(c, Engine.SEASON_HINT[name])
+		end
+		App.slider("Strength", 0, 1, function()
+			return season.strength
+		end, function(v)
+			season.strength = v
+		end, "%.0f%%", 0.05, nil, nil, "How far into the season: 100% is fully snowy, autumn or dry.", 1).Parent =
+			b
+		App.slider("Patchy", 0, 1, function()
+			return season.patchy
+		end, function(v)
+			season.patchy = v
+		end, "%.0f%%", 0.05, nil, nil, "0%: the same everywhere. Higher: stronger in some places and lighter in others, like the first snow.", 0).Parent =
+			b
+		if season.patchy > 0 then
+			App.slider("Patch size", 20, 300, function()
+				return season.patchSize
+			end, function(v)
+				season.patchSize = v
+			end, "%.0f studs", 5, nil, nil, "How big the stronger and lighter patches are.", 90).Parent =
+				b
+		end
+		for _, o in
+			{
+				{ "selection", "Only the selection", "On: changes only the models and folders selected in the Explorer. Off: the whole Workspace." },
+				{ "terrainColors", "Terrain grass colour", "Tints the terrain's grass for the season." },
+				{
+					"terrainMaterials",
+					season.name == "Dry" and "Terrain grass to dry ground" or "Terrain grass to snow",
+					"Turns the terrain's grass itself around the map. The terrain there is kept first, so it comes back exactly.",
+				},
+			}
+		do
+			if not (o[1] == "terrainMaterials" and season.name == "Autumn") then -- (autumn keeps its grass)
+				App.switchRow(o[2], function()
+					return season[o[1]]
+				end, function(v)
+					season[o[1]] = v
+				end, nil, o[3]).Parent = b
+			end
+		end
+		local info = Engine.seasonInfo()
+		explain(
+			b,
+			info
+					and string.format(
+						"The map is %s now (%d%%). Applying again starts from the original colours.",
+						string.lower(info.season),
+						info.strength * 100
+					)
+				or "Colours keep their originals, so a season can be switched or taken off again exactly. What Smart Scatter places has its own Colour zones."
+		)
+		local row = buttonRow(b)
+		button(seasonBusy and "Working…" or ("Make it " .. string.lower(season.name == "Snow" and "snowy" or season.name)), "accent", function()
+			runSeason(false)
+		end, { Parent = row })
+		if info then
+			hintOn(
+				button("Take it off", nil, function()
+					runSeason(true)
+				end, { Parent = row }),
+				"Every colour back to its own, and the terrain as it was."
+			)
+		end
 	end
 
 	App.buildSnapshot = function(b)

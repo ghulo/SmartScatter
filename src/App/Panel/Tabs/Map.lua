@@ -59,6 +59,13 @@ return function(App)
 			build = App.buildSwap,
 		})
 		cs.add({
+			id = "seasons",
+			title = "Seasons",
+			sub = "Snowy, autumn or dry, fully or in patches",
+			keys = "season snow winter autumn fall dry summer colour color terrain",
+			build = App.buildSeasons,
+		})
+		cs.add({
 			id = "snapshot",
 			title = "Snapshot",
 			sub = "Keep the originals, and put them back with one click",

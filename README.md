@@ -14,6 +14,8 @@ round bends, and everything updates live as you tweak it.
   turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click
 - **Swap models** — replace every copy of a kind with another model or a mix, keeping each copy's spot, turn,
   relative size and base; try it on a few copies first
+- **Seasons** — turn a finished map snowy, autumn or dry, fully or in patches: part colours, SurfaceAppearance
+  tints, and optionally the terrain's grass; switch seasons or take one off exactly
 - **Biomes and presets** — start from a Forest/Meadow/Desert/Town mix made from your own models, or save your own sets
 - **Game-ready output** — optional streaming chunks, no-collision plants, shadow and click settings; a heaviness warning
 - **Undo everything** — every edit is one Ctrl+Z step
@@ -37,7 +39,7 @@ Loader.lua                the installed Script: picks the newest code (bundled, 
 src/
   Engine/                 placement, no UI            each module: return function(E, I) … end
     init.lua                entry: constants + ORDER
-    Scan · Assets · Areas · Paths · Planning · Placement · Lines · Pins · Generate · Kinds
+    Scan · Assets · Areas · Paths · Planning · Placement · Lines · Pins · Generate · Kinds · Seasons
   App/                    the plugin's panel and tools  each module: return function(App) … end
     init.lua                entry: ORDER + runner
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
