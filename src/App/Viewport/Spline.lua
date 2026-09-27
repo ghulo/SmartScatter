@@ -254,7 +254,7 @@ return function(App)
 				approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 			end
 		end
-		local step = math.clamp(approx / 900, 0.35, 4) -- display resolution: fine enough that bends look round
+		local step = math.clamp(approx / 700, 0.5, 4) -- display resolution: fine enough that bends look round
 		sv.curves = {}
 		local lines = {}
 		for _, cv in editCurves() do
@@ -276,8 +276,11 @@ return function(App)
 			for _, L in lines do
 				for k = 1, #L - 1 do
 					sv.wire:AddLine(L[k], L[k + 1])
-					sv.glow:AddLine(L[k], L[k + 1])
-					sv.halo:AddLine(L[k], L[k + 1])
+				end
+				for k = 1, #L - 1, 2 do -- (the glow is soft: every other point is plenty, and half the lines)
+					local b = L[math.min(k + 2, #L)]
+					sv.glow:AddLine(L[k], b)
+					sv.halo:AddLine(L[k], b)
 				end
 			end
 		else
@@ -511,6 +514,18 @@ return function(App)
 		setLabel(hit and text or "")
 	end
 
+	-- while dragging or drawing, the curve is redrawn at most once a frame, however often the mouse reports a move
+	local drawPending = false
+	local function requestDraw()
+		drawPending = true
+	end
+	track(App.RunService.Heartbeat:Connect(function()
+		if drawPending then
+			drawPending = false
+			App.drawSpline()
+		end
+	end))
+
 	mouse.Move:Connect(function()
 		if App.mode ~= "Spline" then
 			return
@@ -541,7 +556,7 @@ return function(App)
 					end
 					q.h = dragHandle == "out" and off or -off
 					dragMoved = true
-					App.drawSpline()
+					requestDraw()
 				end
 			end
 			splineLabel(nil)
@@ -569,7 +584,7 @@ return function(App)
 				table.insert(drawing.pts, q)
 				drawing.anchor = hit.Position
 				selPt = { cv = cv, i = drawing.prepend and 1 or #cv.pts }
-				App.drawSpline()
+				requestDraw()
 			end
 			splineLabel(hit, "Drawing · release to finish")
 			return
@@ -620,7 +635,7 @@ return function(App)
 						o.p, o.n, o.raised = q.p, q.n, q.raised
 					end
 				end
-				App.drawSpline()
+				requestDraw()
 			end
 			return
 		end
