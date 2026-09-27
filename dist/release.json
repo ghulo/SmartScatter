@@ -1,6 +1,6 @@
 {
- "version": "9.56",
- "build": 120,
+ "version": "9.57",
+ "build": 121,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -36,7 +36,7 @@
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
-   "sum": 896065250
+   "sum": 111655806
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",

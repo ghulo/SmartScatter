@@ -5292,6 +5292,13 @@ end
 end
 return out
 end
+local restoreButton
+local function keepOriginals(list)
+local rec = beginRec("Smart Scatter: Keep originals")
+local n = Engine.snapshot(list)
+endRec(rec, n == 0)
+return n
+end
 local lastRoots, lastScanned = nil, false
 local runScan
 local function scanAgain()
@@ -5471,6 +5478,7 @@ end
 return out
 end
 local function doSwap(k, copies, preview)
+keepOriginals(alive(k))
 local rec = beginRec(preview and "Smart Scatter: Try swap" or "Smart Scatter: Swap models")
 swap.ref = swap.ref or Engine.kindRef(k.copies)
 local ok, pairsOrErr = pcall(Engine.swapCopies, copies, swap.with, {
@@ -5682,6 +5690,7 @@ App.rebuildAll()
 end, { Parent = acts }),
 "Swaps every copy of this kind. Their originals are kept in the snapshot first."
 )
+App.keptNote(b)
 end
 local tidy = { key = nil, spacing = 1, crowd = 0.5, gap = 1.7, fill = true, fixRules = true, remove = false, plan = nil }
 local tidyBusy = false
@@ -5814,6 +5823,11 @@ local k, plan = tidyKind(), tidy.plan
 if not (k and plan) then
 return
 end
+local touched = table.clone(plan.removes)
+for _, mv in plan.moves do
+table.insert(touched, mv.inst)
+end
+keepOriginals(touched)
 local rec = beginRec("Smart Scatter: Improve layout")
 local ok, added = pcall(Engine.layoutApply, plan)
 endRec(rec, not ok)
@@ -6021,6 +6035,7 @@ dropPlan()
 App.rebuildAll()
 end, { Parent = acts })
 end
+App.keptNote(b)
 end
 local season = {
 name = "Snow",
@@ -6155,6 +6170,43 @@ end, { Parent = row }),
 )
 end
 end
+function restoreButton(row)
+local armed = 0
+local restore
+restore = button("Restore original", "danger", function()
+if os.clock() - armed > 3 then
+armed = os.clock()
+restore.Text = "Click again to restore"
+task.delay(3, function()
+if os.clock() - armed >= 2.9 then
+restore.Text = "Restore original"
+end
+end)
+return
+end
+armed = 0
+local rec = beginRec("Smart Scatter: Restore original")
+local back = Engine.restoreSnapshot()
+endRec(rec, back == 0)
+swap.preview = nil
+dropPlan()
+scanAgain()
+App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
+App.rebuildAll()
+end, { Parent = row })
+hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+return restore
+end
+local function keptNote(b)
+local info = Engine.snapshotInfo()
+if info and info.changed > 0 then
+explain(b, string.format("The originals are kept (%s changed so far).", num(info.changed)))
+restoreButton(buttonRow(b))
+else
+explain(b, "The originals are kept automatically before anything changes: Restore original puts them back.")
+end
+end
+App.keptNote = keptNote
 App.buildSnapshot = function(b)
 local info = Engine.snapshotInfo()
 local text
@@ -6197,28 +6249,7 @@ kinds and "Keeps a copy of every model the scan found, as it is now. Copies kept
 or "Scan the map first; this keeps a copy of every model it finds."
 )
 if info and info.changed > 0 then
-local armed = 0
-local restore
-restore = button("Restore original", "danger", function()
-if os.clock() - armed > 3 then
-armed = os.clock()
-restore.Text = "Click again to restore"
-task.delay(3, function()
-if os.clock() - armed >= 2.9 then
-restore.Text = "Restore original"
-end
-end)
-return
-end
-armed = 0
-local rec = beginRec("Smart Scatter: Restore original")
-local back = Engine.restoreSnapshot()
-endRec(rec, back == 0)
-scanAgain()
-App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
-App.rebuildAll()
-end, { Parent = row })
-hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+restoreButton(row)
 end
 if info then
 hintOn(

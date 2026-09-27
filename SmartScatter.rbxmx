@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 120
-local BUNDLED_VERSION = "9.56"
+local BUNDLED_BUILD = 121
+local BUNDLED_VERSION = "9.57"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -4424,6 +4424,16 @@ return function(App)
 		return out
 	end
 
+	-- The originals of what a tool is about to change, kept in the snapshot in an undo step of their own, before
+	-- the tool's own step: Ctrl+Z on the change leaves the backup, so Restore original still works after it.
+	local restoreButton -- (below)
+	local function keepOriginals(list)
+		local rec = beginRec("Smart Scatter: Keep originals")
+		local n = Engine.snapshot(list)
+		endRec(rec, n == 0)
+		return n
+	end
+
 	-- again: after a change to the map (a swap, a restore), the same scan over the same place, quietly
 	local lastRoots, lastScanned = nil, false
 	local runScan
@@ -4614,6 +4624,7 @@ return function(App)
 	end
 
 	local function doSwap(k, copies, preview)
+		keepOriginals(alive(k)) -- the whole kind, the first time: even a try keeps every copy
 		local rec = beginRec(preview and "Smart Scatter: Try swap" or "Smart Scatter: Swap models")
 		-- what the kind is like, measured once before any of it is swapped (tried copies would skew it)
 		swap.ref = swap.ref or Engine.kindRef(k.copies)
@@ -4832,6 +4843,7 @@ return function(App)
 			end, { Parent = acts }),
 			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
 		)
+		App.keptNote(b)
 	end
 
 	--------------------------------------------------------------------------------
@@ -4973,6 +4985,11 @@ return function(App)
 		if not (k and plan) then
 			return
 		end
+		local touched = table.clone(plan.removes)
+		for _, mv in plan.moves do
+			table.insert(touched, mv.inst)
+		end
+		keepOriginals(touched)
 		local rec = beginRec("Smart Scatter: Improve layout")
 		local ok, added = pcall(Engine.layoutApply, plan)
 		endRec(rec, not ok)
@@ -5184,6 +5201,7 @@ return function(App)
 				App.rebuildAll()
 			end, { Parent = acts })
 		end
+		App.keptNote(b)
 	end
 
 	-- seasons: what the Seasons card is set to (this session)
@@ -5323,6 +5341,47 @@ return function(App)
 		end
 	end
 
+	-- "Restore original": every changed copy back as it was kept (asks twice). In the Snapshot card, and in the
+	-- cards of the tools that changed something, so it's right there after a swap or a new layout.
+	function restoreButton(row)
+		local armed = 0
+		local restore
+		restore = button("Restore original", "danger", function()
+			if os.clock() - armed > 3 then -- asks twice
+				armed = os.clock()
+				restore.Text = "Click again to restore"
+				task.delay(3, function()
+					if os.clock() - armed >= 2.9 then
+						restore.Text = "Restore original"
+					end
+				end)
+				return
+			end
+			armed = 0
+			local rec = beginRec("Smart Scatter: Restore original")
+			local back = Engine.restoreSnapshot()
+			endRec(rec, back == 0)
+			swap.preview = nil
+			dropPlan()
+			scanAgain() -- the copies in the map are new instances now
+			App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
+			App.rebuildAll()
+		end, { Parent = row })
+		hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+		return restore
+	end
+	-- under a tool's card: the originals are kept, and (once something changed) a way to put them back
+	local function keptNote(b)
+		local info = Engine.snapshotInfo()
+		if info and info.changed > 0 then
+			explain(b, string.format("The originals are kept (%s changed so far).", num(info.changed)))
+			restoreButton(buttonRow(b))
+		else
+			explain(b, "The originals are kept automatically before anything changes: Restore original puts them back.")
+		end
+	end
+	App.keptNote = keptNote
+
 	App.buildSnapshot = function(b)
 		local info = Engine.snapshotInfo()
 		local text
@@ -5365,28 +5424,7 @@ return function(App)
 				or "Scan the map first; this keeps a copy of every model it finds."
 		)
 		if info and info.changed > 0 then
-			local armed = 0
-			local restore
-			restore = button("Restore original", "danger", function()
-				if os.clock() - armed > 3 then -- asks twice
-					armed = os.clock()
-					restore.Text = "Click again to restore"
-					task.delay(3, function()
-						if os.clock() - armed >= 2.9 then
-							restore.Text = "Restore original"
-						end
-					end)
-					return
-				end
-				armed = 0
-				local rec = beginRec("Smart Scatter: Restore original")
-				local back = Engine.restoreSnapshot()
-				endRec(rec, back == 0)
-				scanAgain() -- the copies in the map are new instances now
-				App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
-				App.rebuildAll()
-			end, { Parent = row })
-			hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+			restoreButton(row)
 		end
 		if info then
 			hintOn(
