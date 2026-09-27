@@ -85,8 +85,9 @@ return function(E, I)
 	end
 
 	-- Finds the kinds in a map: every model or shaped part that has at least one other copy of the same shape.
-	-- A copy inside another copy (a window in a house) stays part of it. opts.roots: where to look (default the
-	-- whole Workspace); opts.pause: called now and then on a big map (e.g. task.wait, to keep Studio responsive).
+	-- A copy inside another copy (a window in a house) stays part of it, unless opts.nested. opts.roots: where to
+	-- look (default the whole Workspace); opts.pause: called now and then on a big map (e.g. task.wait, to keep
+	-- Studio responsive).
 	-- Returns the kinds, most copies first: { key, name, count, copies = { { inst, scale } }, parts }. A copy's
 	-- scale is its size against the kind's first copy.
 	function E.scanKinds(opts)
@@ -132,7 +133,9 @@ return function(E, I)
 				end
 				table.insert(k.copies, { inst = inst, size = sizeOf[inst] })
 				k.names[inst.Name] = (k.names[inst.Name] or 0) + 1
-				return
+				if not opts.nested then
+					return
+				end
 			end
 			for _, c in inst:GetChildren() do
 				pick(c)
@@ -278,14 +281,16 @@ return function(E, I)
 	end
 
 	-- puts every changed copy back as it was, where it was (the originals stay kept, so it can be done again).
-	-- Returns how many were put back.
-	function E.restoreSnapshot()
-		local back = 0
+	-- only (optional): a set of copies now in the map, { [inst] = true }: just those go back. Returns how many were
+	-- put back, and [copy that was in the map] = the original now back in its place.
+	function E.restoreSnapshot(only)
+		local back, map = 0, {}
 		for _, e in entries() do
 			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
-			if orig and now and e:GetAttribute("SS_Changed") then
-				if now.Value and now.Value.Parent then
-					now.Value:Destroy()
+			if orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
+				local was = now.Value
+				if was and was.Parent then
+					was:Destroy()
 				end
 				local copy = orig:Clone()
 				copy.Name = e.Name
@@ -294,9 +299,12 @@ return function(E, I)
 				index[copy] = e
 				e:SetAttribute("SS_Changed", nil)
 				back += 1
+				if was then
+					map[was] = copy
+				end
 			end
 		end
-		return back
+		return back, map
 	end
 
 	-- forgets the snapshot (the map stays as it is now)
@@ -306,5 +314,170 @@ return function(E, I)
 			f:Destroy()
 		end
 		index = {}
+	end
+
+	--------------------------------------------------------------------------------
+	-- Swapping copies for another model
+	--------------------------------------------------------------------------------
+	local CollectionService = game:GetService("CollectionService")
+	local AXES = { Vector3.xAxis, -Vector3.xAxis, Vector3.yAxis, -Vector3.yAxis, Vector3.zAxis, -Vector3.zAxis }
+	-- the model axis nearest to v
+	local function snapAxis(v)
+		local best, bd = Vector3.yAxis, -math.huge
+		for _, a in AXES do
+			local d = a:Dot(v)
+			if d > bd then
+				best, bd = a, d
+			end
+		end
+		return best
+	end
+	-- the turn that takes axis a onto axis b (both model axes)
+	local function turnBetween(a, b)
+		local d = a:Dot(b)
+		if d > 0.5 then
+			return CFrame.identity
+		elseif d < -0.5 then
+			local side = math.abs(a.X) > 0.5 and Vector3.zAxis or Vector3.xAxis
+			return CFrame.fromAxisAngle(side, math.pi)
+		end
+		return CFrame.fromAxisAngle(a:Cross(b).Unit, math.pi / 2)
+	end
+	local function boxOf(inst)
+		if inst:IsA("BasePart") then
+			return inst.CFrame, inst.Size
+		end
+		return inst:GetBoundingBox()
+	end
+	-- the middle of a copy's underside, "under" meaning along -up
+	local function baseOf(inst, up)
+		local cf, size = boxOf(inst)
+		local reach = math.abs(cf.RightVector:Dot(up)) * size.X + math.abs(cf.UpVector:Dot(up)) * size.Y + math.abs(cf.LookVector:Dot(up)) * size.Z
+		return cf.Position - up * (reach / 2)
+	end
+	local function extent(inst)
+		local _, size = boxOf(inst)
+		return math.max(size.X, size.Y, size.Z)
+	end
+	local function scaleBy(inst, f)
+		if math.abs(f - 1) < 1e-4 then
+			return
+		end
+		if inst:IsA("Model") then
+			inst:ScaleTo(inst:GetScale() * f)
+		else
+			inst.Size *= f
+		end
+	end
+	-- which way is up for a kind, in its copies' own axes (most stand the way they were built)
+	local function upOfCopies(copies)
+		local sum = Vector3.zero
+		for _, c in copies do
+			if c.inst.Parent then
+				sum += c.inst:GetPivot():VectorToObjectSpace(Vector3.yAxis)
+			end
+		end
+		return snapAxis(sum)
+	end
+	local function median(list)
+		if #list == 0 then
+			return 1
+		end
+		table.sort(list)
+		return list[math.ceil(#list / 2)]
+	end
+
+	-- what a whole kind is like, for swapping part of it the same way as the rest: its usual scale, its size at
+	-- that scale, and which way is up in its copies' axes
+	function E.kindRef(copies)
+		local scales, sizes = {}, {}
+		for _, c in copies do
+			if c.inst.Parent then
+				table.insert(scales, c.scale or 1)
+				table.insert(sizes, extent(c.inst) / (c.scale or 1))
+			end
+		end
+		return { scale = median(scales), size = median(sizes), up = upOfCopies(copies) }
+	end
+
+	-- Swaps copies for other models, each copy for one of `with` = { { inst, w } } (picked by weight).
+	-- Each new copy stands where the old one stood, turned the same way (its up matched to the old one's up), at
+	-- the old one's scale against the rest of its kind, with its underside where the old one's was.
+	-- opts: ref (E.kindRef of the whole kind; default: of these copies), size (× on top), match (make the new
+	-- model as big as the old ones), turn (extra degrees about its up), scripts / tags / attributes (carry them
+	-- over from the old copy), seed, pause (called now and then). Every old copy is kept in the snapshot first.
+	-- Returns { { old, new } }.
+	function E.swapCopies(copies, with, opts)
+		opts = opts or {}
+		local ref = opts.ref or E.kindRef(copies)
+		local total = 0
+		for _, w in with do
+			total += math.max(w.w or 1, 0)
+		end
+		if total <= 0 then
+			return {}
+		end
+		local list = {}
+		for _, c in copies do
+			if c.inst.Parent then
+				table.insert(list, c.inst)
+			end
+		end
+		E.snapshot(list)
+		local rng = Random.new(tonumber(opts.seed) or 1)
+		local out = {}
+		for n, c in copies do
+			local old = c.inst
+			if old.Parent then
+				local r, pick = rng:NextNumber() * total, with[#with]
+				for _, w in with do
+					r -= math.max(w.w or 1, 0)
+					if r <= 0 then
+						pick = w
+						break
+					end
+				end
+				local new = E.copyOf(pick.inst)
+				if new then
+					local tUp = snapAxis(pick.inst:GetPivot():VectorToObjectSpace(Vector3.yAxis))
+					-- the kind's usual copy keeps the new model's size (or, matching, the old one's), others scale with it
+					local f = opts.match and (c.scale or 1) * ref.size / math.max(extent(pick.inst), 1e-3) or (c.scale or 1) / ref.scale
+					f *= opts.size or 1
+					scaleBy(new, f)
+					local pivot = old:GetPivot()
+					local turn = CFrame.fromAxisAngle(tUp, math.rad(opts.turn or 0))
+					new:PivotTo(CFrame.new(pivot.Position) * pivot.Rotation * turnBetween(tUp, ref.up) * turn)
+					local up = pivot:VectorToWorldSpace(ref.up)
+					new:PivotTo(new:GetPivot() + (baseOf(old, up) - baseOf(new, up)))
+					if opts.scripts then
+						for _, d in old:GetDescendants() do
+							if d:IsA("LuaSourceContainer") then
+								d:Clone().Parent = new
+							end
+						end
+					end
+					if opts.tags then
+						for _, t in CollectionService:GetTags(old) do
+							CollectionService:AddTag(new, t)
+						end
+					end
+					if opts.attributes then
+						for k, v in old:GetAttributes() do
+							if new:GetAttribute(k) == nil then
+								new:SetAttribute(k, v)
+							end
+						end
+					end
+					new.Parent = old.Parent
+					E.snapshotChanged(old, new)
+					old:Destroy()
+					table.insert(out, { old = old, new = new })
+				end
+			end
+			if opts.pause and n % 200 == 0 then
+				opts.pause()
+			end
+		end
+		return out
 	end
 end

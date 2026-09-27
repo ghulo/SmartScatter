@@ -313,7 +313,7 @@ return function(App)
 		{
 			name = "Map",
 			icon = "spline",
-			hint = "The path and its road, scanning a finished map for kinds, and the snapshot.",
+			hint = "The path and its road; scanning a finished map, swapping its models, and the snapshot.",
 			build = "buildMapTab",
 		},
 		{ name = "Settings", icon = "settings", hint = "The plugin's look, output and shortcuts.", build = "buildSettingsTab" },

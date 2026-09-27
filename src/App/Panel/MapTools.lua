@@ -1,7 +1,7 @@
 --[[
-	Smart Scatter — MapTools: reading a finished map, as the controls the Map tab puts in its cards. The map scan
-	(every repeated model, grouped into kinds by shape) and the snapshot (the originals kept before anything changes
-	them, and putting them back).
+	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
+	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
+	first), and the snapshot (the originals kept before anything changes them, and putting them back).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -64,28 +64,56 @@ return function(App)
 		end)
 	end
 
-	-- one kind: its thumbnail, name and count, and a button that selects every copy
+	-- swapping: the kind being swapped (its key), the models it's swapped for, how, and the copies tried so far
+	local swap = { key = nil, with = {}, size = 1, match = false, turn = 0, scripts = false, tags = true, attributes = true }
+	local function swapKind()
+		for _, k in App.kinds or {} do
+			if k.key == swap.key then
+				return k
+			end
+		end
+		return nil
+	end
+
+	-- one kind: its thumbnail, name and count, and buttons that select every copy or pick it to swap
 	local function kindRow(parent, k)
 		local list = alive(k)
 		local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = parent })
 		local th = App.thumbnail(k.copies[1].inst, 30)
 		th.Position = UDim2.fromOffset(0, 3)
 		th.Parent = row
-		label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -120, 0, 18), Parent = row })
+		label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -170, 0, 18), Parent = row })
 		label(
 			string.format("%s cop%s · %d part%s", num(#list), #list == 1 and "y" or "ies", k.parts, k.parts == 1 and "" or "s"),
 			11,
 			P.dim,
 			SANS,
-			{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -120, 0, 16), Parent = row }
+			{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -170, 0, 16), Parent = row }
 		)
+		local acts = box({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(0, 30),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Parent = row,
+		}, { App.hlist(6) })
 		hintOn(
 			button("Select", nil, function()
 				local now = alive(k)
 				Selection:Set(now)
 				App.status(string.format("Selected %s %s.", num(#now), #now == 1 and "copy" or "copies"))
-			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Parent = row }),
+			end, { LayoutOrder = 1, Parent = acts }),
 			"Selects every copy of this kind in the Explorer and the viewport."
+		)
+		local picked = swap.key == k.key
+		hintOn(
+			button("Swap", picked and "accent" or nil, function()
+				if swap.key ~= k.key then
+					swap.key, swap.preview, swap.ref = k.key, nil, nil
+				end
+				App.rebuildAll()
+			end, { LayoutOrder = 2, Parent = acts }),
+			"Swap every copy of this kind for another model, or a mix (the Swap models card below)."
 		)
 	end
 
@@ -137,6 +165,236 @@ return function(App)
 				App.rebuildAll()
 			end, { Parent = buttonRow(b) })
 		end
+	end
+
+	-- the models in the current selection that can stand in for a kind
+	local function selectedModels(k)
+		local out, own = {}, {}
+		for _, c in k and k.copies or {} do
+			own[c.inst] = true
+		end
+		for _, sel in Selection:Get() do
+			for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+				if (inst:IsA("Model") or inst:IsA("BasePart")) and not own[inst] and Engine.keyOf(inst) then
+					table.insert(out, inst)
+				end
+			end
+		end
+		return out
+	end
+
+	local function doSwap(k, copies, preview)
+		local rec = beginRec(preview and "Smart Scatter: Try swap" or "Smart Scatter: Swap models")
+		-- what the kind is like, measured once before any of it is swapped (tried copies would skew it)
+		swap.ref = swap.ref or Engine.kindRef(k.copies)
+		local ok, pairsOrErr = pcall(Engine.swapCopies, copies, swap.with, {
+			ref = swap.ref,
+			size = swap.size,
+			match = swap.match,
+			turn = swap.turn,
+			scripts = swap.scripts,
+			tags = swap.tags,
+			attributes = swap.attributes,
+			seed = #k.copies,
+		})
+		endRec(rec, not ok)
+		if not ok then
+			App.status("The swap stopped: " .. tostring(pairsOrErr), "error")
+			return nil
+		end
+		-- the kind's list follows its copies: a swapped one is now the new model
+		local newOf = {}
+		for _, pr in pairsOrErr do
+			newOf[pr.old] = pr.new
+		end
+		for _, c in k.copies do
+			c.inst = newOf[c.inst] or c.inst
+		end
+		return pairsOrErr
+	end
+
+	App.buildSwap = function(b)
+		local k = swapKind()
+		if not k then
+			swap.key, swap.preview, swap.ref = nil, nil, nil
+			explain(
+				b,
+				App.kinds and "Press Swap on a kind in the Map scan to replace its copies with another model or a mix."
+					or "Scan the map first, then press Swap on a kind."
+			)
+			return
+		end
+		-- the kind
+		local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+		local th = App.thumbnail(k.copies[1].inst, 30)
+		th.Position = UDim2.fromOffset(0, 3)
+		th.Parent = head
+		label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
+		label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
+			Position = UDim2.fromOffset(40, 18),
+			Size = UDim2.new(1, -40, 0, 16),
+			Parent = head,
+		})
+		-- what it's swapped for
+		label("For", 13, P.text, SANS, { Parent = b })
+		for i, w in swap.with do
+			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
+			local t = App.thumbnail(w.inst, 28)
+			t.Position = UDim2.fromOffset(0, 2)
+			t.Parent = row
+			label(w.inst.Name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -120, 1, 0), Parent = row })
+			button("Remove", "danger", function()
+				table.remove(swap.with, i)
+				App.rebuildAll()
+			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Parent = row })
+			if #swap.with > 1 then
+				App.slider("Share", 0, 10, function()
+					return w.w
+				end, function(v)
+					w.w = v
+				end, "%.1f", 0.5, nil, nil, "How often this model is picked compared to the others.", 1).Parent =
+					b
+			end
+		end
+		local pickRow = buttonRow(b)
+		hintOn(
+			button(#swap.with == 0 and "Use selected models" or "Add selected models", #swap.with == 0 and "accent" or nil, function()
+				local found = selectedModels(k)
+				if #found == 0 then
+					App.status("Select the new model, or several to mix, in the Explorer first (not a copy of this kind).")
+					return
+				end
+				for _, inst in found do
+					local dup = false
+					for _, w in swap.with do
+						dup = dup or w.inst == inst
+					end
+					if not dup then
+						table.insert(swap.with, { inst = inst, w = 1 })
+					end
+				end
+				App.rebuildAll()
+			end, { Parent = pickRow }),
+			"Select the model to swap in, or several to mix (a folder works too), in the Explorer, then click."
+		)
+		if #swap.with == 0 then
+			return
+		end
+		-- how
+		App.slider("Size", 0.2, 4, function()
+			return swap.size
+		end, function(v)
+			swap.size = v
+		end, "%.2f×", 0.05, nil, nil, "On top of each copy's own scale.", 1).Parent =
+			b
+		App.switchRow(
+			"Same size as the old ones",
+			function()
+				return swap.match
+			end,
+			function(v)
+				swap.match = v
+			end,
+			nil,
+			"On: each new copy is made as big as the one it replaces. Off: the new model keeps its own size, bigger or smaller where the old copies were."
+		).Parent =
+			b
+		label("Turn", 13, P.text, SANS, { Parent = b })
+		App.segmented({ "0°", "90°", "180°", "270°" }, function()
+			return swap.turn .. "°"
+		end, function(v)
+			swap.turn = tonumber(string.match(v, "%d+")) or 0
+		end).Parent =
+			b
+		explain(b, "If the new model faces another way than the old one, turn every copy about its up.")
+		for _, o in
+			{
+				{ "scripts", "Carry over scripts", "Copies the old copy's scripts into the new one." },
+				{ "tags", "Carry over tags", "The old copy's CollectionService tags go on the new one." },
+				{ "attributes", "Carry over attributes", "The old copy's attributes go on the new one." },
+			}
+		do
+			App.switchRow(o[2], function()
+				return swap[o[1]]
+			end, function(v)
+				swap[o[1]] = v
+			end, nil, o[3]).Parent = b
+		end
+		-- go: try it on a few first, then all
+		local acts = buttonRow(b)
+		local n = #alive(k)
+		if swap.preview then
+			hintOn(
+				button("Undo the try", nil, function()
+					local only = {}
+					for _, pr in swap.preview do
+						only[pr.new] = true
+					end
+					local rec = beginRec("Smart Scatter: Undo try")
+					local back, map = Engine.restoreSnapshot(only)
+					endRec(rec, back == 0)
+					for _, c in k.copies do
+						c.inst = map[c.inst] or c.inst
+					end
+					swap.preview = nil
+					App.status(string.format("Put %d back as they were.", back))
+					App.rebuildAll()
+				end, { Parent = acts }),
+				"Puts the tried copies back as they were."
+			)
+		else
+			hintOn(
+				button("Try on 5", nil, function()
+					local copies, list = {}, {}
+					for _, c in k.copies do
+						if c.inst.Parent then
+							table.insert(list, c)
+						end
+					end
+					for i = 1, math.min(5, #list) do -- spread over the kind, not the first five in a row
+						table.insert(copies, list[math.floor((i - 0.5) * #list / math.min(5, #list)) + 1])
+					end
+					local done = doSwap(k, copies, true)
+					if done then
+						swap.preview = done
+						local sel = {}
+						for _, pr in done do
+							table.insert(sel, pr.new)
+						end
+						Selection:Set(sel)
+						App.status(string.format("Swapped %d copies to try (selected). Swap all, or undo the try.", #done))
+					end
+					App.rebuildAll()
+				end, { Parent = acts }),
+				"Swaps 5 copies spread over the map, and selects them, so you can check the look first."
+			)
+		end
+		hintOn(
+			button(string.format("Swap all %s", num(n)), "accent", function()
+				local tried, copies = {}, {}
+				for _, pr in swap.preview or {} do
+					tried[pr.new] = true
+				end
+				for _, c in k.copies do
+					if not tried[c.inst] then -- (the tried ones are swapped already)
+						table.insert(copies, c)
+					end
+				end
+				local done = doSwap(k, copies, false)
+				if done then
+					App.status(
+						string.format(
+							"Swapped %s copies. The originals are kept: Restore original in the Snapshot card puts them back.",
+							num(#done + #(swap.preview or {}))
+						)
+					)
+					App.kinds = nil -- the map changed: scan again to see its kinds now
+					swap.key, swap.preview, swap.ref = nil, nil, nil
+				end
+				App.rebuildAll()
+			end, { Parent = acts }),
+			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
+		)
 	end
 
 	App.buildSnapshot = function(b)

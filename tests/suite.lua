@@ -1299,6 +1299,103 @@ local ok, err = pcall(function()
 		E.clearSnapshot()
 		map:Destroy()
 	end
+
+	-- swapping a kind: each new copy stands where the old one did, turned the same way, at its scale, base on the
+	-- ground; tags, attributes and scripts come along; the originals can be put back
+	do
+		local map = Instance.new("Folder")
+		map.Name = "SwapMap"
+		map.Parent = world
+		local function hut(at, turn, scale)
+			local m = Instance.new("Model")
+			m.Name = "Hut"
+			local base = part({ Name = "Walls", Size = Vector3.new(10, 8, 12), CFrame = CFrame.new(0, 4, 0) })
+			base.Parent = m
+			part({ Name = "Roof", Size = Vector3.new(11, 2, 13), CFrame = CFrame.new(0, 9, 0) }).Parent = m
+			m.PrimaryPart = base
+			m.Parent = map
+			m:PivotTo(CFrame.new(O + at) * CFrame.Angles(0, math.rad(turn), 0))
+			if scale then
+				m:ScaleTo(scale)
+			end
+			return m
+		end
+		local huts = { hut(Vector3.new(-200, 0, -200), 0), hut(Vector3.new(-170, 0, -200), 90), hut(Vector3.new(-140, 0, -200), 0, 1.5) }
+		huts[1]:SetAttribute("Owner", "Ghulo")
+		game:GetService("CollectionService"):AddTag(huts[1], "Destructible")
+		local script = Instance.new("Script")
+		script.Disabled = true
+		script.Parent = huts[1]
+		-- the new model: a flat slab 4 wide, 16 tall, 2 deep; and the same slab built lying down (its up is its X)
+		local tower = part({ Name = "Tower", Size = Vector3.new(4, 16, 2), CFrame = CFrame.new(O + Vector3.new(0, 300, 40)) })
+		local lying = part({
+			Name = "Lying",
+			Size = Vector3.new(16, 4, 2),
+			CFrame = CFrame.new(O + Vector3.new(0, 300, 60)) * CFrame.Angles(0, 0, math.rad(90)),
+		})
+		local kinds = E.scanKinds({ roots = { map } })
+		local kind = kinds[1]
+		local before = {}
+		for _, c in kind.copies do
+			local cf, size = c.inst:GetBoundingBox()
+			before[c.inst] = { at = cf.Position, bottom = cf.Position.Y - size.Y / 2, look = c.inst:GetPivot().LookVector, scale = c.scale }
+		end
+		E.clearSnapshot()
+		local pairs1 = E.swapCopies(kind.copies, { { inst = tower, w = 1 } }, { scripts = true, tags = true, attributes = true })
+		local worst, turned, tall = 0, 0, 0
+		local carried = false
+		for _, pr in pairs1 do
+			local b = before[pr.old]
+			local cf, size = pr.new.CFrame, pr.new.Size
+			local bottom = cf.Position.Y - size.Y / 2
+			worst = math.max(
+				worst,
+				math.abs(bottom - b.bottom),
+				(Vector3.new(cf.Position.X, 0, cf.Position.Z) - Vector3.new(b.at.X, 0, b.at.Z)).Magnitude
+			)
+			turned = math.max(turned, (pr.new.CFrame.LookVector - b.look).Magnitude)
+			tall = math.max(tall, math.abs(size.Y - 16 * b.scale))
+			if pr.old == huts[1] then
+				carried = pr.new:GetAttribute("Owner") == "Ghulo"
+					and game:GetService("CollectionService"):HasTag(pr.new, "Destructible")
+					and pr.new:FindFirstChildOfClass("Script") ~= nil
+			end
+		end
+		check(
+			"a swapped copy stands where the old one did, turned the same way, its base where the old one's was",
+			#pairs1 == 3 and worst < 0.05 and turned < 0.01,
+			string.format("%d swapped, off by %.3f, turned off by %.3f", #pairs1, worst, turned)
+		)
+		check("a swapped copy keeps its scale against the rest", tall < 0.05, string.format("height off by %.3f", tall))
+		check("tags, attributes and scripts come along when asked", carried, tostring(carried))
+		local back = E.restoreSnapshot()
+		local hutsBack = 0
+		for _, m in map:GetChildren() do
+			hutsBack += m.Name == "Hut" and 1 or 0
+		end
+		check("the swapped copies can be put back", back == 3 and hutsBack == 3, string.format("%d back, %d huts", back, hutsBack))
+		-- a model built lying down still stands up; "same size" makes it as big as the old copies
+		kinds = E.scanKinds({ roots = { map } })
+		local extentOf = {}
+		for _, c in kinds[1].copies do
+			local _, size = c.inst:GetBoundingBox()
+			extentOf[c.inst] = math.max(size.X, size.Y, size.Z)
+		end
+		local pairs2 = E.swapCopies(kinds[1].copies, { { inst = lying, w = 1 } }, { match = true })
+		local upright, off = true, 0
+		for _, pr in pairs2 do
+			upright = upright and math.abs(pr.new.CFrame.RightVector.Y) > 0.99 -- its long X side points up
+			off = math.max(off, math.abs(pr.new.Size.X - extentOf[pr.old]))
+		end
+		check(
+			"a model built lying down stands up, and same size matches each old copy",
+			#pairs2 == 3 and upright and off < 0.1,
+			string.format("%d swapped, upright %s, size off by %.2f", #pairs2, tostring(upright), off)
+		)
+		E.restoreSnapshot()
+		E.clearSnapshot()
+		map:Destroy()
+	end
 end)
 if not ok then
 	check("suite ran without errors", false, tostring(err))

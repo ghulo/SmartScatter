@@ -51,6 +51,14 @@ return function(App)
 			build = App.buildMapScan,
 		})
 		cs.add({
+			id = "swap",
+			title = "Swap models",
+			icon = "refresh",
+			sub = "Replace every copy of a kind with another model or a mix",
+			keys = "swap replace model mix kind copies preview try",
+			build = App.buildSwap,
+		})
+		cs.add({
 			id = "snapshot",
 			title = "Snapshot",
 			sub = "Keep the originals, and put them back with one click",

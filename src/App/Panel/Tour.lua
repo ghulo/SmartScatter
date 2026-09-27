@@ -72,7 +72,7 @@ return function(App)
 			title = "Four tabs",
 			text = "Scatter: what fills the area, its objects and their rules.\n"
 				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
-				.. "Map: the path and its road, and scanning a finished map for its kinds of models.\n"
+				.. "Map: the path and its road; scanning a finished map and swapping its models.\n"
 				.. "Settings: the plugin itself.\n\n"
 				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
 				.. "below the tabs, like road or spacing.",

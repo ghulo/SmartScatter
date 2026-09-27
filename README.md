@@ -12,6 +12,8 @@ round bends, and everything updates live as you tweak it.
 - **Keep-clear zones** — ground no area may place anything on (spawns, doorways)
 - **Map scan** — finds every repeated model in a finished map and groups the copies into kinds by shape (renamed,
   turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click
+- **Swap models** — replace every copy of a kind with another model or a mix, keeping each copy's spot, turn,
+  relative size and base; try it on a few copies first
 - **Biomes and presets** — start from a Forest/Meadow/Desert/Town mix made from your own models, or save your own sets
 - **Game-ready output** — optional streaming chunks, no-collision plants, shadow and click settings; a heaviness warning
 - **Undo everything** — every edit is one Ctrl+Z step
