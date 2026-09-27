@@ -929,7 +929,7 @@ return function(App)
 		if App.refreshFocus then
 			App.refreshFocus()
 		end
-		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
+		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshShapes", "refreshPoint", "refreshRemoveBtn" } do
 			if App.ui[k] then
 				App.ui[k]()
 			end

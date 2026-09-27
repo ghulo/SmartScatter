@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX40"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX41"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 128
-local BUNDLED_VERSION = "9.64"
+local BUNDLED_BUILD = 129
+local BUNDLED_VERSION = "9.65"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -403,6 +403,7 @@ local ORDER = {
 	"Viewport/Paint",
 	"Viewport/Grid",
 	"Viewport/Spline",
+	"Viewport/Shapes",
 	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",
@@ -3627,15 +3628,48 @@ return function(App)
 		keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 		App.ui.splineInfo = para("", { Parent = parent })
 		App.refreshSplineInfo()
+
+		-- shape presets: pick one, then drag it out in the viewport (Viewport/Shapes)
+		label("SHAPES", 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+		local shapes = chipGrid(parent, 3, 28)
+		local looks = {}
+		for _, def in Engine.SHAPES do
+			local b, look = chip(shapes, def.name, function()
+				return App.shapeTool == def.name
+			end, function()
+				App.pickShape(def.name)
+			end)
+			hintOn(
+				b,
+				def.name == "Rectangle" and "Then drag from one corner to the opposite one."
+					or "Then drag from its centre outward. It turns in 15° steps; Shift turns it freely."
+			)
+			table.insert(looks, look)
+		end
+		App.ui.refreshShapes = function()
+			for _, look in looks do
+				look()
+			end
+		end
+
 		if hasPath() then
+			local acts = buttonRow(parent)
+			hintOn(
+				button("Subdivide", nil, function()
+					App.subdivideSpline()
+				end, { Parent = acts }),
+				"Like Blender's subdivide: adds a point halfway along every side of the selected point's curve (or of every curve), without changing its shape. Drag the new points to reshape it; click a side to add one point, "
+					.. App.keyText("delete")
+					.. " removes one."
+			)
 			local clearBtn = button("Clear path", "danger", function()
 				if not hasPath() then
 					return
 				end
 				App.clearSplineFn(beginRec("Smart Scatter: Clear spline"))
 				App.rebuildAll()
-			end, { Parent = buttonRow(parent) })
-			hintOn(clearBtn, "Removes every point and branch. Ctrl+Z brings them back.")
+			end, { Parent = acts })
+			hintOn(clearBtn, "Removes every point, branch and shape. Ctrl+Z brings them back.")
 		end
 
 		-- the selected point while drawing: its width, scale, corner and handles
@@ -8134,7 +8168,7 @@ return function(App)
 				tag = not isPath and "Optional" or nil,
 				sub = drawn and (isPath and "Click to add more points, or drag one to move it" or "Objects set to follow it line it")
 					or (isPath and "Click in the viewport to place points" or "A road, fence or row of lamps along a curve you draw"),
-				keys = "draw path spline points corner branch loop clear",
+				keys = "draw path spline points vertex corner branch loop clear shape preset square rectangle triangle hexagon octagon circle subdivide fence",
 				build = App.buildDrawTools,
 			})
 			if isPath then
@@ -9035,7 +9069,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX25"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX26"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
 	edit mode and local view feel: the scene fades toward grey and dims (a colour correction on the camera, never
@@ -9072,6 +9106,10 @@ return function(App)
 		if m == "Paint" or m == "Erase" then
 			local erase = (m == "Erase") ~= (shift == true)
 			return erase and "Erasing ground" or "Painting ground", on(G.tool, area), erase
+		elseif m == "Spline" and App.shapeTool then
+			return "Placing a " .. string.lower(App.shapeTool),
+				on(App.shapeTool == "Rectangle" and "corner to corner" or "drag from the centre", area),
+				false
 		elseif m == "Spline" then
 			return "Drawing the path", on(area), false
 		elseif m == "Remove" then
@@ -10642,7 +10680,7 @@ return function(App)
 		if App.refreshFocus then
 			App.refreshFocus()
 		end
-		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
+		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshShapes", "refreshPoint", "refreshRemoveBtn" } do
 			if App.ui[k] then
 				App.ui[k]()
 			end
@@ -10734,7 +10772,195 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
+	round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
+	centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
+	rectangle. The shape is a real closed curve of the path from the first move, so what shows while dragging is what
+	you get, each corner on the ground under it. An empty path becomes the shape; otherwise it's a loop of its own in the
+	same path (same width and objects). One shape per pick, then it's back to editing points, Blender style.
+	The spline editor (Viewport/Spline) hands its mouse over while a shape is picked.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Engine, beginRec, endRec, rawMouse = App.Engine, App.beginRec, App.endRec, App.rawMouse
+	local MIN = 2 -- studs: a drag shorter than this places nothing
+	local placing -- the shape being dragged: { kind, from, up, cv, rec, main, wasClosed, text }
+
+	App.shapeTool = nil -- the picked preset's name, waiting for its drag
+
+	local function refresh()
+		if App.ui.refreshShapes then
+			App.ui.refreshShapes()
+		end
+		if App.refreshFocus then
+			App.refreshFocus()
+		end
+	end
+
+	-- where the mouse points on the flat plane at the shape's height (steady, unlike the ground under a hill)
+	local function onPlane(y)
+		local ray = rawMouse.UnitRay
+		if ray.Direction.Y < -1e-3 then
+			local t = (y - ray.Origin.Y) / ray.Direction.Y
+			if t > 0 then
+				return ray.Origin + ray.Direction * t
+			end
+		end
+		local hit = App.splinePointHit()
+		return hit and hit.Position
+	end
+	-- a corner dropped onto the ground under it (reach grows with the shape, for hills); stays put over a drop-off
+	local function ground(v, up, reach)
+		local hit = Engine.cast(v + Vector3.new(0, reach, 0), Vector3.new(0, -reach * 3 - 50, 0), App.probeParams)
+		if hit then
+			return hit.Position, hit.Normal
+		end
+		return v, up
+	end
+
+	local function fill(to, free)
+		local pl = placing
+		local corners, smooth = Engine.shapePoints(pl.kind, pl.from, to, free)
+		local dx, dz = to.X - pl.from.X, to.Z - pl.from.Z
+		local size = math.sqrt(dx * dx + dz * dz)
+		local pts = pl.cv.pts
+		table.clear(pts)
+		for _, c in corners do
+			local p, n = ground(c, pl.up, 10 + size * 0.6)
+			table.insert(pts, { p = p, n = n, sharp = not smooth or nil })
+		end
+		pl.size = size
+		pl.text = pl.kind == "Rectangle" and string.format("Rectangle · %s × %s studs", App.num(math.abs(dx)), App.num(math.abs(dz)))
+			or string.format("%s · %s studs across", pl.kind, App.num(size * 2))
+	end
+
+	-- takes the half-made shape back out of the path
+	local function unplace(pl)
+		local sp = App.area and App.area.spline
+		if not sp then
+			return
+		end
+		if pl.main then
+			table.clear(sp.pts)
+			sp.closed = pl.wasClosed
+		else
+			local i = table.find(sp.branches, pl.cv)
+			if i then
+				table.remove(sp.branches, i)
+			end
+		end
+	end
+
+	-- a pick on the Path card: arms that shape (the same pick again puts it away)
+	App.pickShape = function(kind)
+		if App.shapeTool == kind then
+			App.cancelShape()
+			return
+		end
+		if App.mode ~= "Spline" then
+			App.ensureSplineFn()
+			App.setMode("Spline")
+			if App.mode ~= "Spline" then -- (a locked area)
+				return
+			end
+		end
+		App.cancelShape()
+		App.shapeTool = kind
+		App.selectSplinePoint(nil)
+		refresh()
+		App.status(
+			kind == "Rectangle" and "Drag from one corner of the rectangle to the opposite one."
+				or string.format("Drag from the centre of the %s outward. It turns in 15° steps; hold Shift to turn freely.", string.lower(kind))
+		)
+	end
+
+	-- the spline editor's mouse, while a shape is picked
+	App.shapeDown = function()
+		local hit = App.splinePointHit()
+		if not hit then
+			return
+		end
+		local sp = App.ensureSplineFn()
+		local main = #sp.pts == 0
+		local cv = main and sp or { pts = {}, closed = true }
+		placing = {
+			kind = App.shapeTool,
+			from = hit.Position,
+			up = hit.Normal,
+			cv = cv,
+			main = main,
+			wasClosed = sp.closed,
+			rec = beginRec("Smart Scatter: " .. App.shapeTool),
+			size = 0,
+		}
+		if main then
+			sp.closed = true
+		else
+			table.insert(sp.branches, cv)
+		end
+	end
+	App.shapeMove = function()
+		if not placing then
+			local hit = App.splinePointHit()
+			App.splineLabel(
+				hit,
+				App.shapeTool == "Rectangle" and "Rectangle · drag from one corner to the other"
+					or App.shapeTool .. " · drag from its centre outward"
+			)
+			return
+		end
+		local to = onPlane(placing.from.Y)
+		if to then
+			fill(to, App.shiftHeld())
+			App.drawSpline()
+		end
+		App.splineLabel({ Position = to or placing.from }, placing.text or placing.kind)
+	end
+	App.shapeUp = function()
+		local pl = placing
+		placing = nil
+		if not pl then
+			return
+		end
+		if pl.size < MIN or #pl.cv.pts < 3 then -- a click, not a drag: nothing placed, the shape stays picked
+			unplace(pl)
+			endRec(pl.rec, true)
+			App.drawSpline()
+			App.status("Hold and drag to size the shape.")
+			return
+		end
+		App.shapeTool = nil
+		App.selectSplinePoint({ cv = pl.cv, i = 1 })
+		App.commitSplineFn(pl.rec)
+		refresh()
+		App.status(
+			pl.kind
+				.. " placed. Drag a corner to move it, click an edge to add a point, "
+				.. App.keyText("delete")
+				.. " deletes one, and Subdivide adds one on every side."
+		)
+	end
+
+	-- Esc, another mode, an area switch or an undo: a half-dragged shape is taken back and the pick put away
+	App.cancelShape = function()
+		local pl = placing
+		placing = nil
+		if pl then
+			unplace(pl)
+			endRec(pl.rec, true)
+			if App.drawSpline then
+				App.drawSpline()
+			end
+		end
+		if App.shapeTool then
+			App.shapeTool = nil
+			refresh()
+		end
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -10794,10 +11020,10 @@ return function(App)
 		end
 		return n
 	end
-	-- the curve table the engine evaluates for an editable curve (branches are always open)
+	-- the curve table the engine evaluates for an editable curve
 	local function curveOf(cv)
 		local sp = App.area.spline
-		return cv == sp and sp or { pts = cv.pts, closed = false }
+		return cv == sp and sp or { pts = cv.pts, closed = cv.closed == true }
 	end
 	local function selectPt(ref)
 		selPt = ref
@@ -11131,7 +11357,7 @@ return function(App)
 			return "append"
 		end
 		local cv, i = selPt.cv, selPt.i
-		local open = cv ~= sp or not sp.closed or #sp.pts < 3
+		local open = not cv.closed or #cv.pts < 3
 		if open and i == #cv.pts then
 			return "append"
 		elseif open and cv == sp and i == 1 then
@@ -11156,14 +11382,22 @@ return function(App)
 				len += (P[k] - P[k - 1]).Magnitude
 			end
 		end
-		local n, nb = totalPoints(), #(sp.branches or {})
+		local n, nb, nl = totalPoints(), 0, 0
+		for _, b in sp.branches or {} do
+			if b.closed then
+				nl += 1
+			else
+				nb += 1
+			end
+		end
 		App.ui.splineInfo.Text = string.format(
-			"%d point%s · %s studs · %s%s%s",
+			"%d point%s · %s studs · %s%s%s%s",
 			n,
 			n == 1 and "" or "s",
 			num(len),
 			(sp.closed and #sp.pts >= 3) and "loop" or "open",
 			nb > 0 and string.format(" · %d branch%s", nb, nb == 1 and "" or "es") or "",
+			nl > 0 and string.format(" · %d more loop%s", nl, nl == 1 and "" or "s") or "",
 			(sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
 		)
 	end
@@ -11223,6 +11457,10 @@ return function(App)
 
 	mouse.Move:Connect(function()
 		if App.mode ~= "Spline" then
+			return
+		end
+		if App.shapeTool then -- a shape preset is picked: its drag (Viewport/Shapes)
+			App.shapeMove()
 			return
 		end
 		local sp = App.area and App.area.spline
@@ -11354,6 +11592,10 @@ return function(App)
 		if App.mode ~= "Spline" then
 			return
 		end
+		if App.shapeTool then
+			App.shapeDown()
+			return
+		end
 		if hoverHandle and validPt(selPt) then
 			dragHandle = hoverHandle
 			dragRec = beginRec("Smart Scatter: Spline handle")
@@ -11419,7 +11661,7 @@ return function(App)
 		if snap.kind == "point" then
 			local how = Engine.joinToPoint(sp, ref, snap.ref)
 			if how == "closed" then
-				selectPt({ cv = sp, i = 1 })
+				selectPt({ cv = ref.cv, i = 1 })
 				return "Closed the loop."
 			end
 			return how and "Joined. The two points now move together." or nil
@@ -11487,6 +11729,10 @@ return function(App)
 		end
 	end
 	mouse.Button1Up:Connect(function()
+		if App.mode == "Spline" and App.shapeTool then
+			App.shapeUp()
+			return
+		end
 		if App.mode == "Spline" and dragHandle then
 			dragHandle = nil
 			local rec = dragRec
@@ -11527,6 +11773,9 @@ return function(App)
 	-- a mode change, an area switch or an undo in the middle of a drag: keep (or with `cancel`, drop) what was
 	-- dragged or drawn so far, and close its undo recording
 	App.resetSplineDrag = function(cancel)
+		if App.cancelShape then
+			App.cancelShape()
+		end
 		local rec, moved = dragRec, dragMoved
 		if drawing and App.area and not cancel then
 			finishDrawing()
@@ -11548,6 +11797,9 @@ return function(App)
 		end
 		splineEdit("Spline", function()
 			table.remove(ref.cv.pts, ref.i)
+			if ref.cv ~= sp and #ref.cv.pts < 3 then -- a loop of its own needs three points to go round
+				ref.cv.closed = nil
+			end
 			if ref.cv ~= sp and #ref.cv.pts < 2 then -- a branch needs its root and one more point
 				table.remove(sp.branches, table.find(sp.branches, ref.cv))
 			elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then -- main curve gone: the first branch takes over
@@ -11664,6 +11916,8 @@ return function(App)
 				return
 			end
 			setSharp(ref, not ref.cv.pts[ref.i].sharp)
+		elseif name == "cancel" and App.shapeTool then -- Esc puts a picked shape away, and stays in the editor
+			App.cancelShape()
 		elseif name == "close" or name == "cancel" then
 			selectPt(nil)
 			App.setMode("Off")
@@ -11702,13 +11956,43 @@ return function(App)
 			App.setMode("Spline")
 		end
 	end
+	-- Subdivide, like Blender's: a point halfway along every stretch of the selected point's curve (or of every curve),
+	-- the shape unchanged, ready to be dragged into a new one
+	App.subdivideSpline = function()
+		local sp = App.area and App.area.spline
+		if not sp or totalPoints() < 2 then
+			App.status("Draw a path or place a shape first, then subdivide it.")
+			return
+		end
+		local list = validPt(selPt) and { selPt.cv } or editCurves()
+		local added = 0
+		splineEdit("Subdivide", function()
+			for _, cv in list do
+				if #cv.pts + #cv.pts <= 512 then -- (a limit: a few presses shouldn't make thousands)
+					added += Engine.subdivide(curveOf(cv)) -- (a branch's curve table shares its point list)
+				end
+			end
+		end)
+		hoverPt = nil
+		if validPt(selPt) then
+			selectPt({ cv = selPt.cv, i = math.min(selPt.i * 2 - 1, #selPt.cv.pts) }) -- (the same point, renumbered)
+		end
+		App.status(
+			added > 0 and string.format("Added %d point%s, one halfway along each side.", added, added == 1 and "" or "s")
+				or "That curve already has plenty of points."
+		)
+	end
+
 	App.commitSplineFn = commitSpline
 	App.ensureSplineFn = ensureSpline
+	App.splinePointHit = pointHit
+	App.splineLabel = splineLabel
+	App.selectSplinePoint = selectPt
 
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -11738,7 +12022,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -12261,6 +12545,13 @@ return function(E, I)
 					table.insert(sp.branches, { pts = pts, closed = false })
 				end
 			end
+			-- closed curves of their own (shape presets), kept apart from the branches so older versions still read those
+			for _, b in (type(sd.loops) == "table" and sd.loops or {}) do
+				local pts = type(b) == "table" and readPts(b) or {}
+				if #pts >= 3 then
+					table.insert(sp.branches, { pts = pts, closed = true })
+				end
+			end
 			a.spline = sp
 		end
 		-- upgrade coarse areas to the finer grid (smoother edges); per-layer paint follows
@@ -12487,9 +12778,11 @@ return function(E, I)
 				end
 				return pts
 			end
-			local br = {}
+			local br, loops = {}, {}
 			for _, b in sp.branches or {} do
-				if #b.pts >= 2 then
+				if b.closed and #b.pts >= 3 then
+					table.insert(loops, pack(b.pts))
+				elseif #b.pts >= 2 then
 					table.insert(br, pack(b.pts))
 				end
 			end
@@ -12502,6 +12795,7 @@ return function(E, I)
 					snap = sp.snap,
 					walls = sp.walls,
 					branches = #br > 0 and br or nil,
+					loops = #loops > 0 and loops or nil,
 					surface = sp.surface,
 				})
 			)
@@ -12685,7 +12979,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13485,7 +13779,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13924,7 +14218,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -14439,7 +14733,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -15074,7 +15368,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16152,7 +16446,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16162,7 +16456,8 @@ return function(E, I)
 	-- Splines: a smooth 3D curve through clicked points (centripetal Catmull-Rom: no loops or overshoot).
 	-- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, raised = bool? (Shift-lifted: kept off the ground), w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
 	--   walls = bool (clicks may land on walls),
-	--   branches = { { pts = { ... } }, ... } }  -- extra open curves that sprout from a point of the network
+	--   branches = { { pts = { ... }, closed = bool? }, ... } }  -- extra curves: open ones sprout from a point of the network;
+	--   closed ones are loops of their own (a shape preset, or a branch whose end was dropped on its start)
 	--------------------------------------------------------------------------------
 	local function knot(t, a, b)
 		return t + math.max((b - a).Magnitude, 1e-4) ^ 0.5
@@ -16201,6 +16496,39 @@ return function(E, I)
 		local u = 1 - t
 		return a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t)
 	end
+	-- the stretch of curve from point i to the next, as a function of t (0-1); a Bezier also returns its two control
+	-- points (a hand-set handle on either end makes the stretch a Bezier; the other end keeps its automatic handle)
+	local function segment(sp, i)
+		local pts, n = sp.pts, #sp.pts
+		local closed = sp.closed and n >= 3
+		local function cp(k)
+			if closed then
+				return pts[(k - 1) % n + 1].p
+			end
+			if k < 1 then
+				return pts[1].p * 2 - pts[2].p
+			end
+			if k > n then
+				return pts[n].p * 2 - pts[n - 1].p
+			end
+			return pts[k].p
+		end
+		local j = i % n + 1
+		local a, b = pts[i], pts[j]
+		if a.h or b.h then
+			local c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
+			local c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
+			return function(t)
+				return bezier(a.p, c1, c2, b.p, t)
+			end, c1, c2
+		end
+		-- a sharp point pins its neighbour tangent: the curve runs straight into and out of the corner
+		local p0, p1, p2 = a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1)
+		local p3 = b.sharp and b.p * 2 - a.p or cp(i + 2)
+		return function(t)
+			return catmull(p0, p1, p2, p3, t)
+		end
+	end
 
 	-- dense polyline of the curve: P (positions), U (interpolated up/normal), S (control segment of each sample),
 	-- W and Z (per-point width and scale multipliers, eased between points), R (how raised, 0-1, eased between points)
@@ -16218,38 +16546,16 @@ return function(E, I)
 			return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }, { raised(pts[1]) }
 		end
 		local closed = sp.closed and n >= 3
-		local function cp(i)
-			if closed then
-				return pts[(i - 1) % n + 1].p
-			end
-			if i < 1 then
-				return pts[1].p * 2 - pts[2].p
-			end
-			if i > n then
-				return pts[n].p * 2 - pts[n - 1].p
-			end
-			return pts[i].p
-		end
 		local segs = closed and n or n - 1
 		for i = 1, segs do
 			local j = i % n + 1
 			local a, b = pts[i], pts[j]
 			local steps = math.max(1, math.ceil((b.p - a.p).Magnitude / step))
-			-- a hand-set handle on either end makes this a Bezier segment (the other end keeps its automatic handle)
-			local c1, c2
-			if a.h or b.h then
-				c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
-				c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
-			end
+			local at = segment(sp, i)
 			local wa, wb, za, zb, ra, rb = a.w or 1, b.w or 1, a.s or 1, b.s or 1, raised(a), raised(b)
 			for k = 0, steps - 1 do
 				local t = k / steps
-				if c1 then
-					table.insert(P, bezier(a.p, c1, c2, b.p, t))
-				else
-					-- a sharp point pins its neighbour tangent: the curve runs straight into and out of the corner
-					table.insert(P, catmull(a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1), b.sharp and b.p * 2 - a.p or cp(i + 2), t))
-				end
+				table.insert(P, at(t))
 				local nn = a.n:Lerp(b.n, t)
 				table.insert(U, nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis)
 				table.insert(S, i)
@@ -16330,12 +16636,14 @@ return function(E, I)
 
 	-- ── spline editing: plain data operations, used by the editor and checked by the test suite ──
 	-- point ref = { cv = curve, i = index }. Dropping a point on another point joins them: they share a position from
-	-- then on (and move together). The main curve's end dropped on its own start closes the loop instead.
+	-- then on (and move together). A curve's end dropped on its own start closes it into a loop instead.
 	-- Returns "closed" or "joined".
-	function E.joinToPoint(sp, ref, target)
-		if ref.cv == sp and target.cv == sp and #sp.pts >= 4 and ((ref.i == #sp.pts and target.i == 1) or (ref.i == 1 and target.i == #sp.pts)) then
-			table.remove(sp.pts, ref.i)
-			sp.closed = true
+	function E.joinToPoint(_sp, ref, target)
+		local cv = ref.cv
+		local n = #cv.pts
+		if target.cv == cv and not cv.closed and n >= 4 and ((ref.i == n and target.i == 1) or (ref.i == 1 and target.i == n)) then
+			table.remove(cv.pts, ref.i)
+			cv.closed = true
 			return "closed"
 		end
 		local q, o = ref.cv.pts[ref.i], target.cv.pts[target.i]
@@ -16410,6 +16718,85 @@ return function(E, I)
 		return drop
 	end
 
+	-- Blender's subdivide: a new point halfway along every stretch of the curve, on the curve, so its shape stays the
+	-- same (straight stretches between two sharp corners stay straight; bent Bezier stretches split exactly). The new
+	-- points take the mean width and scale of their neighbours. Returns how many were added.
+	function E.subdivide(cv)
+		local pts, n = cv.pts, #cv.pts
+		if n < 2 then
+			return 0
+		end
+		local segs = (cv.closed and n >= 3) and n or n - 1
+		local mids = {}
+		for i = 1, segs do
+			local at, c1, c2 = segment(cv, i)
+			local a, b = pts[i], pts[i % n + 1]
+			local nn = a.n + b.n
+			local m = {
+				p = at(0.5),
+				n = nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis,
+				sharp = (a.sharp and b.sharp) or nil,
+				raised = (a.raised and b.raised) or nil,
+			}
+			for _, k in { "w", "s" } do
+				local v = ((a[k] or 1) + (b[k] or 1)) / 2
+				m[k] = math.abs(v - 1) > 1e-3 and v or nil
+			end
+			if c1 then -- (de Casteljau: each half is a Bezier, its outer handles half as long)
+				m.h = ((c1 + c2) / 2 + (c2 + b.p) / 2) / 2 - m.p
+			end
+			mids[i] = m
+		end
+		for _, q in pts do
+			if q.h then
+				q.h /= 2
+			end
+		end
+		for i = segs, 1, -1 do
+			table.insert(pts, i + 1, mids[i])
+		end
+		return segs
+	end
+
+	-- shape presets for paths: a closed loop dropped in one drag (a fenced field, a ring road, a plaza)
+	E.SHAPES = {
+		{ name = "Square", sides = 4 },
+		{ name = "Rectangle", sides = 4 },
+		{ name = "Triangle", sides = 3 },
+		{ name = "Hexagon", sides = 6 },
+		{ name = "Octagon", sides = 8 },
+		{ name = "Circle", sides = 8, smooth = true },
+	}
+	-- a shape's corners, flat at a's height. From its centre a out to b: a corner sits under b, and the turn snaps to
+	-- 15° steps unless free. The rectangle goes corner to corner instead, along the world's axes. Returns the points
+	-- and whether they're smooth (the circle) rather than sharp corners.
+	function E.shapePoints(kind, a, b, free)
+		local out = {}
+		if kind == "Rectangle" then
+			for _, c in { { a.X, a.Z }, { b.X, a.Z }, { b.X, b.Z }, { a.X, b.Z } } do
+				table.insert(out, Vector3.new(c[1], a.Y, c[2]))
+			end
+			return out, false
+		end
+		local def
+		for _, d in E.SHAPES do
+			def = d.name == kind and d or def
+		end
+		def = def or E.SHAPES[1]
+		local dx, dz = b.X - a.X, b.Z - a.Z
+		local r = math.sqrt(dx * dx + dz * dz)
+		local turn = math.atan2(dz, dx)
+		if not free then
+			local step = math.rad(15)
+			turn = math.floor(turn / step + 0.5) * step
+		end
+		for k = 0, def.sides - 1 do
+			local t = turn + k * 2 * math.pi / def.sides
+			table.insert(out, Vector3.new(a.X + math.cos(t) * r, a.Y, a.Z + math.sin(t) * r))
+		end
+		return out, def.smooth == true
+	end
+
 	-- every drawable curve of a spline network: the main curve, then its branches (each shares the network's settings)
 	function E.splineCurves(sp)
 		local list = {}
@@ -16421,7 +16808,7 @@ return function(E, I)
 		end
 		for _, b in sp.branches or {} do
 			if #b.pts >= 2 then
-				table.insert(list, { pts = b.pts, closed = false, snap = sp.snap, width = sp.width, walls = sp.walls })
+				table.insert(list, { pts = b.pts, closed = b.closed == true, snap = sp.snap, width = sp.width, walls = sp.walls })
 			end
 		end
 		return list
@@ -16833,7 +17220,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -16941,7 +17328,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17926,7 +18313,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18251,7 +18638,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18763,7 +19150,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or

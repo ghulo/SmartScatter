@@ -1673,6 +1673,12 @@ if #pts >= 2 then
 table.insert(sp.branches, { pts = pts, closed = false })
 end
 end
+for _, b in (type(sd.loops) == "table" and sd.loops or {}) do
+local pts = type(b) == "table" and readPts(b) or {}
+if #pts >= 3 then
+table.insert(sp.branches, { pts = pts, closed = true })
+end
+end
 a.spline = sp
 end
 if a.cell > E.MASK_CELL and a.cell % E.MASK_CELL == 0 then
@@ -1887,9 +1893,11 @@ end
 end
 return pts
 end
-local br = {}
+local br, loops = {}, {}
 for _, b in sp.branches or {} do
-if #b.pts >= 2 then
+if b.closed and #b.pts >= 3 then
+table.insert(loops, pack(b.pts))
+elseif #b.pts >= 2 then
 table.insert(br, pack(b.pts))
 end
 end
@@ -1902,6 +1910,7 @@ width = sp.width,
 snap = sp.snap,
 walls = sp.walls,
 branches = #br > 0 and br or nil,
+loops = #loops > 0 and loops or nil,
 surface = sp.surface,
 })
 )
@@ -2114,6 +2123,36 @@ local function bezier(a, c1, c2, b, t)
 local u = 1 - t
 return a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t)
 end
+local function segment(sp, i)
+local pts, n = sp.pts, #sp.pts
+local closed = sp.closed and n >= 3
+local function cp(k)
+if closed then
+return pts[(k - 1) % n + 1].p
+end
+if k < 1 then
+return pts[1].p * 2 - pts[2].p
+end
+if k > n then
+return pts[n].p * 2 - pts[n - 1].p
+end
+return pts[k].p
+end
+local j = i % n + 1
+local a, b = pts[i], pts[j]
+if a.h or b.h then
+local c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
+local c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
+return function(t)
+return bezier(a.p, c1, c2, b.p, t)
+end, c1, c2
+end
+local p0, p1, p2 = a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1)
+local p3 = b.sharp and b.p * 2 - a.p or cp(i + 2)
+return function(t)
+return catmull(p0, p1, p2, p3, t)
+end
+end
 function E.splineCurve(sp, step)
 local pts = sp.pts
 local n = #pts
@@ -2128,36 +2167,16 @@ if n == 1 then
 return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }, { raised(pts[1]) }
 end
 local closed = sp.closed and n >= 3
-local function cp(i)
-if closed then
-return pts[(i - 1) % n + 1].p
-end
-if i < 1 then
-return pts[1].p * 2 - pts[2].p
-end
-if i > n then
-return pts[n].p * 2 - pts[n - 1].p
-end
-return pts[i].p
-end
 local segs = closed and n or n - 1
 for i = 1, segs do
 local j = i % n + 1
 local a, b = pts[i], pts[j]
 local steps = math.max(1, math.ceil((b.p - a.p).Magnitude / step))
-local c1, c2
-if a.h or b.h then
-c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
-c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
-end
+local at = segment(sp, i)
 local wa, wb, za, zb, ra, rb = a.w or 1, b.w or 1, a.s or 1, b.s or 1, raised(a), raised(b)
 for k = 0, steps - 1 do
 local t = k / steps
-if c1 then
-table.insert(P, bezier(a.p, c1, c2, b.p, t))
-else
-table.insert(P, catmull(a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1), b.sharp and b.p * 2 - a.p or cp(i + 2), t))
-end
+table.insert(P, at(t))
 local nn = a.n:Lerp(b.n, t)
 table.insert(U, nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis)
 table.insert(S, i)
@@ -2224,10 +2243,12 @@ end
 end
 return { P = P, U = U, W = W, Z = Z, R = R, snap = sp.snap, rp = rp }
 end
-function E.joinToPoint(sp, ref, target)
-if ref.cv == sp and target.cv == sp and #sp.pts >= 4 and ((ref.i == #sp.pts and target.i == 1) or (ref.i == 1 and target.i == #sp.pts)) then
-table.remove(sp.pts, ref.i)
-sp.closed = true
+function E.joinToPoint(_sp, ref, target)
+local cv = ref.cv
+local n = #cv.pts
+if target.cv == cv and not cv.closed and n >= 4 and ((ref.i == n and target.i == 1) or (ref.i == 1 and target.i == n)) then
+table.remove(cv.pts, ref.i)
+cv.closed = true
 return "closed"
 end
 local q, o = ref.cv.pts[ref.i], target.cv.pts[target.i]
@@ -2295,6 +2316,76 @@ end
 end
 return drop
 end
+function E.subdivide(cv)
+local pts, n = cv.pts, #cv.pts
+if n < 2 then
+return 0
+end
+local segs = (cv.closed and n >= 3) and n or n - 1
+local mids = {}
+for i = 1, segs do
+local at, c1, c2 = segment(cv, i)
+local a, b = pts[i], pts[i % n + 1]
+local nn = a.n + b.n
+local m = {
+p = at(0.5),
+n = nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis,
+sharp = (a.sharp and b.sharp) or nil,
+raised = (a.raised and b.raised) or nil,
+}
+for _, k in { "w", "s" } do
+local v = ((a[k] or 1) + (b[k] or 1)) / 2
+m[k] = math.abs(v - 1) > 1e-3 and v or nil
+end
+if c1 then
+m.h = ((c1 + c2) / 2 + (c2 + b.p) / 2) / 2 - m.p
+end
+mids[i] = m
+end
+for _, q in pts do
+if q.h then
+q.h /= 2
+end
+end
+for i = segs, 1, -1 do
+table.insert(pts, i + 1, mids[i])
+end
+return segs
+end
+E.SHAPES = {
+{ name = "Square", sides = 4 },
+{ name = "Rectangle", sides = 4 },
+{ name = "Triangle", sides = 3 },
+{ name = "Hexagon", sides = 6 },
+{ name = "Octagon", sides = 8 },
+{ name = "Circle", sides = 8, smooth = true },
+}
+function E.shapePoints(kind, a, b, free)
+local out = {}
+if kind == "Rectangle" then
+for _, c in { { a.X, a.Z }, { b.X, a.Z }, { b.X, b.Z }, { a.X, b.Z } } do
+table.insert(out, Vector3.new(c[1], a.Y, c[2]))
+end
+return out, false
+end
+local def
+for _, d in E.SHAPES do
+def = d.name == kind and d or def
+end
+def = def or E.SHAPES[1]
+local dx, dz = b.X - a.X, b.Z - a.Z
+local r = math.sqrt(dx * dx + dz * dz)
+local turn = math.atan2(dz, dx)
+if not free then
+local step = math.rad(15)
+turn = math.floor(turn / step + 0.5) * step
+end
+for k = 0, def.sides - 1 do
+local t = turn + k * 2 * math.pi / def.sides
+table.insert(out, Vector3.new(a.X + math.cos(t) * r, a.Y, a.Z + math.sin(t) * r))
+end
+return out, def.smooth == true
+end
 function E.splineCurves(sp)
 local list = {}
 if not sp then
@@ -2305,7 +2396,7 @@ table.insert(list, sp)
 end
 for _, b in sp.branches or {} do
 if #b.pts >= 2 then
-table.insert(list, { pts = b.pts, closed = false, snap = sp.snap, width = sp.width, walls = sp.walls })
+table.insert(list, { pts = b.pts, closed = b.closed == true, snap = sp.snap, width = sp.width, walls = sp.walls })
 end
 end
 return list

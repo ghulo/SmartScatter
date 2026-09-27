@@ -1321,7 +1321,7 @@ icon = "spline",
 tag = not isPath and "Optional" or nil,
 sub = drawn and (isPath and "Click to add more points, or drag one to move it" or "Objects set to follow it line it")
 or (isPath and "Click in the viewport to place points" or "A road, fence or row of lamps along a curve you draw"),
-keys = "draw path spline points corner branch loop clear",
+keys = "draw path spline points vertex corner branch loop clear shape preset square rectangle triangle hexagon octagon circle subdivide fence",
 build = App.buildDrawTools,
 })
 if isPath then
@@ -3259,7 +3259,7 @@ end
 if App.refreshFocus then
 App.refreshFocus()
 end
-for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshPoint", "refreshRemoveBtn" } do
+for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshShapes", "refreshPoint", "refreshRemoveBtn" } do
 if App.ui[k] then
 App.ui[k]()
 end
@@ -3526,7 +3526,7 @@ return n
 end
 local function curveOf(cv)
 local sp = App.area.spline
-return cv == sp and sp or { pts = cv.pts, closed = false }
+return cv == sp and sp or { pts = cv.pts, closed = cv.closed == true }
 end
 local function selectPt(ref)
 selPt = ref
@@ -3847,7 +3847,7 @@ if not sp or #sp.pts == 0 or not validPt(selPt) then
 return "append"
 end
 local cv, i = selPt.cv, selPt.i
-local open = cv ~= sp or not sp.closed or #sp.pts < 3
+local open = not cv.closed or #cv.pts < 3
 if open and i == #cv.pts then
 return "append"
 elseif open and cv == sp and i == 1 then
@@ -3871,14 +3871,22 @@ for k = 2, #P do
 len += (P[k] - P[k - 1]).Magnitude
 end
 end
-local n, nb = totalPoints(), #(sp.branches or {})
+local n, nb, nl = totalPoints(), 0, 0
+for _, b in sp.branches or {} do
+if b.closed then
+nl += 1
+else
+nb += 1
+end
+end
 App.ui.splineInfo.Text = string.format(
-"%d point%s · %s studs · %s%s%s",
+"%d point%s · %s studs · %s%s%s%s",
 n,
 n == 1 and "" or "s",
 num(len),
 (sp.closed and #sp.pts >= 3) and "loop" or "open",
 nb > 0 and string.format(" · %d branch%s", nb, nb == 1 and "" or "es") or "",
+nl > 0 and string.format(" · %d more loop%s", nl, nl == 1 and "" or "s") or "",
 (sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
 )
 end
@@ -3933,6 +3941,10 @@ setLabel(hit and text or "")
 end
 mouse.Move:Connect(function()
 if App.mode ~= "Spline" then
+return
+end
+if App.shapeTool then
+App.shapeMove()
 return
 end
 local sp = App.area and App.area.spline
@@ -4063,6 +4075,10 @@ mouse.Button1Down:Connect(function()
 if App.mode ~= "Spline" then
 return
 end
+if App.shapeTool then
+App.shapeDown()
+return
+end
 if hoverHandle and validPt(selPt) then
 dragHandle = hoverHandle
 dragRec = beginRec("Smart Scatter: Spline handle")
@@ -4126,7 +4142,7 @@ local sp = App.area.spline
 if snap.kind == "point" then
 local how = Engine.joinToPoint(sp, ref, snap.ref)
 if how == "closed" then
-selectPt({ cv = sp, i = 1 })
+selectPt({ cv = ref.cv, i = 1 })
 return "Closed the loop."
 end
 return how and "Joined. The two points now move together." or nil
@@ -4190,6 +4206,10 @@ App.status(joined)
 end
 end
 mouse.Button1Up:Connect(function()
+if App.mode == "Spline" and App.shapeTool then
+App.shapeUp()
+return
+end
 if App.mode == "Spline" and dragHandle then
 dragHandle = nil
 local rec = dragRec
@@ -4228,6 +4248,9 @@ updateHandles()
 end
 end)
 App.resetSplineDrag = function(cancel)
+if App.cancelShape then
+App.cancelShape()
+end
 local rec, moved = dragRec, dragMoved
 if drawing and App.area and not cancel then
 finishDrawing()
@@ -4249,6 +4272,9 @@ return
 end
 splineEdit("Spline", function()
 table.remove(ref.cv.pts, ref.i)
+if ref.cv ~= sp and #ref.cv.pts < 3 then
+ref.cv.closed = nil
+end
 if ref.cv ~= sp and #ref.cv.pts < 2 then
 table.remove(sp.branches, table.find(sp.branches, ref.cv))
 elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then
@@ -4359,6 +4385,8 @@ App.status("Select a point first, then press C for a sharp corner.")
 return
 end
 setSharp(ref, not ref.cv.pts[ref.i].sharp)
+elseif name == "cancel" and App.shapeTool then
+App.cancelShape()
 elseif name == "close" or name == "cancel" then
 selectPt(nil)
 App.setMode("Off")
@@ -4395,9 +4423,212 @@ if not (opts and opts.keepMode) then
 App.setMode("Spline")
 end
 end
+App.subdivideSpline = function()
+local sp = App.area and App.area.spline
+if not sp or totalPoints() < 2 then
+App.status("Draw a path or place a shape first, then subdivide it.")
+return
+end
+local list = validPt(selPt) and { selPt.cv } or editCurves()
+local added = 0
+splineEdit("Subdivide", function()
+for _, cv in list do
+if #cv.pts + #cv.pts <= 512 then
+added += Engine.subdivide(curveOf(cv))
+end
+end
+end)
+hoverPt = nil
+if validPt(selPt) then
+selectPt({ cv = selPt.cv, i = math.min(selPt.i * 2 - 1, #selPt.cv.pts) })
+end
+App.status(
+added > 0 and string.format("Added %d point%s, one halfway along each side.", added, added == 1 and "" or "s")
+or "That curve already has plenty of points."
+)
+end
 App.commitSplineFn = commitSpline
 App.ensureSplineFn = ensureSpline
+App.splinePointHit = pointHit
+App.splineLabel = splineLabel
+App.selectSplinePoint = selectPt
 App.removeSplineViz = removeSplineViz
+end
+end)()
+-- #module Viewport/Shapes
+MODULES["Viewport/Shapes"] = (function()
+--[[
+Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
+round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
+centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
+rectangle. The shape is a real closed curve of the path from the first move, so what shows while dragging is what
+you get, each corner on the ground under it. An empty path becomes the shape; otherwise it's a loop of its own in the
+same path (same width and objects). One shape per pick, then it's back to editing points, Blender style.
+The spline editor (Viewport/Spline) hands its mouse over while a shape is picked.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine, beginRec, endRec, rawMouse = App.Engine, App.beginRec, App.endRec, App.rawMouse
+local MIN = 2
+local placing
+App.shapeTool = nil
+local function refresh()
+if App.ui.refreshShapes then
+App.ui.refreshShapes()
+end
+if App.refreshFocus then
+App.refreshFocus()
+end
+end
+local function onPlane(y)
+local ray = rawMouse.UnitRay
+if ray.Direction.Y < -1e-3 then
+local t = (y - ray.Origin.Y) / ray.Direction.Y
+if t > 0 then
+return ray.Origin + ray.Direction * t
+end
+end
+local hit = App.splinePointHit()
+return hit and hit.Position
+end
+local function ground(v, up, reach)
+local hit = Engine.cast(v + Vector3.new(0, reach, 0), Vector3.new(0, -reach * 3 - 50, 0), App.probeParams)
+if hit then
+return hit.Position, hit.Normal
+end
+return v, up
+end
+local function fill(to, free)
+local pl = placing
+local corners, smooth = Engine.shapePoints(pl.kind, pl.from, to, free)
+local dx, dz = to.X - pl.from.X, to.Z - pl.from.Z
+local size = math.sqrt(dx * dx + dz * dz)
+local pts = pl.cv.pts
+table.clear(pts)
+for _, c in corners do
+local p, n = ground(c, pl.up, 10 + size * 0.6)
+table.insert(pts, { p = p, n = n, sharp = not smooth or nil })
+end
+pl.size = size
+pl.text = pl.kind == "Rectangle" and string.format("Rectangle · %s × %s studs", App.num(math.abs(dx)), App.num(math.abs(dz)))
+or string.format("%s · %s studs across", pl.kind, App.num(size * 2))
+end
+local function unplace(pl)
+local sp = App.area and App.area.spline
+if not sp then
+return
+end
+if pl.main then
+table.clear(sp.pts)
+sp.closed = pl.wasClosed
+else
+local i = table.find(sp.branches, pl.cv)
+if i then
+table.remove(sp.branches, i)
+end
+end
+end
+App.pickShape = function(kind)
+if App.shapeTool == kind then
+App.cancelShape()
+return
+end
+if App.mode ~= "Spline" then
+App.ensureSplineFn()
+App.setMode("Spline")
+if App.mode ~= "Spline" then
+return
+end
+end
+App.cancelShape()
+App.shapeTool = kind
+App.selectSplinePoint(nil)
+refresh()
+App.status(
+kind == "Rectangle" and "Drag from one corner of the rectangle to the opposite one."
+or string.format("Drag from the centre of the %s outward. It turns in 15° steps; hold Shift to turn freely.", string.lower(kind))
+)
+end
+App.shapeDown = function()
+local hit = App.splinePointHit()
+if not hit then
+return
+end
+local sp = App.ensureSplineFn()
+local main = #sp.pts == 0
+local cv = main and sp or { pts = {}, closed = true }
+placing = {
+kind = App.shapeTool,
+from = hit.Position,
+up = hit.Normal,
+cv = cv,
+main = main,
+wasClosed = sp.closed,
+rec = beginRec("Smart Scatter: " .. App.shapeTool),
+size = 0,
+}
+if main then
+sp.closed = true
+else
+table.insert(sp.branches, cv)
+end
+end
+App.shapeMove = function()
+if not placing then
+local hit = App.splinePointHit()
+App.splineLabel(
+hit,
+App.shapeTool == "Rectangle" and "Rectangle · drag from one corner to the other"
+or App.shapeTool .. " · drag from its centre outward"
+)
+return
+end
+local to = onPlane(placing.from.Y)
+if to then
+fill(to, App.shiftHeld())
+App.drawSpline()
+end
+App.splineLabel({ Position = to or placing.from }, placing.text or placing.kind)
+end
+App.shapeUp = function()
+local pl = placing
+placing = nil
+if not pl then
+return
+end
+if pl.size < MIN or #pl.cv.pts < 3 then
+unplace(pl)
+endRec(pl.rec, true)
+App.drawSpline()
+App.status("Hold and drag to size the shape.")
+return
+end
+App.shapeTool = nil
+App.selectSplinePoint({ cv = pl.cv, i = 1 })
+App.commitSplineFn(pl.rec)
+refresh()
+App.status(
+pl.kind
+.. " placed. Drag a corner to move it, click an edge to add a point, "
+.. App.keyText("delete")
+.. " deletes one, and Subdivide adds one on every side."
+)
+end
+App.cancelShape = function()
+local pl = placing
+placing = nil
+if pl then
+unplace(pl)
+endRec(pl.rec, true)
+if App.drawSpline then
+App.drawSpline()
+end
+end
+if App.shapeTool then
+App.shapeTool = nil
+refresh()
+end
+end
 end
 end)()
 -- #module Viewport/Focus
@@ -4435,6 +4666,10 @@ end
 if m == "Paint" or m == "Erase" then
 local erase = (m == "Erase") ~= (shift == true)
 return erase and "Erasing ground" or "Painting ground", on(G.tool, area), erase
+elseif m == "Spline" and App.shapeTool then
+return "Placing a " .. string.lower(App.shapeTool),
+on(App.shapeTool == "Rectangle" and "corner to corner" or "drag from the centre", area),
+false
 elseif m == "Spline" then
 return "Drawing the path", on(area), false
 elseif m == "Remove" then

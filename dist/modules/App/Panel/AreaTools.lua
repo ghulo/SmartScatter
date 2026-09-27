@@ -402,15 +402,48 @@ return function(App)
 		keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 		App.ui.splineInfo = para("", { Parent = parent })
 		App.refreshSplineInfo()
+
+		-- shape presets: pick one, then drag it out in the viewport (Viewport/Shapes)
+		label("SHAPES", 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+		local shapes = chipGrid(parent, 3, 28)
+		local looks = {}
+		for _, def in Engine.SHAPES do
+			local b, look = chip(shapes, def.name, function()
+				return App.shapeTool == def.name
+			end, function()
+				App.pickShape(def.name)
+			end)
+			hintOn(
+				b,
+				def.name == "Rectangle" and "Then drag from one corner to the opposite one."
+					or "Then drag from its centre outward. It turns in 15° steps; Shift turns it freely."
+			)
+			table.insert(looks, look)
+		end
+		App.ui.refreshShapes = function()
+			for _, look in looks do
+				look()
+			end
+		end
+
 		if hasPath() then
+			local acts = buttonRow(parent)
+			hintOn(
+				button("Subdivide", nil, function()
+					App.subdivideSpline()
+				end, { Parent = acts }),
+				"Like Blender's subdivide: adds a point halfway along every side of the selected point's curve (or of every curve), without changing its shape. Drag the new points to reshape it; click a side to add one point, "
+					.. App.keyText("delete")
+					.. " removes one."
+			)
 			local clearBtn = button("Clear path", "danger", function()
 				if not hasPath() then
 					return
 				end
 				App.clearSplineFn(beginRec("Smart Scatter: Clear spline"))
 				App.rebuildAll()
-			end, { Parent = buttonRow(parent) })
-			hintOn(clearBtn, "Removes every point and branch. Ctrl+Z brings them back.")
+			end, { Parent = acts })
+			hintOn(clearBtn, "Removes every point, branch and shape. Ctrl+Z brings them back.")
 		end
 
 		-- the selected point while drawing: its width, scale, corner and handles

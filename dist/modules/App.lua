@@ -30,6 +30,7 @@ local ORDER = {
 	"Viewport/Paint",
 	"Viewport/Grid",
 	"Viewport/Spline",
+	"Viewport/Shapes",
 	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",

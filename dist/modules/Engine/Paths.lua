@@ -8,7 +8,8 @@ return function(E, I)
 	-- Splines: a smooth 3D curve through clicked points (centripetal Catmull-Rom: no loops or overshoot).
 	-- a.spline = { pts = { { p = Vector3, n = Vector3, sharp = bool?, raised = bool? (Shift-lifted: kept off the ground), w = width x?, s = scale x?, h = handle Vector3? }, ... }, closed = bool, width = studs (0 = path only), snap = bool,
 	--   walls = bool (clicks may land on walls),
-	--   branches = { { pts = { ... } }, ... } }  -- extra open curves that sprout from a point of the network
+	--   branches = { { pts = { ... }, closed = bool? }, ... } }  -- extra curves: open ones sprout from a point of the network;
+	--   closed ones are loops of their own (a shape preset, or a branch whose end was dropped on its start)
 	--------------------------------------------------------------------------------
 	local function knot(t, a, b)
 		return t + math.max((b - a).Magnitude, 1e-4) ^ 0.5
@@ -47,6 +48,39 @@ return function(E, I)
 		local u = 1 - t
 		return a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t)
 	end
+	-- the stretch of curve from point i to the next, as a function of t (0-1); a Bezier also returns its two control
+	-- points (a hand-set handle on either end makes the stretch a Bezier; the other end keeps its automatic handle)
+	local function segment(sp, i)
+		local pts, n = sp.pts, #sp.pts
+		local closed = sp.closed and n >= 3
+		local function cp(k)
+			if closed then
+				return pts[(k - 1) % n + 1].p
+			end
+			if k < 1 then
+				return pts[1].p * 2 - pts[2].p
+			end
+			if k > n then
+				return pts[n].p * 2 - pts[n - 1].p
+			end
+			return pts[k].p
+		end
+		local j = i % n + 1
+		local a, b = pts[i], pts[j]
+		if a.h or b.h then
+			local c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
+			local c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
+			return function(t)
+				return bezier(a.p, c1, c2, b.p, t)
+			end, c1, c2
+		end
+		-- a sharp point pins its neighbour tangent: the curve runs straight into and out of the corner
+		local p0, p1, p2 = a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1)
+		local p3 = b.sharp and b.p * 2 - a.p or cp(i + 2)
+		return function(t)
+			return catmull(p0, p1, p2, p3, t)
+		end
+	end
 
 	-- dense polyline of the curve: P (positions), U (interpolated up/normal), S (control segment of each sample),
 	-- W and Z (per-point width and scale multipliers, eased between points), R (how raised, 0-1, eased between points)
@@ -64,38 +98,16 @@ return function(E, I)
 			return { pts[1].p }, { pts[1].n }, { 1 }, { pts[1].w or 1 }, { pts[1].s or 1 }, { raised(pts[1]) }
 		end
 		local closed = sp.closed and n >= 3
-		local function cp(i)
-			if closed then
-				return pts[(i - 1) % n + 1].p
-			end
-			if i < 1 then
-				return pts[1].p * 2 - pts[2].p
-			end
-			if i > n then
-				return pts[n].p * 2 - pts[n - 1].p
-			end
-			return pts[i].p
-		end
 		local segs = closed and n or n - 1
 		for i = 1, segs do
 			local j = i % n + 1
 			local a, b = pts[i], pts[j]
 			local steps = math.max(1, math.ceil((b.p - a.p).Magnitude / step))
-			-- a hand-set handle on either end makes this a Bezier segment (the other end keeps its automatic handle)
-			local c1, c2
-			if a.h or b.h then
-				c1 = a.p + (a.h or (a.sharp and Vector3.zero or E.autoHandle(sp, i)))
-				c2 = b.p - (b.h or (b.sharp and Vector3.zero or E.autoHandle(sp, j)))
-			end
+			local at = segment(sp, i)
 			local wa, wb, za, zb, ra, rb = a.w or 1, b.w or 1, a.s or 1, b.s or 1, raised(a), raised(b)
 			for k = 0, steps - 1 do
 				local t = k / steps
-				if c1 then
-					table.insert(P, bezier(a.p, c1, c2, b.p, t))
-				else
-					-- a sharp point pins its neighbour tangent: the curve runs straight into and out of the corner
-					table.insert(P, catmull(a.sharp and a.p * 2 - b.p or cp(i - 1), cp(i), cp(i + 1), b.sharp and b.p * 2 - a.p or cp(i + 2), t))
-				end
+				table.insert(P, at(t))
 				local nn = a.n:Lerp(b.n, t)
 				table.insert(U, nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis)
 				table.insert(S, i)
@@ -176,12 +188,14 @@ return function(E, I)
 
 	-- ── spline editing: plain data operations, used by the editor and checked by the test suite ──
 	-- point ref = { cv = curve, i = index }. Dropping a point on another point joins them: they share a position from
-	-- then on (and move together). The main curve's end dropped on its own start closes the loop instead.
+	-- then on (and move together). A curve's end dropped on its own start closes it into a loop instead.
 	-- Returns "closed" or "joined".
-	function E.joinToPoint(sp, ref, target)
-		if ref.cv == sp and target.cv == sp and #sp.pts >= 4 and ((ref.i == #sp.pts and target.i == 1) or (ref.i == 1 and target.i == #sp.pts)) then
-			table.remove(sp.pts, ref.i)
-			sp.closed = true
+	function E.joinToPoint(_sp, ref, target)
+		local cv = ref.cv
+		local n = #cv.pts
+		if target.cv == cv and not cv.closed and n >= 4 and ((ref.i == n and target.i == 1) or (ref.i == 1 and target.i == n)) then
+			table.remove(cv.pts, ref.i)
+			cv.closed = true
 			return "closed"
 		end
 		local q, o = ref.cv.pts[ref.i], target.cv.pts[target.i]
@@ -256,6 +270,85 @@ return function(E, I)
 		return drop
 	end
 
+	-- Blender's subdivide: a new point halfway along every stretch of the curve, on the curve, so its shape stays the
+	-- same (straight stretches between two sharp corners stay straight; bent Bezier stretches split exactly). The new
+	-- points take the mean width and scale of their neighbours. Returns how many were added.
+	function E.subdivide(cv)
+		local pts, n = cv.pts, #cv.pts
+		if n < 2 then
+			return 0
+		end
+		local segs = (cv.closed and n >= 3) and n or n - 1
+		local mids = {}
+		for i = 1, segs do
+			local at, c1, c2 = segment(cv, i)
+			local a, b = pts[i], pts[i % n + 1]
+			local nn = a.n + b.n
+			local m = {
+				p = at(0.5),
+				n = nn.Magnitude > 1e-4 and nn.Unit or Vector3.yAxis,
+				sharp = (a.sharp and b.sharp) or nil,
+				raised = (a.raised and b.raised) or nil,
+			}
+			for _, k in { "w", "s" } do
+				local v = ((a[k] or 1) + (b[k] or 1)) / 2
+				m[k] = math.abs(v - 1) > 1e-3 and v or nil
+			end
+			if c1 then -- (de Casteljau: each half is a Bezier, its outer handles half as long)
+				m.h = ((c1 + c2) / 2 + (c2 + b.p) / 2) / 2 - m.p
+			end
+			mids[i] = m
+		end
+		for _, q in pts do
+			if q.h then
+				q.h /= 2
+			end
+		end
+		for i = segs, 1, -1 do
+			table.insert(pts, i + 1, mids[i])
+		end
+		return segs
+	end
+
+	-- shape presets for paths: a closed loop dropped in one drag (a fenced field, a ring road, a plaza)
+	E.SHAPES = {
+		{ name = "Square", sides = 4 },
+		{ name = "Rectangle", sides = 4 },
+		{ name = "Triangle", sides = 3 },
+		{ name = "Hexagon", sides = 6 },
+		{ name = "Octagon", sides = 8 },
+		{ name = "Circle", sides = 8, smooth = true },
+	}
+	-- a shape's corners, flat at a's height. From its centre a out to b: a corner sits under b, and the turn snaps to
+	-- 15° steps unless free. The rectangle goes corner to corner instead, along the world's axes. Returns the points
+	-- and whether they're smooth (the circle) rather than sharp corners.
+	function E.shapePoints(kind, a, b, free)
+		local out = {}
+		if kind == "Rectangle" then
+			for _, c in { { a.X, a.Z }, { b.X, a.Z }, { b.X, b.Z }, { a.X, b.Z } } do
+				table.insert(out, Vector3.new(c[1], a.Y, c[2]))
+			end
+			return out, false
+		end
+		local def
+		for _, d in E.SHAPES do
+			def = d.name == kind and d or def
+		end
+		def = def or E.SHAPES[1]
+		local dx, dz = b.X - a.X, b.Z - a.Z
+		local r = math.sqrt(dx * dx + dz * dz)
+		local turn = math.atan2(dz, dx)
+		if not free then
+			local step = math.rad(15)
+			turn = math.floor(turn / step + 0.5) * step
+		end
+		for k = 0, def.sides - 1 do
+			local t = turn + k * 2 * math.pi / def.sides
+			table.insert(out, Vector3.new(a.X + math.cos(t) * r, a.Y, a.Z + math.sin(t) * r))
+		end
+		return out, def.smooth == true
+	end
+
 	-- every drawable curve of a spline network: the main curve, then its branches (each shares the network's settings)
 	function E.splineCurves(sp)
 		local list = {}
@@ -267,7 +360,7 @@ return function(E, I)
 		end
 		for _, b in sp.branches or {} do
 			if #b.pts >= 2 then
-				table.insert(list, { pts = b.pts, closed = false, snap = sp.snap, width = sp.width, walls = sp.walls })
+				table.insert(list, { pts = b.pts, closed = b.closed == true, snap = sp.snap, width = sp.width, walls = sp.walls })
 			end
 		end
 		return list
