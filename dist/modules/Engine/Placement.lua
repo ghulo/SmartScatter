@@ -695,7 +695,7 @@ return function(E, I)
 	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below,
 	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules),
 	--   exact = true for a stamp (Engine/Pins: its spot, turn, size and model are given, and no rule moves or refuses
-	--   it; only the ground sets its height), dry = true to only work out where it would stand (the stamp's preview) }
+	--   it; only the ground sets its height) }
 	local function placeAt(ctx, l, i, x, z, rng, g)
 		g = g or {}
 		local v = g.v or pickVariant(l, rng)
@@ -923,14 +923,10 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		if g.dry then
-			return { cf = cf, sc = sc, sink = sink, v = v }
-		end
-		local made = emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
-		if not made then
+		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
 			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
 		end
-		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil, clone = made }
+		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 	end
 
 	local function place(ctx, l, i, rng, gid)

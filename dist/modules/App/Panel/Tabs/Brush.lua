@@ -121,6 +121,14 @@ return function(App)
 			})
 			App.ui.step1Card = card
 		end
+		cs.add({
+			id = "stamp",
+			title = "Stamp",
+			icon = "stamp",
+			sub = "One model, exactly where you click: no area needed",
+			keys = "stamp single one copy model place put rotate turn size anywhere",
+			build = App.buildStampCard,
+		})
 		if a and kind ~= "Clear" then
 			if kind ~= "Path" then
 				cs.add({

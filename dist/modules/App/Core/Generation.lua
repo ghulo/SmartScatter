@@ -408,7 +408,7 @@ return function(App)
 		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
 		App.paintLayer = nil
 		App.countPlaced()
-		if App.setMode and App.mode ~= "Off" and (not App.area or App.area.locked) then
+		if App.setMode and App.mode ~= "Off" and App.mode ~= "Stamp" and (not App.area or App.area.locked) then
 			App.setMode("Off") -- nothing to paint on, or not allowed to
 		end
 		rebuildOverlay(true)

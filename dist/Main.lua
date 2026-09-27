@@ -80,6 +80,7 @@ accent = "Sage",
 keys = {},
 liveBoxes = true,
 stampRandom = false,
+stampAlign = false,
 recent = {},
 tool = "Brush",
 shape = "Circle",
@@ -230,10 +231,10 @@ end
 App.analysisDirty = true
 App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.mode = "Off"
-local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
-App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
-App.LAYER_LABEL = { Place = "Spray", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
-App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
+local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
+App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 local function num(n)
 local str = tostring(math.floor(n + 0.5))
 return (str:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
@@ -2666,7 +2667,7 @@ App.expanded = nil
 App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
 App.paintLayer = nil
 App.countPlaced()
-if App.setMode and App.mode ~= "Off" and (not App.area or App.area.locked) then
+if App.setMode and App.mode ~= "Off" and App.mode ~= "Stamp" and (not App.area or App.area.locked) then
 App.setMode("Off")
 end
 rebuildOverlay(true)
@@ -5602,6 +5603,132 @@ return liveBox(parent, fillRemoveCopies)
 end
 end
 end)()
+-- #module Panel/StampTools
+MODULES["Panel/StampTools"] = (function()
+--[[
+Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
+needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
+area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
+each stamp, and its keys. The object's own Stamp button (Panel/HandTools) starts the same tool.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, saveG, P = App.G, App.saveG, App.P
+local col, vlist, para = App.col, App.vlist, App.para
+local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
+App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
+local key = App.keyText
+local function controls(parent, rebuild)
+local st = App.stamp
+if #st.models > 1 then
+local grid = chipGrid(parent, 3, 28)
+for i, inst in st.models do
+chip(grid, inst.Name, function()
+return st.vi == i
+end, function()
+App.setStamp(nil, nil, i)
+rebuild()
+end)
+end
+end
+slider("Turn", 0, 359, function()
+return math.floor(math.deg(st.yaw) + 0.5) % 360
+end, function(v)
+App.setStamp(v)
+end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
+parent
+slider("Size", 0.1, 5, function()
+return st.k
+end, function(v)
+App.setStamp(nil, v)
+end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
+parent
+switchRow("Stand along the surface", function()
+return G.stampAlign
+end, function(v)
+G.stampAlign = v
+end, saveG, "On: it leans with slopes and can go on walls. Off: it stands upright, settled on the lowest ground under it.").Parent =
+parent
+switchRow("A random one after each stamp", function()
+return G.stampRandom
+end, function(v)
+G.stampRandom = v
+end, saveG, "After each stamp the next gets a random turn, a size a little either side of the one set, and a random model of these.").Parent =
+parent
+local acts = buttonRow(parent)
+hintOn(
+button("Random now", nil, App.rollStamp, { Parent = acts }),
+"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+)
+button("Stop stamping", nil, function()
+App.setMode("Off")
+end, { Parent = acts })
+App.keyChips(parent, {
+{ key("turn"), "turn" },
+{ "Shift", "turn freely" },
+{ key("shrink") .. " " .. key("grow"), "size" },
+{ key("model"), "model" },
+{ key("shuffle"), "random" },
+{ key("cancel"), "stop" },
+})
+end
+App.stampControls = controls
+App.stampViews = {}
+App.refreshStamp = function()
+for _, f in App.stampViews do
+f()
+end
+end
+App.buildStampCard = function(b)
+local box = col({ Parent = b }, { vlist(6) })
+local function build()
+for _, c in box:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+if App.mode == "Stamp" then
+local inst = App.stamp.models[App.stamp.vi]
+local head = para(
+string.format(
+"Stamping %s. Click the ground to put it down, press and drag to turn it. Stamps go in Workspace › Stamps.",
+inst and inst.Name or "?"
+),
+{ Parent = box }
+)
+head.TextColor3 = P.text
+controls(box, build)
+return
+end
+App.explain(
+box,
+"One model, exactly where you click, anywhere on the ground: no area needed. Select a model (or a folder of them) in the Explorer, then:"
+)
+local go = App.primaryButton("Stamp selected models", function()
+App.startStamp()
+end)
+go.Parent = buttonRow(box)
+hintOn(go, "The selected models float under the mouse; click to put one down. Pick up where you left off with no selection.")
+local a = App.area
+if a and #a.layers > 0 then
+App.label("OR ONE OF THIS AREA'S OBJECTS", 11, P.faint, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
+local grid = chipGrid(box, 3, 28)
+for _, l in a.layers do
+chip(grid, l.inst.Name, nil, function()
+App.startStamp(l)
+end)
+end
+end
+end
+build()
+App.stampViews.card = function()
+if box.Parent then
+build()
+end
+end
+end
+end
+end)()
 -- #module Panel/HandTools
 MODULES["Panel/HandTools"] = (function()
 --[[
@@ -5639,7 +5766,7 @@ TOOL[t.mode] = t
 end
 end
 local HOW = {
-Stamp = "Click the ground to put one copy down, exactly as it shows under the mouse. Press and drag to turn it toward the mouse.",
+Stamp = "Click the ground to put one of its models down, exactly as it shows under the mouse, anywhere: stamps are plain models in Workspace › Stamps. Press and drag to turn it.",
 Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
 More = "Brush where you want it thicker, up to three times as much.",
 Less = "Brush where you want it thinner. Twice over clears it.",
@@ -5655,44 +5782,9 @@ G.radius = v
 end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. key("size") .. " sizes it with the mouse.", 24).Parent =
 parent
 end
-local function stampControls(l, parent, rebuild)
-local st = App.stamp
-slider("Turn", 0, 359, function()
-return math.floor(math.deg(st.yaw) + 0.5) % 360
-end, function(v)
-App.setStamp(v)
-end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
-parent
-slider("Size", 0.1, 5, function()
-return st.k
-end, function(v)
-App.setStamp(nil, v)
-end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
-parent
-if #l.variants > 1 then
-local grid = chipGrid(parent, 3, 28)
-for i, v in l.variants do
-chip(grid, v.inst.Name, function()
-return st.vi == i
-end, function()
-App.setStamp(nil, nil, i)
-rebuild()
-end)
-end
-end
-switchRow("A random one after each stamp", function()
-return G.stampRandom
-end, function(v)
-G.stampRandom = v
-end, saveG, "After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety.").Parent =
-parent
-hintOn(
-button("Random now", nil, App.rollStamp, { Parent = buttonRow(parent) }),
-"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-)
-end
 local function toolPanel(l, parent, rebuild)
-local m = App.paintLayer == l and App.mode or nil
+local stamping = App.mode == "Stamp" and App.stamp.from == l
+local m = stamping and "Stamp" or (App.paintLayer == l and App.mode or nil)
 local t = m and TOOL[m]
 if not t then
 local hint = para("Pick a tool, then work in the viewport. Esc stops.", { Parent = parent })
@@ -5722,15 +5814,7 @@ Parent = head,
 local how = para(HOW[m], { Parent = card })
 how.TextColor3 = P.text
 if m == "Stamp" then
-stampControls(l, card, rebuild)
-App.keyChips(card, {
-{ key("turn"), "turn" },
-{ "Shift", SHIFT[m] },
-{ key("shrink") .. " " .. key("grow"), "size" },
-{ key("model"), "model" },
-{ key("shuffle"), "random" },
-{ key("cancel"), "stop" },
-})
+App.stampControls(card, rebuild)
 else
 brushSize(card)
 App.keyChips(card, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
@@ -5788,10 +5872,19 @@ color = t.danger and P.danger or nil,
 tinted = t.danger,
 hint = HOW[t.mode],
 on = function()
+if t.mode == "Stamp" then
+return App.mode == "Stamp" and App.stamp.from == l
+end
 return App.paintLayer == l and App.mode == t.mode
 end,
 click = function()
+if t.mode ~= "Stamp" then
 App.setMode(t.mode, l)
+elseif App.mode == "Stamp" and App.stamp.from == l then
+App.setMode("Off")
+else
+App.startStamp(l)
+end
 end,
 })
 end
@@ -5807,7 +5900,11 @@ end
 toolPanel(l, panel, buildPanel)
 end
 buildPanel()
-App.ui.refreshStamp = buildPanel
+App.stampViews.hand = function()
+if panel.Parent then
+buildPanel()
+end
+end
 App.ui.refreshLayerBrush = function()
 for _, tiles in groups do
 tiles.refresh()
@@ -5864,6 +5961,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/StampTools",
 	"Panel/HandTools",
 	"Panel/MapTools",
 	"Panel/Tabs/Scatter",

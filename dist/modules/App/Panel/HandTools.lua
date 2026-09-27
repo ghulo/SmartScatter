@@ -37,7 +37,7 @@ return function(App)
 	end
 	-- how to use each one, said in the panel while it's picked (and on its tile when hovered)
 	local HOW = {
-		Stamp = "Click the ground to put one copy down, exactly as it shows under the mouse. Press and drag to turn it toward the mouse.",
+		Stamp = "Click the ground to put one of its models down, exactly as it shows under the mouse, anywhere: stamps are plain models in Workspace › Stamps. Press and drag to turn it.",
 		Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
 		More = "Brush where you want it thicker, up to three times as much.",
 		Less = "Brush where you want it thinner. Twice over clears it.",
@@ -56,47 +56,10 @@ return function(App)
 			parent
 	end
 
-	-- the stamp's settings: its turn, size and model (the keys in the viewport do the same)
-	local function stampControls(l, parent, rebuild)
-		local st = App.stamp
-		slider("Turn", 0, 359, function()
-			return math.floor(math.deg(st.yaw) + 0.5) % 360
-		end, function(v)
-			App.setStamp(v)
-		end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
-			parent
-		slider("Size", 0.1, 5, function()
-			return st.k
-		end, function(v)
-			App.setStamp(nil, v)
-		end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
-			parent
-		if #l.variants > 1 then
-			local grid = chipGrid(parent, 3, 28)
-			for i, v in l.variants do
-				chip(grid, v.inst.Name, function()
-					return st.vi == i
-				end, function()
-					App.setStamp(nil, nil, i)
-					rebuild()
-				end)
-			end
-		end
-		switchRow("A random one after each stamp", function()
-			return G.stampRandom
-		end, function(v)
-			G.stampRandom = v
-		end, saveG, "After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety.").Parent =
-			parent
-		hintOn(
-			button("Random now", nil, App.rollStamp, { Parent = buttonRow(parent) }),
-			"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-		)
-	end
-
 	-- the picked tool's panel: its name, how it works, its settings, its keys
 	local function toolPanel(l, parent, rebuild)
-		local m = App.paintLayer == l and App.mode or nil
+		local stamping = App.mode == "Stamp" and App.stamp.from == l -- (the stamp is its own tool, started from here)
+		local m = stamping and "Stamp" or (App.paintLayer == l and App.mode or nil)
 		local t = m and TOOL[m]
 		if not t then
 			local hint = para("Pick a tool, then work in the viewport. Esc stops.", { Parent = parent })
@@ -126,15 +89,7 @@ return function(App)
 		local how = para(HOW[m], { Parent = card })
 		how.TextColor3 = P.text
 		if m == "Stamp" then
-			stampControls(l, card, rebuild)
-			App.keyChips(card, {
-				{ key("turn"), "turn" },
-				{ "Shift", SHIFT[m] },
-				{ key("shrink") .. " " .. key("grow"), "size" },
-				{ key("model"), "model" },
-				{ key("shuffle"), "random" },
-				{ key("cancel"), "stop" },
-			})
+			App.stampControls(card, rebuild)
 		else
 			brushSize(card)
 			App.keyChips(card, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
@@ -195,10 +150,19 @@ return function(App)
 							tinted = t.danger,
 							hint = HOW[t.mode],
 							on = function()
+								if t.mode == "Stamp" then
+									return App.mode == "Stamp" and App.stamp.from == l
+								end
 								return App.paintLayer == l and App.mode == t.mode
 							end,
 							click = function()
-								App.setMode(t.mode, l)
+								if t.mode ~= "Stamp" then
+									App.setMode(t.mode, l)
+								elseif App.mode == "Stamp" and App.stamp.from == l then
+									App.setMode("Off")
+								else
+									App.startStamp(l) -- (its models, stamped anywhere: the stamp is no area's)
+								end
 							end,
 						})
 					end
@@ -214,7 +178,11 @@ return function(App)
 					toolPanel(l, panel, buildPanel)
 				end
 				buildPanel()
-				App.ui.refreshStamp = buildPanel
+				App.stampViews.hand = function()
+					if panel.Parent then
+						buildPanel()
+					end
+				end
 				App.ui.refreshLayerBrush = function()
 					for _, tiles in groups do
 						tiles.refresh()

@@ -1,10 +1,10 @@
 {
- "version": "9.77",
- "build": 141,
+ "version": "9.78",
+ "build": 142,
  "modules": {
   "App": {
    "path": "modules/App.lua",
-   "sum": 522396251
+   "sum": 266894173
   },
   "App/Core/Cards": {
    "path": "modules/App/Core/Cards.lua",
@@ -12,7 +12,7 @@
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
-   "sum": 295837523
+   "sum": 551804887
   },
   "App/Core/History": {
    "path": "modules/App/Core/History.lua",
@@ -28,7 +28,7 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 193925340
+   "sum": 564987547
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
@@ -36,7 +36,7 @@
   },
   "App/Panel/HandTools": {
    "path": "modules/App/Panel/HandTools.lua",
-   "sum": 658048314
+   "sum": 29023580
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
@@ -52,15 +52,19 @@
   },
   "App/Panel/Palette": {
    "path": "modules/App/Panel/Palette.lua",
-   "sum": 421862250
+   "sum": 890363772
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
    "sum": 290956727
   },
+  "App/Panel/StampTools": {
+   "path": "modules/App/Panel/StampTools.lua",
+   "sum": 690741416
+  },
   "App/Panel/Tabs/Brush": {
    "path": "modules/App/Panel/Tabs/Brush.lua",
-   "sum": 515254854
+   "sum": 149779909
   },
   "App/Panel/Tabs/Map": {
    "path": "modules/App/Panel/Tabs/Map.lua",
@@ -80,7 +84,7 @@
   },
   "App/Viewport/Focus": {
    "path": "modules/App/Viewport/Focus.lua",
-   "sum": 492153757
+   "sum": 354122098
   },
   "App/Viewport/Grid": {
    "path": "modules/App/Viewport/Grid.lua",
@@ -92,7 +96,7 @@
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 122829982
+   "sum": 151541779
   },
   "App/Viewport/Shapes": {
    "path": "modules/App/Viewport/Shapes.lua",
@@ -104,11 +108,11 @@
   },
   "App/Viewport/Stamp": {
    "path": "modules/App/Viewport/Stamp.lua",
-   "sum": 820866121
+   "sum": 341257699
   },
   "App/Viewport/Toolbar": {
    "path": "modules/App/Viewport/Toolbar.lua",
-   "sum": 908994744
+   "sum": 405680898
   },
   "Engine": {
    "path": "modules/Engine.lua",
@@ -144,11 +148,11 @@
   },
   "Engine/Pins": {
    "path": "modules/Engine/Pins.lua",
-   "sum": 467536823
+   "sum": 977506350
   },
   "Engine/Placement": {
    "path": "modules/Engine/Placement.lua",
-   "sum": 86637725
+   "sum": 912637804
   },
   "Engine/Planning": {
    "path": "modules/Engine/Planning.lua",

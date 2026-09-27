@@ -38,7 +38,6 @@ return function(App)
 	}
 	local TOOL_ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 	local HAND = { -- the one-object tools, as actions per object
-		{ "Stamp", "Stamp", "stamp", "one copy single place rotate turn" },
 		{ "Place", "Spray", "spray", "place pins copies brush" },
 		{ "More", "More", "plus", "thicker paint" },
 		{ "Less", "Less", "minus", "thinner paint" },
@@ -206,6 +205,16 @@ return function(App)
 						App.showObject(l)
 					end,
 				})
+				add({ -- (the stamp is no area's: any of its models, anywhere)
+					id = "stamp:" .. name,
+					name = "Stamp " .. name,
+					group = "By hand",
+					icon = "stamp",
+					words = "one copy single place rotate turn model",
+					run = function()
+						App.startStamp(l)
+					end,
+				})
 				if open and kind ~= "Path" and not (Engine.isLine(l) and l.s.follow == "Spline") then
 					for _, h in HAND do
 						add({
@@ -234,6 +243,20 @@ return function(App)
 				})
 			end
 		end
+		add({
+			id = "stampsel",
+			name = App.mode == "Stamp" and "Stop stamping" or "Stamp the selected models",
+			group = "By hand",
+			icon = "stamp",
+			words = "one copy single place model anywhere",
+			run = function()
+				if App.mode == "Stamp" then
+					App.setMode("Off")
+				else
+					App.startStamp()
+				end
+			end,
+		})
 		-- Path
 		if open and kind ~= "Clear" then
 			add({

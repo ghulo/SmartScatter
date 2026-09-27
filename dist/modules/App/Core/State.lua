@@ -85,6 +85,7 @@ return function(App)
 		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
 		liveBoxes = true, -- Live previews as see-through boxes (one per copy) until Generate places the real models
 		stampRandom = false, -- the stamp rolls a new random turn, size and model after each one
+		stampAlign = false, -- a stamp stands along the surface it's on (slopes, walls) instead of upright
 		recent = {}, -- the search menu's last actions, newest first (Panel/Palette)
 		tool = "Brush",
 		shape = "Circle",
@@ -251,15 +252,14 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" (Spray) | "Stamp" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
-	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand,
-	-- "stamp" puts one copy down exactly as shown (Viewport/Stamp)
-	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
-	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground; a
-	-- stamp's Shift turns it freely instead)
-	App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
-	App.LAYER_LABEL = { Place = "Spray", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
-	App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" (Spray) | "More" | "Less" | "None" | "Clear" (one layer) ·
+	--   "Stamp" (any model, no area: Viewport/Stamp) · "Spline" · "Remove" · "Off"
+	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
+	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
+	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
+	App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+	App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)

@@ -729,10 +729,8 @@ return function(App)
 			end
 			return
 		end
-		if App.mode == "Stamp" then
-			if App.area and not App.area.locked then
-				App.stampDown()
-			end
+		if App.mode == "Stamp" then -- (anywhere: a stamp needs no area)
+			App.stampDown()
 			return
 		end
 		if App.clickSplinePoint and App.clickSplinePoint() then -- clicked a spline point: edit it instead of painting
@@ -1032,7 +1030,7 @@ return function(App)
 		if m == App.mode and (not LAYER_MODES[m] or layer == App.paintLayer) then
 			m = "Off"
 		end
-		if m ~= "Off" and App.area and App.area.locked then
+		if m ~= "Off" and m ~= "Stamp" and App.area and App.area.locked then -- (a stamp is no area's)
 			App.status("This area is locked. Unlock it in the area menu to paint or edit.")
 			m = "Off"
 		end
@@ -1041,7 +1039,7 @@ return function(App)
 			m = "Off"
 		end
 		stopGestures()
-		if m ~= "Off" and not App.area then -- painting needs an area, drawing a path needs a path
+		if m ~= "Off" and m ~= "Stamp" and not App.area then -- painting needs an area, drawing a path needs a path
 			if m == "Spline" then
 				App.newSplineFn({ keepMode = true })
 			else

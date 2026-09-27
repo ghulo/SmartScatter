@@ -3911,14 +3911,10 @@ end
 end
 end
 local sink = base and 0 or s.sink * m.size.Y * sc
-if g.dry then
-return { cf = cf, sc = sc, sink = sink, v = v }
-end
-local made = emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
-if not made then
+if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
 return nil
 end
-return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil, clone = made }
+return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 end
 local function place(ctx, l, i, rng, gid)
 local an = ctx.an
@@ -5000,12 +4996,12 @@ Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Ea
 (l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
 A pin's seed picks its model, size and turn, so it looks the same every time.
-A stamp is a pin that also says its turn, size and model ({ x, z, seed, yaw, size, model }): the stamp tool puts it
-exactly as shown, and no rule moves or refuses it; only the ground under it sets its height.
+A stamp (from 9.70 to 9.77, when stamps belonged to an area) is a pin that also says its turn, size and model
+({ x, z, seed, yaw, size, model }): it's put exactly so, no rule moves or refuses it; only the ground sets its height.
+Saved ones keep coming back; the stamp tool now makes plain models of its own (App's Viewport/Stamp).
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
 return function(E, I)
-local Hash = I.Hash
 local placeAt = I.placeAt
 local scaleRange = I.scaleRange
 local function pinSpacing(l)
@@ -5092,36 +5088,6 @@ return { pin = true }
 end
 local v = l.variants[p[6]] or l.variants[1]
 return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
-end
-local function stampCtx(a, an)
-return { an = an, area = a, seed = a.seed, hash = Hash.new(), parts = 0, clear = E.clearZones(a.folder) }
-end
-function E.stampPose(a, an, l, p)
-local g = pinG(l, p)
-g.dry = true
-return placeAt(stampCtx(a, an), l, nil, p[1], p[2], Random.new(p[3]), g)
-end
-function E.placeStamp(a, an, l, p, output)
-E.ensureFolder(a)
-local key, folder = E.layerKey(l), nil
-for _, f in a.folder:GetChildren() do
-if f:GetAttribute("SS_Key") == key then
-folder = f
-end
-end
-if not folder then
-folder = Instance.new("Folder")
-folder.Name = l.inst.Name
-folder:SetAttribute("SS_Key", key)
-folder.Parent = a.folder
-end
-local ctx = stampCtx(a, an)
-ctx.output = output
-ctx.parentFor = function()
-return folder
-end
-local out = placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p))
-return out and out.clone
 end
 function I.placePins(ctx, l, wanted)
 local n = 0
