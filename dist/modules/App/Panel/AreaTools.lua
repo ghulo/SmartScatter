@@ -25,21 +25,23 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- Scatter area, step 1: the tools that mark ground (inside the step card)
 	--------------------------------------------------------------------------------
-	-- the overlay's colours and what they mean (App.overlayLegend), as small swatches with a line each
+	-- the overlay's colours and what they mean (App.overlayLegend): a compact key, a swatch and a word or two each, in
+	-- two columns; the whole sentence shows on hover
 	local function legend(parent, which)
-		local list = col({ Parent = parent }, { vlist(3) })
+		local grid = chipGrid(parent, 2, 18, 120)
 		for _, e in App.overlayLegend(which) do
-			local row = box({ Size = UDim2.new(1, 0, 0, 16), Parent = list })
+			local cell = box({ Parent = grid })
 			box({
 				BackgroundTransparency = 0,
 				BackgroundColor3 = e[1],
-				Position = UDim2.fromOffset(0, 3),
+				Position = UDim2.fromOffset(0, 4),
 				Size = UDim2.fromOffset(10, 10),
-				Parent = row,
+				Parent = cell,
 			}, { corner(3) })
-			label(e[3], 11, P.dim, SANS, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = row })
+			label(e[2], 11, P.dim, SANS, { Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -16, 1, 0), Parent = cell })
+			hintOn(cell, e[3])
 		end
-		return list
+		return grid
 	end
 	App.overlayLegendRows = legend
 
@@ -62,7 +64,7 @@ return function(App)
 
 	local function buildPaintTools(parent)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-		local tiles = App.toolTiles(parent, 3, 36)
+		local tiles = App.toolTiles(parent, 3, 36, 88)
 		for _, t in TOOLS do
 			tiles.add({
 				icon = ICON[t],
@@ -763,13 +765,13 @@ return function(App)
 			{
 				{ "Shape", "Paint the ground, or draw a path." },
 				{ "Objects", "Pick models from the Explorer." },
-				{ "Generate", "Everything is placed, and updates as you tweak." },
+				{ "Generate", "Press it and everything is placed." },
 			}
 		do
-			local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+			local row = box({ Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Parent = parent }, { pad(0, 0, 6, 6) })
 			local n = label(tostring(i), 10, P.faint, SANS_B, {
 				Size = UDim2.fromOffset(16, 16),
-				Position = UDim2.fromOffset(0, 7),
+				Position = UDim2.fromOffset(0, 1),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				Parent = row,
 			})
@@ -777,8 +779,9 @@ return function(App)
 			local st = stroke(P.faint)
 			st.Thickness = 1.5
 			st.Parent = n
-			label(s[1], 13, P.text, SANS_B, { Position = UDim2.fromOffset(26, 0), Size = UDim2.new(0, 70, 1, 0), Parent = row })
-			label(s[2], 12, P.dim, SANS, { Position = UDim2.fromOffset(96, 0), Size = UDim2.new(1, -96, 1, 0), Parent = row })
+			label(s[1], 13, P.text, SANS_B, { Position = UDim2.fromOffset(26, 0), Size = UDim2.new(0, 70, 0, 18), Parent = row })
+			local d = para(s[2], { Position = UDim2.fromOffset(96, 1), Size = UDim2.new(1, -96, 0, 0), Parent = row })
+			d.TextColor3 = P.dim
 		end
 	end
 

@@ -10,7 +10,7 @@ return function(App)
 	local hintOn, switchRow, button, buttonRow, commit = App.hintOn, App.switchRow, App.button, App.buttonRow, App.commit
 
 	local function buildLook(b)
-		local swatches = App.chipGrid(b, 5, 32)
+		local swatches = App.chipGrid(b, 5, 32, 88)
 		for _, a in App.ACCENTS do
 			App.chip(swatches, a.name, function()
 				return G.accent == a.name
@@ -202,10 +202,9 @@ return function(App)
 		)
 		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = b }, { hlist(10) })
 		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
-			Size = UDim2.new(1, -42, 1, 0),
-			Parent = about,
-		})
+		local words = App.col({ Size = UDim2.new(1, -42, 0, 0), Parent = about }, { App.vlist(0) })
+		label("Smart Scatter  " .. tostring(App.ctx.version or "dev"), 13, P.text, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = words })
+		label("made by Ghulo", 12, P.faint, SANS, { Size = UDim2.new(1, 0, 0, 16), Parent = words })
 	end
 
 	App.buildSettingsTab = function(page)

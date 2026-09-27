@@ -105,13 +105,12 @@ local th = App.thumbnail(k.copies[1].inst, 30)
 th.Position = UDim2.fromOffset(0, 3)
 th.Parent = row
 label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -170, 0, 18), Parent = row })
-label(
-string.format("%s cop%s · %d part%s", num(#list), #list == 1 and "y" or "ies", k.parts, k.parts == 1 and "" or "s"),
-11,
-P.dim,
-SANS,
-{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -170, 0, 16), Parent = row }
-)
+label(string.format("%s cop%s", num(#list), #list == 1 and "y" or "ies"), 11, P.dim, SANS, {
+Position = UDim2.fromOffset(40, 18),
+Size = UDim2.new(1, -170, 0, 16),
+Parent = row,
+})
+hintOn(row, string.format("%s: %s copies of %d part%s each.", k.name, num(#list), k.parts, k.parts == 1 and "" or "s"))
 local acts = box({
 AnchorPoint = Vector2.new(1, 0.5),
 Position = UDim2.new(1, 0, 0.5, 0),
@@ -177,13 +176,8 @@ local copies = 0
 for _, k in kinds do
 copies += k.count
 end
-label(
-string.format("%d kinds · %s copies · in %s", #kinds, num(copies), scope),
-12,
-P.faint,
-SANS_B,
-{ Size = UDim2.new(1, 0, 0, 20), Parent = b }
-)
+App.para(string.format("%d kind%s · %s copies · in %s", #kinds, #kinds == 1 and "" or "s", num(copies), scope), { Parent = b }).Font =
+SANS_B
 local list = col({ Parent = b }, { vlist(4) })
 for i, k in kinds do
 if i > SHOWN and not showAll then
@@ -1366,7 +1360,6 @@ build = App.buildMapScan,
 cs.add({
 id = "swap",
 title = "Swap models",
-icon = "refresh",
 sub = "Replace every copy of a kind with another model or a mix",
 keys = "swap replace model mix kind copies preview try",
 build = App.buildSwap,
@@ -1374,7 +1367,6 @@ build = App.buildSwap,
 cs.add({
 id = "layout",
 title = "Improve layout",
-icon = "layers",
 sub = "Re-space crowded and empty spots, by the placement rules",
 keys = "layout spacing crowded empty holes gaps respace even tidy hand placed",
 build = App.buildImproveLayout,
@@ -1417,7 +1409,7 @@ local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
 local box, label, para, hlist = App.box, App.label, App.para, App.hlist
 local hintOn, switchRow, button, buttonRow, commit = App.hintOn, App.switchRow, App.button, App.buttonRow, App.commit
 local function buildLook(b)
-local swatches = App.chipGrid(b, 5, 32)
+local swatches = App.chipGrid(b, 5, 32, 88)
 for _, a in App.ACCENTS do
 App.chip(swatches, a.name, function()
 return G.accent == a.name
@@ -1605,10 +1597,9 @@ end, { Parent = buttonRow(b) }),
 )
 local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = b }, { hlist(10) })
 App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
-label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
-Size = UDim2.new(1, -42, 1, 0),
-Parent = about,
-})
+local words = App.col({ Size = UDim2.new(1, -42, 0, 0), Parent = about }, { App.vlist(0) })
+label("Smart Scatter  " .. tostring(App.ctx.version or "dev"), 13, P.text, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = words })
+label("made by Ghulo", 12, P.faint, SANS, { Size = UDim2.new(1, 0, 0, 16), Parent = words })
 end
 App.buildSettingsTab = function(page)
 local cs = App.cards(page, "settings")
@@ -1847,7 +1838,7 @@ TextSize = 14,
 TextColor3 = P.onAccent,
 BackgroundColor3 = P.accent,
 AutoButtonColor = false,
-Size = UDim2.new(1, -174, 1, 0),
+Size = UDim2.new(1, -162, 1, 0),
 TextTruncate = Enum.TextTruncate.AtEnd,
 Parent = inner,
 }, { corner(10), pad(8, 8, 0, 0) })
@@ -1896,7 +1887,7 @@ end)
 local live = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
-Size = UDim2.fromOffset(78, 38),
+Size = UDim2.fromOffset(66, 38),
 LayoutOrder = 1,
 Parent = right,
 }, { corner(10) })
@@ -2193,7 +2184,7 @@ ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
 ic.Parent = row
 local tb = new("TextBox", {
 Text = searchText,
-PlaceholderText = "Search every setting  ·  " .. App.keyText("palette") .. " in the viewport: every action",
+PlaceholderText = "Search settings  ·  " .. App.keyText("palette") .. " for any action",
 Font = SANS,
 TextSize = 13,
 TextColor3 = P.text,

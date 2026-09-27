@@ -364,6 +364,7 @@ Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches,
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
+local TextService = game:GetService("TextService")
 local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 local TweenService = game:GetService("TweenService")
@@ -850,7 +851,7 @@ end
 local function slider(text, min, max, get, set, fmt, step, onLive, onCommit, hint, def)
 local f = box({ Size = UDim2.new(1, 0, 0, 50) })
 hintOn(f, hint and (def ~= nil and (hint .. "\nRight-click to reset.") or hint))
-local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -78, 0, 26), Parent = f })
+local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -94, 0, 26), Parent = f })
 local value = new("TextBox", {
 BackgroundTransparency = 0,
 BackgroundColor3 = P.raised,
@@ -860,7 +861,7 @@ TextSize = 12,
 TextColor3 = P.dim,
 TextXAlignment = Enum.TextXAlignment.Center,
 ClearTextOnFocus = false,
-Size = UDim2.new(0, 70, 0, 22),
+Size = UDim2.new(0, 86, 0, 22),
 AnchorPoint = Vector2.new(1, 0),
 Position = UDim2.new(1, 0, 0, 2),
 Parent = f,
@@ -907,6 +908,12 @@ fill.Size = UDim2.fromScale(a, 1)
 knob.Position = UDim2.fromScale(a, 0.5)
 end
 value.Text = string.format(fmt, pct and v * 100 or v)
+local ok, bounds = pcall(TextService.GetTextSize, TextService, value.Text, value.TextSize, value.Font, Vector2.new(400, 40))
+if ok and typeof(bounds) == "Vector2" then
+local w = math.clamp(math.ceil(bounds.X) + 18, 46, 110)
+value.Size = UDim2.new(0, w, 0, 22)
+name.Size = UDim2.new(1, -(w + 8), 0, 26)
+end
 end
 local function apply(v, animate)
 v = math.clamp(tonumber(v) or get(), min, max)
@@ -1045,18 +1052,30 @@ refresh(false)
 return b, lit
 end
 local function switchRow(text, get, set, onChange, hint)
-local f = box({ Size = UDim2.new(1, 0, 0, 38) })
+local f = box({ Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, { pad(0, 0, 10, 10) })
 hintOn(f, hint)
-label(text, 13, P.text, SANS, { Size = UDim2.new(1, -48, 1, 0), Parent = f })
+label(text, 13, P.text, SANS, {
+Size = UDim2.new(1, -52, 0, 0),
+AutomaticSize = Enum.AutomaticSize.Y,
+TextWrapped = true,
+TextTruncate = Enum.TextTruncate.None,
+Parent = f,
+})
 local s = switch(get, set, onChange)
 s.Position = UDim2.new(1, -38, 0.5, -11)
 s.Parent = f
 return f
 end
-local ICON_FILL = 0.72
+local ICON_FILL = 0.88
 local function icon(name, size, color)
 local f = box({ Size = UDim2.fromOffset(size, size) })
-local th = math.max(1.6, size / 7.5)
+local th = math.max(1.5, size / 10)
+local function outline(o)
+local st = stroke(color)
+st.Thickness = th
+st.LineJoinMode = Enum.LineJoinMode.Round
+st.Parent = o
+end
 local function ring(cx, cy, r, filled)
 local o = box({
 BackgroundTransparency = filled and 0 or ICON_FILL,
@@ -1067,9 +1086,7 @@ Size = UDim2.fromOffset(r * 2 * size, r * 2 * size),
 Parent = f,
 }, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 if not filled then
-local st = stroke(color)
-st.Thickness = th
-st.Parent = o
+outline(o)
 end
 return o
 end
@@ -1081,11 +1098,9 @@ AnchorPoint = Vector2.new(0.5, 0.5),
 Position = UDim2.fromOffset(cx * size, cy * size),
 Size = UDim2.fromOffset(w * size, h * size),
 Parent = f,
-}, { corner(math.max(rad or 1, size * 0.14)) })
+}, { corner(math.max(1, (rad or 0.12) * size)) })
 if not filled then
-local st = stroke(color)
-st.Thickness = th
-st.Parent = o
+outline(o)
 end
 return o
 end
@@ -1101,116 +1116,228 @@ Rotation = math.deg(math.atan2(dy, dx)),
 Parent = f,
 }, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 end
+local function path(pts)
+for k = 1, #pts - 3, 2 do
+bar(pts[k], pts[k + 1], pts[k + 2], pts[k + 3])
+end
+end
+local dot = function(cx, cy, r)
+return ring(cx, cy, r or 0.07, true)
+end
 if name == "brush" then
+ring(0.5, 0.5, 0.34)
+dot(0.5, 0.5, 0.09)
+elseif name == "lasso" then
+rect(0.5, 0.42, 0.7, 0.5, false, 0.25)
+bar(0.36, 0.66, 0.28, 0.84)
+dot(0.27, 0.87, 0.07)
+elseif name == "box" then
+rect(0.5, 0.5, 0.56, 0.56, false, 0.04)
+for _, c in { { 0.22, 0.22 }, { 0.78, 0.22 }, { 0.22, 0.78 }, { 0.78, 0.78 } } do
+rect(c[1], c[2], 0.13, 0.13, true, 0.02)
+end
+elseif name == "polygon" then
+path({ 0.5, 0.18, 0.84, 0.78, 0.16, 0.78, 0.5, 0.18 })
+dot(0.5, 0.18)
+dot(0.84, 0.78)
+dot(0.16, 0.78)
+elseif name == "fill" then
+rect(0.42, 0.5, 0.44, 0.44, false, 0.08).Rotation = 45
+bar(0.2, 0.5, 0.64, 0.5)
+dot(0.82, 0.78, 0.08)
+elseif name == "erase" then
+ring(0.5, 0.5, 0.34)
+bar(0.28, 0.72, 0.72, 0.28)
+elseif name == "spline" then
+path({ 0.16, 0.76, 0.36, 0.44, 0.56, 0.58, 0.84, 0.26 })
+dot(0.16, 0.76, 0.08)
+dot(0.84, 0.26, 0.08)
+ring(0.36, 0.44, 0.06, true)
+ring(0.56, 0.58, 0.06, true)
+elseif name == "area" then
+rect(0.5, 0.5, 0.72, 0.72, false, 0.14)
+dot(0.38, 0.4, 0.07)
+dot(0.62, 0.52, 0.07)
+dot(0.42, 0.66, 0.06)
+elseif name == "clear" then
+rect(0.5, 0.5, 0.72, 0.72, false, 0.14)
+bar(0.3, 0.7, 0.7, 0.3)
+elseif name == "layers" then
+rect(0.5, 0.34, 0.68, 0.22, false, 0.06)
+path({ 0.16, 0.56, 0.5, 0.7, 0.84, 0.56 })
+path({ 0.16, 0.74, 0.5, 0.88, 0.84, 0.74 })
+elseif name == "settings" then
+bar(0.16, 0.32, 0.84, 0.32)
+bar(0.16, 0.68, 0.84, 0.68)
+ring(0.36, 0.32, 0.1, true)
+ring(0.64, 0.68, 0.1, true)
+elseif name == "plus" then
+bar(0.5, 0.2, 0.5, 0.8)
+bar(0.2, 0.5, 0.8, 0.5)
+elseif name == "minus" then
+bar(0.2, 0.5, 0.8, 0.5)
+elseif name == "close" then
+bar(0.26, 0.26, 0.74, 0.74)
+bar(0.26, 0.74, 0.74, 0.26)
+elseif name == "info" then
 ring(0.5, 0.5, 0.36)
-ring(0.5, 0.5, 0.09, true)
+bar(0.5, 0.47, 0.5, 0.68)
+dot(0.5, 0.32, 0.05)
+elseif name == "right" then
+path({ 0.4, 0.22, 0.66, 0.5, 0.4, 0.78 })
+elseif name == "left" then
+path({ 0.6, 0.22, 0.34, 0.5, 0.6, 0.78 })
+elseif name == "down" then
+path({ 0.22, 0.4, 0.5, 0.66, 0.78, 0.4 })
 elseif name == "undo" then
-bar(0.28, 0.34, 0.6, 0.34)
-bar(0.28, 0.34, 0.42, 0.2)
-bar(0.28, 0.34, 0.42, 0.48)
+path({ 0.3, 0.36, 0.44, 0.22 })
+path({ 0.3, 0.36, 0.44, 0.5 })
 local last
 for k = 0, 6 do
 local a = math.rad(-90 + k * 30)
-local pt = Vector2.new(0.6 + 0.21 * math.cos(a), 0.55 + 0.21 * math.sin(a))
+local pt = Vector2.new(0.58 + 0.22 * math.cos(a), 0.58 + 0.22 * math.sin(a))
+if last then
+bar(last.X, last.Y, pt.X, pt.Y)
+else
+bar(0.3, 0.36, pt.X, pt.Y)
+end
+last = pt
+end
+bar(last.X, last.Y, 0.34, 0.8)
+elseif name == "refresh" then
+ring(0.5, 0.52, 0.3).BackgroundTransparency = 1
+path({ 0.62, 0.12, 0.8, 0.2, 0.72, 0.38 })
+elseif name == "search" then
+ring(0.43, 0.43, 0.26)
+bar(0.63, 0.63, 0.84, 0.84)
+elseif name == "trash" then
+bar(0.18, 0.28, 0.82, 0.28)
+path({ 0.4, 0.28, 0.42, 0.16, 0.58, 0.16, 0.6, 0.28 })
+rect(0.5, 0.6, 0.5, 0.52, false, 0.08)
+bar(0.42, 0.48, 0.42, 0.72)
+bar(0.58, 0.48, 0.58, 0.72)
+elseif name == "stamp" then
+ring(0.5, 0.22, 0.11)
+bar(0.5, 0.33, 0.5, 0.48)
+rect(0.5, 0.58, 0.66, 0.18, false, 0.06)
+bar(0.2, 0.84, 0.8, 0.84)
+elseif name == "spray" then
+ring(0.5, 0.5, 0.36).BackgroundTransparency = 1
+dot(0.38, 0.38, 0.06)
+dot(0.62, 0.36, 0.06)
+dot(0.52, 0.56, 0.06)
+dot(0.34, 0.64, 0.06)
+dot(0.66, 0.64, 0.06)
+elseif name == "logo" then
+dot(0.5, 0.2, 0.08)
+dot(0.24, 0.74, 0.08)
+dot(0.76, 0.74, 0.08)
+bar(0.5, 0.3, 0.5, 0.44)
+bar(0.36, 0.64, 0.44, 0.5)
+bar(0.64, 0.64, 0.56, 0.5)
+elseif name == "leaf" then
+rect(0.54, 0.46, 0.44, 0.62, false, 0.3).Rotation = 40
+bar(0.22, 0.84, 0.56, 0.44)
+elseif name == "grid" then
+for _, c in { { 0.32, 0.32 }, { 0.68, 0.32 }, { 0.32, 0.68 }, { 0.68, 0.68 } } do
+rect(c[1], c[2], 0.26, 0.26, false, 0.06)
+end
+elseif name == "blend" then
+ring(0.38, 0.5, 0.24)
+ring(0.62, 0.5, 0.24)
+elseif name == "wind" then
+path({ 0.14, 0.36, 0.6, 0.36, 0.7, 0.26 })
+bar(0.14, 0.54, 0.8, 0.54)
+path({ 0.14, 0.72, 0.52, 0.72, 0.62, 0.82 })
+elseif name == "bookmark" then
+path({ 0.3, 0.16, 0.7, 0.16, 0.7, 0.84, 0.5, 0.68, 0.3, 0.84, 0.3, 0.16 })
+elseif name == "chart" then
+bar(0.16, 0.84, 0.84, 0.84)
+rect(0.3, 0.64, 0.14, 0.28, false, 0.03)
+rect(0.5, 0.5, 0.14, 0.56, false, 0.03)
+rect(0.7, 0.58, 0.14, 0.4, false, 0.03)
+elseif name == "snow" then
+for _, a in { 90, 30, -30 } do
+local r = math.rad(a)
+bar(0.5 - math.cos(r) * 0.34, 0.5 - math.sin(r) * 0.34, 0.5 + math.cos(r) * 0.34, 0.5 + math.sin(r) * 0.34)
+end
+dot(0.5, 0.5, 0.07)
+elseif name == "swap" then
+bar(0.2, 0.36, 0.78, 0.36)
+path({ 0.64, 0.22, 0.8, 0.36, 0.64, 0.5 })
+bar(0.22, 0.64, 0.8, 0.64)
+path({ 0.36, 0.5, 0.2, 0.64, 0.36, 0.78 })
+elseif name == "camera" then
+rect(0.5, 0.58, 0.72, 0.5, false, 0.1)
+rect(0.38, 0.3, 0.2, 0.1, true, 0.03)
+ring(0.5, 0.58, 0.13)
+elseif name == "eye" then
+rect(0.5, 0.5, 0.76, 0.44, false, 0.22)
+dot(0.5, 0.5, 0.1)
+elseif name == "cube" then
+path({ 0.5, 0.14, 0.84, 0.32, 0.84, 0.68, 0.5, 0.86, 0.16, 0.68, 0.16, 0.32, 0.5, 0.14 })
+path({ 0.16, 0.32, 0.5, 0.5, 0.84, 0.32 })
+bar(0.5, 0.5, 0.5, 0.86)
+elseif name == "keyboard" then
+rect(0.5, 0.5, 0.8, 0.5, false, 0.1)
+for _, x in { 0.32, 0.5, 0.68 } do
+dot(x, 0.42, 0.04)
+end
+bar(0.34, 0.6, 0.66, 0.6)
+elseif name == "palette" then
+ring(0.5, 0.5, 0.36)
+dot(0.36, 0.4, 0.06)
+dot(0.58, 0.34, 0.06)
+dot(0.66, 0.54, 0.06)
+elseif name == "road" then
+bar(0.3, 0.86, 0.42, 0.14)
+bar(0.7, 0.86, 0.58, 0.14)
+bar(0.5, 0.78, 0.5, 0.66)
+bar(0.5, 0.48, 0.5, 0.4)
+bar(0.5, 0.24, 0.5, 0.2)
+elseif name == "pin" then
+ring(0.5, 0.38, 0.2)
+bar(0.5, 0.58, 0.5, 0.86)
+dot(0.5, 0.38, 0.06)
+elseif name == "wand" then
+bar(0.2, 0.82, 0.6, 0.42)
+bar(0.74, 0.12, 0.74, 0.36)
+bar(0.62, 0.24, 0.86, 0.24)
+elseif name == "spread" then
+for _, x in { 0.26, 0.5, 0.74 } do
+for _, y in { 0.26, 0.5, 0.74 } do
+dot(x, y, 0.06)
+end
+end
+elseif name == "filter" then
+path({ 0.16, 0.22, 0.84, 0.22, 0.58, 0.52, 0.58, 0.8, 0.42, 0.86, 0.42, 0.52, 0.16, 0.22 })
+elseif name == "scale" then
+rect(0.4, 0.6, 0.4, 0.4, false, 0.06)
+path({ 0.52, 0.18, 0.82, 0.18, 0.82, 0.48 })
+bar(0.82, 0.18, 0.58, 0.42)
+elseif name == "stack" then
+rect(0.3, 0.7, 0.28, 0.24, false, 0.05)
+rect(0.7, 0.7, 0.28, 0.24, false, 0.05)
+rect(0.5, 0.3, 0.28, 0.24, false, 0.05)
+elseif name == "shield" then
+path({ 0.5, 0.14, 0.82, 0.26, 0.78, 0.56, 0.5, 0.86, 0.22, 0.56, 0.18, 0.26, 0.5, 0.14 })
+elseif name == "magnet" then
+path({ 0.26, 0.2, 0.26, 0.56 })
+path({ 0.74, 0.2, 0.74, 0.56 })
+local last
+for k = 0, 6 do
+local a = math.rad(k * 30)
+local pt = Vector2.new(0.5 + 0.24 * math.cos(a), 0.56 + 0.24 * math.sin(a))
 if last then
 bar(last.X, last.Y, pt.X, pt.Y)
 end
 last = pt
 end
-bar(0.6, 0.76, 0.36, 0.76)
-elseif name == "search" then
-ring(0.42, 0.42, 0.27)
-bar(0.63, 0.63, 0.84, 0.84)
-elseif name == "erase" then
-ring(0.5, 0.5, 0.36)
-bar(0.24, 0.76, 0.76, 0.24)
-elseif name == "lasso" then
-ring(0.52, 0.4, 0.32)
-bar(0.36, 0.7, 0.24, 0.94)
-elseif name == "box" then
-rect(0.5, 0.5, 0.7, 0.7, false, 2)
-elseif name == "polygon" then
-bar(0.5, 0.14, 0.88, 0.82)
-bar(0.88, 0.82, 0.12, 0.82)
-bar(0.12, 0.82, 0.5, 0.14)
-elseif name == "fill" then
-rect(0.44, 0.5, 0.5, 0.5, false, 2).Rotation = 45
-ring(0.86, 0.8, 0.09, true)
-elseif name == "spline" then
-bar(0.14, 0.78, 0.5, 0.3)
-bar(0.5, 0.3, 0.86, 0.64)
-ring(0.14, 0.78, 0.1, true)
-ring(0.5, 0.3, 0.1, true)
-ring(0.86, 0.64, 0.1, true)
-elseif name == "area" then
-rect(0.5, 0.5, 0.78, 0.78, false, 3)
-ring(0.36, 0.38, 0.08, true)
-ring(0.64, 0.56, 0.08, true)
-ring(0.4, 0.68, 0.07, true)
-elseif name == "clear" then
-rect(0.5, 0.5, 0.78, 0.78, false, 3)
-bar(0.26, 0.74, 0.74, 0.26)
-elseif name == "layers" then
-rect(0.5, 0.26, 0.8, 0.14, true, 2)
-rect(0.5, 0.5, 0.8, 0.14, true, 2)
-rect(0.5, 0.74, 0.8, 0.14, true, 2)
-elseif name == "settings" then
-bar(0.12, 0.3, 0.88, 0.3)
-bar(0.12, 0.7, 0.88, 0.7)
-ring(0.34, 0.3, 0.11, true)
-ring(0.66, 0.7, 0.11, true)
-elseif name == "plus" then
-bar(0.5, 0.16, 0.5, 0.84)
-bar(0.16, 0.5, 0.84, 0.5)
-elseif name == "minus" then
-bar(0.16, 0.5, 0.84, 0.5)
-elseif name == "stamp" then
-ring(0.5, 0.2, 0.12, true)
-bar(0.5, 0.3, 0.5, 0.5)
-rect(0.5, 0.6, 0.64, 0.16, true, 2)
-bar(0.18, 0.84, 0.82, 0.84)
-elseif name == "spray" then
-ring(0.5, 0.5, 0.38)
-ring(0.36, 0.38, 0.07, true)
-ring(0.62, 0.34, 0.07, true)
-ring(0.52, 0.56, 0.07, true)
-ring(0.34, 0.66, 0.07, true)
-ring(0.68, 0.64, 0.07, true)
-elseif name == "close" then
-bar(0.22, 0.22, 0.78, 0.78)
-bar(0.22, 0.78, 0.78, 0.22)
-elseif name == "info" then
-ring(0.5, 0.5, 0.38)
-bar(0.5, 0.46, 0.5, 0.7)
-ring(0.5, 0.31, 0.05, true)
-elseif name == "right" then
-bar(0.38, 0.2, 0.66, 0.5)
-bar(0.66, 0.5, 0.38, 0.8)
-elseif name == "left" then
-bar(0.62, 0.2, 0.34, 0.5)
-bar(0.34, 0.5, 0.62, 0.8)
-elseif name == "down" then
-bar(0.2, 0.38, 0.5, 0.66)
-bar(0.5, 0.66, 0.8, 0.38)
-elseif name == "trash" then
-bar(0.14, 0.27, 0.86, 0.27)
-bar(0.4, 0.13, 0.6, 0.13)
-bar(0.4, 0.13, 0.4, 0.27)
-bar(0.6, 0.13, 0.6, 0.27)
-rect(0.5, 0.62, 0.54, 0.6, false, 2)
-bar(0.42, 0.46, 0.42, 0.78)
-bar(0.58, 0.46, 0.58, 0.78)
-elseif name == "logo" then
-ring(0.5, 0.2, 0.08, true)
-ring(0.24, 0.72, 0.08, true)
-ring(0.76, 0.72, 0.08, true)
-bar(0.5, 0.3, 0.5, 0.42)
-bar(0.36, 0.62, 0.44, 0.48)
-bar(0.64, 0.62, 0.56, 0.48)
-elseif name == "refresh" then
-ring(0.5, 0.52, 0.32)
-bar(0.62, 0.14, 0.84, 0.2)
-bar(0.84, 0.2, 0.8, 0.42)
+elseif name == "mountain" then
+path({ 0.12, 0.8, 0.42, 0.3, 0.6, 0.6, 0.7, 0.46, 0.88, 0.8, 0.12, 0.8 })
+elseif name == "tag" then
+path({ 0.16, 0.18, 0.54, 0.18, 0.84, 0.5, 0.52, 0.82, 0.16, 0.46, 0.16, 0.18 })
+dot(0.32, 0.33, 0.06)
 end
 return f
 end
@@ -1376,24 +1503,27 @@ t.TextColor3 = P.dim
 return f, t
 end
 local function keyChips(parent, list)
-local row = buttonRow(parent, 6)
+local row = buttonRow(parent, 12)
 for _, k in list do
 local chip = new("Frame", {
-BackgroundColor3 = P.raised,
-Size = UDim2.fromOffset(0, 24),
+BackgroundTransparency = 1,
+Size = UDim2.fromOffset(0, 20),
 AutomaticSize = Enum.AutomaticSize.X,
 Parent = row,
-}, { corner(6), pad(5, 8, 0, 0), hlist(5) })
-local key = label(k[1], 10, P.text, SANS_B, {
-Size = UDim2.fromOffset(0, 16),
+}, { hlist(5) })
+local key = label(k[1], 10, P.dim, SANS_B, {
+Size = UDim2.fromOffset(0, 18),
 AutomaticSize = Enum.AutomaticSize.X,
+TextXAlignment = Enum.TextXAlignment.Center,
 BackgroundTransparency = 0,
-BackgroundColor3 = P.raised:Lerp(Color3.new(1, 1, 1), 0.08),
+BackgroundColor3 = P.raised,
 Parent = chip,
 })
 corner(4).Parent = key
 pad(5, 5, 0, 0).Parent = key
-label(k[2], 11, P.dim, SANS, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
+local edge = stroke(P.line)
+edge.Parent = key
+label(k[2], 11, P.faint, SANS, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
 end
 return row
 end
@@ -1528,11 +1658,13 @@ end
 return f
 end
 local function chip(parent, text, isOn, onClick, swatch)
-local b = new(
-"TextButton",
-{ Text = (swatch and "     " or "") .. text, TextSize = 12, AutoButtonColor = false, Parent = parent },
-{ corner(8) }
-)
+local b = new("TextButton", {
+Text = text,
+TextSize = 12,
+TextTruncate = Enum.TextTruncate.AtEnd,
+AutoButtonColor = false,
+Parent = parent,
+}, { corner(8), pad(swatch and 22 or 8, 8, 0, 0) })
 local st = stroke(P.line)
 st.Parent = b
 if swatch then
@@ -1540,7 +1672,7 @@ box({
 BackgroundTransparency = 0,
 BackgroundColor3 = swatch,
 Size = UDim2.fromOffset(8, 8),
-Position = UDim2.new(0, 9, 0.5, -4),
+Position = UDim2.new(0, -13, 0.5, -4),
 ZIndex = b.ZIndex + 1,
 Parent = b,
 }, { corner(4) })
@@ -1560,17 +1692,31 @@ look()
 end)
 return b, look
 end
-local function chipGrid(parent, cols, h)
-return col({ Parent = parent }, {
-new("UIGridLayout", {
+local function chipGrid(parent, cols, h, minCell)
+local layout = new("UIGridLayout", {
 CellSize = UDim2.new(1 / cols, -6, 0, h or 30),
 CellPadding = UDim2.fromOffset(6, 6),
 SortOrder = Enum.SortOrder.LayoutOrder,
-}),
 })
+local g = col({ Parent = parent }, { layout })
+local shown
+local function fit()
+local w = g.AbsoluteSize.X
+local n = cols
+if type(w) == "number" and w > 0 then
+n = math.clamp(math.floor((w + 6) / ((minCell or 84) + 6)), 1, cols)
 end
-local function toolTiles(parent, cols, h)
-local grid = chipGrid(parent, cols, h)
+if n ~= shown then
+shown = n
+layout.CellSize = UDim2.new(1 / n, -6 * (n - 1) / n, 0, h or 30)
+end
+end
+fit()
+g:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+return g
+end
+local function toolTiles(parent, cols, h, minCell)
+local grid = chipGrid(parent, cols, h, minCell)
 local tiles = { cells = {} }
 function tiles.add(spec)
 local color = spec.color or P.accent
@@ -1588,6 +1734,7 @@ SortOrder = Enum.SortOrder.LayoutOrder,
 spec.sub and pad(10, 8, 0, 0) or nil,
 })
 local ic = icon(spec.icon, spec.sub and 16 or 14, P.dim)
+ic.LayoutOrder = 0
 ic.Parent = inner
 local words = box({ Size = UDim2.new(1, -26, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = inner }, {
 new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
@@ -1598,16 +1745,19 @@ end
 local t = label(spec.text, 12, P.dim, SANS_B, {
 Size = spec.sub and UDim2.new(1, 0, 0, 16) or UDim2.fromOffset(0, 16),
 AutomaticSize = not spec.sub and Enum.AutomaticSize.X or nil,
+LayoutOrder = 0,
 Parent = words,
 })
 local sub = spec.sub
-and label(
-spec.sub,
-11,
-P.faint,
-SANS,
-{ Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, TextTruncate = Enum.TextTruncate.AtEnd, Parent = words }
-)
+and label(spec.sub, 11, P.faint, SANS, {
+Size = UDim2.new(1, 0, 0, 0),
+AutomaticSize = Enum.AutomaticSize.Y,
+TextWrapped = true,
+TextTruncate = Enum.TextTruncate.None,
+LineHeight = 1.05,
+LayoutOrder = 1,
+Parent = words,
+})
 if spec.hint then
 hintOn(b, spec.hint)
 end
@@ -1825,6 +1975,48 @@ look = "Rotation, tilt, colour, variation and sinking",
 presets = "Save this set of objects, reuse it anywhere",
 output = "Collision, shadows, streaming",
 }
+local ICON = {
+objects = "layers",
+biomes = "leaf",
+pattern = "grid",
+zones = "blend",
+edges = "wind",
+presets = "bookmark",
+performance = "chart",
+clearzone = "clear",
+paint = "brush",
+stamp = "stamp",
+objectbrush = "spray",
+layerpaint = "spray",
+removecopies = "close",
+paintfilter = "filter",
+tidy = "wand",
+pathbrush = "spline",
+path = "spline",
+curve = "spline",
+line = "spline",
+road = "road",
+mapscan = "search",
+swap = "swap",
+layout = "spread",
+seasons = "snow",
+snapshot = "camera",
+scanfix = "pin",
+look = "palette",
+viewport = "eye",
+output = "cube",
+about = "info",
+shortcuts = "keyboard",
+placement = "tag",
+variants = "layers",
+size = "scale",
+spread = "spread",
+groups = "stack",
+surfaces = "leaf",
+avoid = "shield",
+attract = "magnet",
+terrain = "mountain",
+}
 App.searchWords = {}
 App.searching = function()
 return #App.searchWords > 0
@@ -1858,14 +2050,15 @@ App.shade(c, 0.05)
 App.topLight(c, 0.06, 12)
 local head = col({ Parent = c })
 local x = 0
-if spec.icon then
+local badgeIcon = spec.icon or ICON[spec.id]
+if badgeIcon then
 local badge = box({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
 Size = UDim2.fromOffset(28, 28),
 Parent = head,
 }, { corner(7) })
-local ic = icon(spec.icon, 14, P.accent)
+local ic = icon(badgeIcon, 15, P.accent)
 ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 ic.Parent = badge
 x = 38
@@ -3447,19 +3640,20 @@ local function gap(parent, h)
 box({ Size = UDim2.new(1, 0, 0, h), Parent = parent })
 end
 local function legend(parent, which)
-local list = col({ Parent = parent }, { vlist(3) })
+local grid = chipGrid(parent, 2, 18, 120)
 for _, e in App.overlayLegend(which) do
-local row = box({ Size = UDim2.new(1, 0, 0, 16), Parent = list })
+local cell = box({ Parent = grid })
 box({
 BackgroundTransparency = 0,
 BackgroundColor3 = e[1],
-Position = UDim2.fromOffset(0, 3),
+Position = UDim2.fromOffset(0, 4),
 Size = UDim2.fromOffset(10, 10),
-Parent = row,
+Parent = cell,
 }, { corner(3) })
-label(e[3], 11, P.dim, SANS, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = row })
+label(e[2], 11, P.dim, SANS, { Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -16, 1, 0), Parent = cell })
+hintOn(cell, e[3])
 end
-return list
+return grid
 end
 App.overlayLegendRows = legend
 App.eraseAllPaint = function()
@@ -3479,7 +3673,7 @@ App.status("Area erased. Objects and settings are kept, paint a new one.")
 end
 local function buildPaintTools(parent)
 local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-local tiles = App.toolTiles(parent, 3, 36)
+local tiles = App.toolTiles(parent, 3, 36, 88)
 for _, t in TOOLS do
 tiles.add({
 icon = ICON[t],
@@ -4145,13 +4339,13 @@ for i, s in
 {
 { "Shape", "Paint the ground, or draw a path." },
 { "Objects", "Pick models from the Explorer." },
-{ "Generate", "Everything is placed, and updates as you tweak." },
+{ "Generate", "Press it and everything is placed." },
 }
 do
-local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+local row = box({ Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Parent = parent }, { pad(0, 0, 6, 6) })
 local n = label(tostring(i), 10, P.faint, SANS_B, {
 Size = UDim2.fromOffset(16, 16),
-Position = UDim2.fromOffset(0, 7),
+Position = UDim2.fromOffset(0, 1),
 TextXAlignment = Enum.TextXAlignment.Center,
 Parent = row,
 })
@@ -4159,8 +4353,9 @@ corner(8).Parent = n
 local st = stroke(P.faint)
 st.Thickness = 1.5
 st.Parent = n
-label(s[1], 13, P.text, SANS_B, { Position = UDim2.fromOffset(26, 0), Size = UDim2.new(0, 70, 1, 0), Parent = row })
-label(s[2], 12, P.dim, SANS, { Position = UDim2.fromOffset(96, 0), Size = UDim2.new(1, -96, 1, 0), Parent = row })
+label(s[1], 13, P.text, SANS_B, { Position = UDim2.fromOffset(26, 0), Size = UDim2.new(0, 70, 0, 18), Parent = row })
+local d = para(s[2], { Position = UDim2.fromOffset(96, 1), Size = UDim2.new(1, -96, 0, 0), Parent = row })
+d.TextColor3 = P.dim
 end
 end
 local function shapeKey()
@@ -4474,7 +4669,8 @@ true
 )
 if not s.fit and Engine.looksLikeSegment(l) then
 local row = col({ Parent = b }, { vlist(4) })
-label("Pieces don't meet. Resize them to fit?", 12, P.dim, SANS, { Parent = row })
+local q = para("Pieces don't meet. Resize them to fit?", { Parent = row })
+q.TextColor3 = P.dim
 button("Resize pieces to fit", "accent", function()
 s.fit = true
 c.changed(true)
@@ -5371,7 +5567,8 @@ local card = col(
 { BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = list },
 { corner(10), stroke(P.danger:Lerp(P.line, 0.5)), pad(12, 12, 10, 12), vlist(4) }
 )
-label(#lost == 1 and "1 object lost its model" or (#lost .. " objects lost their model"), 13, P.danger, SANS_B, { Parent = card })
+local head = para(#lost == 1 and "1 object lost its model" or (#lost .. " objects lost their model"), { Parent = card })
+head.TextColor3, head.Font, head.TextSize = P.danger, SANS_B, App.textSize(13)
 explain(
 card,
 "The model was moved, renamed or deleted, so nothing is placed. The settings are kept: select the model in the Explorer and press Use selected."
@@ -5621,7 +5818,7 @@ local key = App.keyText
 local function controls(parent, rebuild)
 local st = App.stamp
 if #st.models > 1 then
-local grid = chipGrid(parent, 3, 28)
+local grid = chipGrid(parent, 3, 28, 104)
 for i, inst in st.models do
 chip(grid, inst.Name, function()
 return st.vi == i
@@ -5712,7 +5909,7 @@ hintOn(go, "The selected models float under the mouse; click to put one down. Pi
 local a = App.area
 if a and #a.layers > 0 then
 App.label("OR ONE OF THIS AREA'S OBJECTS", 11, P.faint, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
-local grid = chipGrid(box, 3, 28)
+local grid = chipGrid(box, 3, 28, 104)
 for _, l in a.layers do
 chip(grid, l.inst.Name, nil, function()
 App.startStamp(l)
@@ -5804,7 +6001,9 @@ Padding = UDim.new(0, 7),
 SortOrder = Enum.SortOrder.LayoutOrder,
 }),
 })
-App.icon(t.icon, 15, color).Parent = head
+local ic = App.icon(t.icon, 15, color)
+ic.LayoutOrder = 0
+ic.Parent = head
 label(string.upper(t.text) .. "  ·  " .. l.inst.Name, 12, color, SANS_B, {
 Size = UDim2.fromOffset(0, 18),
 AutomaticSize = Enum.AutomaticSize.X,
@@ -5862,7 +6061,7 @@ build = function(b)
 local groups = {}
 for _, g in GROUPS do
 label(string.upper(g.title), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
-local tiles = App.toolTiles(b, 2, 44)
+local tiles = App.toolTiles(b, 2, 52, 120)
 for _, t in ipairs(g) do
 tiles.add({
 icon = t.icon,

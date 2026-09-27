@@ -220,7 +220,7 @@ return function(App)
 			TextColor3 = P.onAccent,
 			BackgroundColor3 = P.accent,
 			AutoButtonColor = false,
-			Size = UDim2.new(1, -174, 1, 0),
+			Size = UDim2.new(1, -162, 1, 0),
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			Parent = inner,
 		}, { corner(10), pad(8, 8, 0, 0) })
@@ -271,7 +271,7 @@ return function(App)
 		local live = new("TextButton", {
 			Text = "",
 			AutoButtonColor = false,
-			Size = UDim2.fromOffset(78, 38),
+			Size = UDim2.fromOffset(66, 38),
 			LayoutOrder = 1,
 			Parent = right,
 		}, { corner(10) })
@@ -593,7 +593,7 @@ return function(App)
 		ic.Parent = row
 		local tb = new("TextBox", {
 			Text = searchText,
-			PlaceholderText = "Search every setting  ·  " .. App.keyText("palette") .. " in the viewport: every action",
+			PlaceholderText = "Search settings  ·  " .. App.keyText("palette") .. " for any action",
 			Font = SANS,
 			TextSize = 13,
 			TextColor3 = P.text,

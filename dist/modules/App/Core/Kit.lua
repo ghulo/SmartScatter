@@ -4,6 +4,7 @@
 ]]
 
 return function(App)
+	local TextService = game:GetService("TextService")
 	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
@@ -534,7 +535,7 @@ return function(App)
 	local function slider(text, min, max, get, set, fmt, step, onLive, onCommit, hint, def)
 		local f = box({ Size = UDim2.new(1, 0, 0, 50) })
 		hintOn(f, hint and (def ~= nil and (hint .. "\nRight-click to reset.") or hint))
-		local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -78, 0, 26), Parent = f })
+		local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -94, 0, 26), Parent = f })
 		local value = new("TextBox", {
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.raised,
@@ -544,7 +545,7 @@ return function(App)
 			TextColor3 = P.dim,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			ClearTextOnFocus = false,
-			Size = UDim2.new(0, 70, 0, 22),
+			Size = UDim2.new(0, 86, 0, 22),
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, 0, 0, 2),
 			Parent = f,
@@ -592,6 +593,13 @@ return function(App)
 				knob.Position = UDim2.fromScale(a, 0.5)
 			end
 			value.Text = string.format(fmt, pct and v * 100 or v)
+			-- the value's pill just fits what it says; the name gets the rest of the row
+			local ok, bounds = pcall(TextService.GetTextSize, TextService, value.Text, value.TextSize, value.Font, Vector2.new(400, 40))
+			if ok and typeof(bounds) == "Vector2" then
+				local w = math.clamp(math.ceil(bounds.X) + 18, 46, 110)
+				value.Size = UDim2.new(0, w, 0, 22)
+				name.Size = UDim2.new(1, -(w + 8), 0, 26)
+			end
 		end
 		local function apply(v, animate)
 			v = math.clamp(tonumber(v) or get(), min, max)
@@ -731,23 +739,38 @@ return function(App)
 		return b, lit
 	end
 
+	-- a setting that's on or off: its name (wrapping onto a second line when long), the switch on the right
 	local function switchRow(text, get, set, onChange, hint)
-		local f = box({ Size = UDim2.new(1, 0, 0, 38) })
+		local f = box({ Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y }, { pad(0, 0, 10, 10) })
 		hintOn(f, hint)
-		label(text, 13, P.text, SANS, { Size = UDim2.new(1, -48, 1, 0), Parent = f })
+		label(text, 13, P.text, SANS, {
+			Size = UDim2.new(1, -52, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			TextWrapped = true,
+			TextTruncate = Enum.TextTruncate.None,
+			Parent = f,
+		})
 		local s = switch(get, set, onChange)
 		s.Position = UDim2.new(1, -38, 0.5, -11)
 		s.Parent = f
 		return f
 	end
 
-	-- small icons drawn from frames (no uploaded images), in a unit square scaled to `size`
-	-- The style: chunky, rounded strokes and a soft fill of the same colour inside every outline (two-tone), so
-	-- icons read as friendly shapes rather than thin line art.
-	local ICON_FILL = 0.72 -- transparency of the soft fill inside outlines
+	-- Icons, drawn from frames (no uploaded images) in a unit square scaled to `size`. One consistent set, in the
+	-- manner of modern UI icon sets: even, rounded strokes about a tenth of the size, a faint tint inside outlines,
+	-- and small solid details (handles, nodes, dots) that make each one read at a glance. Shapes sit inside the square
+	-- with a little room all round, so icons of different shapes look the same size.
+	local ICON_FILL = 0.88 -- transparency of the faint tint inside outlines
 	local function icon(name, size, color)
 		local f = box({ Size = UDim2.fromOffset(size, size) })
-		local th = math.max(1.6, size / 7.5)
+		local th = math.max(1.5, size / 10)
+		local function outline(o)
+			local st = stroke(color)
+			st.Thickness = th
+			st.LineJoinMode = Enum.LineJoinMode.Round
+			st.Parent = o
+		end
+		-- a circle: an outline with a faint tint, or solid
 		local function ring(cx, cy, r, filled)
 			local o = box({
 				BackgroundTransparency = filled and 0 or ICON_FILL,
@@ -758,12 +781,11 @@ return function(App)
 				Parent = f,
 			}, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 			if not filled then
-				local st = stroke(color)
-				st.Thickness = th
-				st.Parent = o
+				outline(o)
 			end
 			return o
 		end
+		-- a rounded rectangle (rad: its corner, as a share of the size), outlined or solid
 		local function rect(cx, cy, w, h, filled, rad)
 			local o = box({
 				BackgroundTransparency = filled and 0 or ICON_FILL,
@@ -772,14 +794,13 @@ return function(App)
 				Position = UDim2.fromOffset(cx * size, cy * size),
 				Size = UDim2.fromOffset(w * size, h * size),
 				Parent = f,
-			}, { corner(math.max(rad or 1, size * 0.14)) })
+			}, { corner(math.max(1, (rad or 0.12) * size)) })
 			if not filled then
-				local st = stroke(color)
-				st.Thickness = th
-				st.Parent = o
+				outline(o)
 			end
 			return o
 		end
+		-- a stroke from one point to another, with round ends
 		local function bar(x1, y1, x2, y2)
 			local dx, dy = (x2 - x1) * size, (y2 - y1) * size
 			box({
@@ -790,118 +811,233 @@ return function(App)
 				Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + th, th),
 				Rotation = math.deg(math.atan2(dy, dx)),
 				Parent = f,
-			}, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) }) -- round ends
+			}, { new("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 		end
-		if name == "brush" then
+		-- strokes through a list of points { x1, y1, x2, y2, … }
+		local function path(pts)
+			for k = 1, #pts - 3, 2 do
+				bar(pts[k], pts[k + 1], pts[k + 2], pts[k + 3])
+			end
+		end
+		local dot = function(cx, cy, r)
+			return ring(cx, cy, r or 0.07, true)
+		end
+
+		if name == "brush" then -- the brush's ring and its centre
+			ring(0.5, 0.5, 0.34)
+			dot(0.5, 0.5, 0.09)
+		elseif name == "lasso" then -- a loop with its tail and knot
+			rect(0.5, 0.42, 0.7, 0.5, false, 0.25)
+			bar(0.36, 0.66, 0.28, 0.84)
+			dot(0.27, 0.87, 0.07)
+		elseif name == "box" then -- a selection square with its corner handles
+			rect(0.5, 0.5, 0.56, 0.56, false, 0.04)
+			for _, c in { { 0.22, 0.22 }, { 0.78, 0.22 }, { 0.22, 0.78 }, { 0.78, 0.78 } } do
+				rect(c[1], c[2], 0.13, 0.13, true, 0.02)
+			end
+		elseif name == "polygon" then -- an outline with its points
+			path({ 0.5, 0.18, 0.84, 0.78, 0.16, 0.78, 0.5, 0.18 })
+			dot(0.5, 0.18)
+			dot(0.84, 0.78)
+			dot(0.16, 0.78)
+		elseif name == "fill" then -- a tipped bucket and a drop
+			rect(0.42, 0.5, 0.44, 0.44, false, 0.08).Rotation = 45
+			bar(0.2, 0.5, 0.64, 0.5)
+			dot(0.82, 0.78, 0.08)
+		elseif name == "erase" then
+			ring(0.5, 0.5, 0.34)
+			bar(0.28, 0.72, 0.72, 0.28)
+		elseif name == "spline" then -- a curve through its points
+			path({ 0.16, 0.76, 0.36, 0.44, 0.56, 0.58, 0.84, 0.26 })
+			dot(0.16, 0.76, 0.08)
+			dot(0.84, 0.26, 0.08)
+			ring(0.36, 0.44, 0.06, true)
+			ring(0.56, 0.58, 0.06, true)
+		elseif name == "area" then -- ground with things on it
+			rect(0.5, 0.5, 0.72, 0.72, false, 0.14)
+			dot(0.38, 0.4, 0.07)
+			dot(0.62, 0.52, 0.07)
+			dot(0.42, 0.66, 0.06)
+		elseif name == "clear" then -- a keep-clear zone: a patch, struck out
+			rect(0.5, 0.5, 0.72, 0.72, false, 0.14)
+			bar(0.3, 0.7, 0.7, 0.3)
+		elseif name == "layers" then -- sheets stacked
+			rect(0.5, 0.34, 0.68, 0.22, false, 0.06)
+			path({ 0.16, 0.56, 0.5, 0.7, 0.84, 0.56 })
+			path({ 0.16, 0.74, 0.5, 0.88, 0.84, 0.74 })
+		elseif name == "settings" then -- two sliders
+			bar(0.16, 0.32, 0.84, 0.32)
+			bar(0.16, 0.68, 0.84, 0.68)
+			ring(0.36, 0.32, 0.1, true)
+			ring(0.64, 0.68, 0.1, true)
+		elseif name == "plus" then
+			bar(0.5, 0.2, 0.5, 0.8)
+			bar(0.2, 0.5, 0.8, 0.5)
+		elseif name == "minus" then
+			bar(0.2, 0.5, 0.8, 0.5)
+		elseif name == "close" then
+			bar(0.26, 0.26, 0.74, 0.74)
+			bar(0.26, 0.74, 0.74, 0.26)
+		elseif name == "info" then
 			ring(0.5, 0.5, 0.36)
-			ring(0.5, 0.5, 0.09, true)
-		elseif name == "undo" then -- a hooked arrow back: left along the top, round the right, back along the bottom
-			bar(0.28, 0.34, 0.6, 0.34)
-			bar(0.28, 0.34, 0.42, 0.2)
-			bar(0.28, 0.34, 0.42, 0.48)
+			bar(0.5, 0.47, 0.5, 0.68)
+			dot(0.5, 0.32, 0.05)
+		elseif name == "right" then
+			path({ 0.4, 0.22, 0.66, 0.5, 0.4, 0.78 })
+		elseif name == "left" then
+			path({ 0.6, 0.22, 0.34, 0.5, 0.6, 0.78 })
+		elseif name == "down" then
+			path({ 0.22, 0.4, 0.5, 0.66, 0.78, 0.4 })
+		elseif name == "undo" then -- a hooked arrow back
+			path({ 0.3, 0.36, 0.44, 0.22 })
+			path({ 0.3, 0.36, 0.44, 0.5 })
 			local last
 			for k = 0, 6 do
 				local a = math.rad(-90 + k * 30)
-				local pt = Vector2.new(0.6 + 0.21 * math.cos(a), 0.55 + 0.21 * math.sin(a))
+				local pt = Vector2.new(0.58 + 0.22 * math.cos(a), 0.58 + 0.22 * math.sin(a))
+				if last then
+					bar(last.X, last.Y, pt.X, pt.Y)
+				else
+					bar(0.3, 0.36, pt.X, pt.Y)
+				end
+				last = pt
+			end
+			bar(last.X, last.Y, 0.34, 0.8)
+		elseif name == "refresh" then -- a circle closing on its arrow
+			ring(0.5, 0.52, 0.3).BackgroundTransparency = 1
+			path({ 0.62, 0.12, 0.8, 0.2, 0.72, 0.38 })
+		elseif name == "search" then
+			ring(0.43, 0.43, 0.26)
+			bar(0.63, 0.63, 0.84, 0.84)
+		elseif name == "trash" then -- a bin: lid, handle, body with ribs
+			bar(0.18, 0.28, 0.82, 0.28)
+			path({ 0.4, 0.28, 0.42, 0.16, 0.58, 0.16, 0.6, 0.28 })
+			rect(0.5, 0.6, 0.5, 0.52, false, 0.08)
+			bar(0.42, 0.48, 0.42, 0.72)
+			bar(0.58, 0.48, 0.58, 0.72)
+		elseif name == "stamp" then -- a rubber stamp: knob, stem, pad, and the mark it leaves
+			ring(0.5, 0.22, 0.11)
+			bar(0.5, 0.33, 0.5, 0.48)
+			rect(0.5, 0.58, 0.66, 0.18, false, 0.06)
+			bar(0.2, 0.84, 0.8, 0.84)
+		elseif name == "spray" then -- copies scattered where the brush goes
+			ring(0.5, 0.5, 0.36).BackgroundTransparency = 1
+			dot(0.38, 0.38, 0.06)
+			dot(0.62, 0.36, 0.06)
+			dot(0.52, 0.56, 0.06)
+			dot(0.34, 0.64, 0.06)
+			dot(0.66, 0.64, 0.06)
+		elseif name == "logo" then
+			dot(0.5, 0.2, 0.08)
+			dot(0.24, 0.74, 0.08)
+			dot(0.76, 0.74, 0.08)
+			bar(0.5, 0.3, 0.5, 0.44)
+			bar(0.36, 0.64, 0.44, 0.5)
+			bar(0.64, 0.64, 0.56, 0.5)
+		-- the cards' icons
+		elseif name == "leaf" then -- biomes, surfaces
+			rect(0.54, 0.46, 0.44, 0.62, false, 0.3).Rotation = 40
+			bar(0.22, 0.84, 0.56, 0.44)
+		elseif name == "grid" then -- pattern
+			for _, c in { { 0.32, 0.32 }, { 0.68, 0.32 }, { 0.32, 0.68 }, { 0.68, 0.68 } } do
+				rect(c[1], c[2], 0.26, 0.26, false, 0.06)
+			end
+		elseif name == "blend" then -- colour zones: two colours overlapping
+			ring(0.38, 0.5, 0.24)
+			ring(0.62, 0.5, 0.24)
+		elseif name == "wind" then -- edges and wind
+			path({ 0.14, 0.36, 0.6, 0.36, 0.7, 0.26 })
+			bar(0.14, 0.54, 0.8, 0.54)
+			path({ 0.14, 0.72, 0.52, 0.72, 0.62, 0.82 })
+		elseif name == "bookmark" then -- presets
+			path({ 0.3, 0.16, 0.7, 0.16, 0.7, 0.84, 0.5, 0.68, 0.3, 0.84, 0.3, 0.16 })
+		elseif name == "chart" then -- performance
+			bar(0.16, 0.84, 0.84, 0.84)
+			rect(0.3, 0.64, 0.14, 0.28, false, 0.03)
+			rect(0.5, 0.5, 0.14, 0.56, false, 0.03)
+			rect(0.7, 0.58, 0.14, 0.4, false, 0.03)
+		elseif name == "snow" then -- seasons
+			for _, a in { 90, 30, -30 } do
+				local r = math.rad(a)
+				bar(0.5 - math.cos(r) * 0.34, 0.5 - math.sin(r) * 0.34, 0.5 + math.cos(r) * 0.34, 0.5 + math.sin(r) * 0.34)
+			end
+			dot(0.5, 0.5, 0.07)
+		elseif name == "swap" then -- two arrows passing
+			bar(0.2, 0.36, 0.78, 0.36)
+			path({ 0.64, 0.22, 0.8, 0.36, 0.64, 0.5 })
+			bar(0.22, 0.64, 0.8, 0.64)
+			path({ 0.36, 0.5, 0.2, 0.64, 0.36, 0.78 })
+		elseif name == "camera" then -- snapshot
+			rect(0.5, 0.58, 0.72, 0.5, false, 0.1)
+			rect(0.38, 0.3, 0.2, 0.1, true, 0.03)
+			ring(0.5, 0.58, 0.13)
+		elseif name == "eye" then -- the viewport
+			rect(0.5, 0.5, 0.76, 0.44, false, 0.22)
+			dot(0.5, 0.5, 0.1)
+		elseif name == "cube" then -- game-ready output
+			path({ 0.5, 0.14, 0.84, 0.32, 0.84, 0.68, 0.5, 0.86, 0.16, 0.68, 0.16, 0.32, 0.5, 0.14 })
+			path({ 0.16, 0.32, 0.5, 0.5, 0.84, 0.32 })
+			bar(0.5, 0.5, 0.5, 0.86)
+		elseif name == "keyboard" then -- shortcuts
+			rect(0.5, 0.5, 0.8, 0.5, false, 0.1)
+			for _, x in { 0.32, 0.5, 0.68 } do
+				dot(x, 0.42, 0.04)
+			end
+			bar(0.34, 0.6, 0.66, 0.6)
+		elseif name == "palette" then -- look: accent and text
+			ring(0.5, 0.5, 0.36)
+			dot(0.36, 0.4, 0.06)
+			dot(0.58, 0.34, 0.06)
+			dot(0.66, 0.54, 0.06)
+		elseif name == "road" then -- a road and its middle line
+			bar(0.3, 0.86, 0.42, 0.14)
+			bar(0.7, 0.86, 0.58, 0.14)
+			bar(0.5, 0.78, 0.5, 0.66)
+			bar(0.5, 0.48, 0.5, 0.4)
+			bar(0.5, 0.24, 0.5, 0.2)
+		elseif name == "pin" then -- marking what the scan sees
+			ring(0.5, 0.38, 0.2)
+			bar(0.5, 0.58, 0.5, 0.86)
+			dot(0.5, 0.38, 0.06)
+		elseif name == "wand" then -- tidying: a wand and its sparkle
+			bar(0.2, 0.82, 0.6, 0.42)
+			bar(0.74, 0.12, 0.74, 0.36)
+			bar(0.62, 0.24, 0.86, 0.24)
+		elseif name == "spread" then -- evenly spread copies
+			for _, x in { 0.26, 0.5, 0.74 } do
+				for _, y in { 0.26, 0.5, 0.74 } do
+					dot(x, y, 0.06)
+				end
+			end
+		elseif name == "filter" then -- paint only on
+			path({ 0.16, 0.22, 0.84, 0.22, 0.58, 0.52, 0.58, 0.8, 0.42, 0.86, 0.42, 0.52, 0.16, 0.22 })
+		elseif name == "scale" then -- size
+			rect(0.4, 0.6, 0.4, 0.4, false, 0.06)
+			path({ 0.52, 0.18, 0.82, 0.18, 0.82, 0.48 })
+			bar(0.82, 0.18, 0.58, 0.42)
+		elseif name == "stack" then -- groups and piles
+			rect(0.3, 0.7, 0.28, 0.24, false, 0.05)
+			rect(0.7, 0.7, 0.28, 0.24, false, 0.05)
+			rect(0.5, 0.3, 0.28, 0.24, false, 0.05)
+		elseif name == "shield" then -- keep away from
+			path({ 0.5, 0.14, 0.82, 0.26, 0.78, 0.56, 0.5, 0.86, 0.22, 0.56, 0.18, 0.26, 0.5, 0.14 })
+		elseif name == "magnet" then -- grow close to
+			path({ 0.26, 0.2, 0.26, 0.56 })
+			path({ 0.74, 0.2, 0.74, 0.56 })
+			local last
+			for k = 0, 6 do
+				local a = math.rad(k * 30)
+				local pt = Vector2.new(0.5 + 0.24 * math.cos(a), 0.56 + 0.24 * math.sin(a))
 				if last then
 					bar(last.X, last.Y, pt.X, pt.Y)
 				end
 				last = pt
 			end
-			bar(0.6, 0.76, 0.36, 0.76)
-		elseif name == "search" then
-			ring(0.42, 0.42, 0.27)
-			bar(0.63, 0.63, 0.84, 0.84)
-		elseif name == "erase" then
-			ring(0.5, 0.5, 0.36)
-			bar(0.24, 0.76, 0.76, 0.24)
-		elseif name == "lasso" then
-			ring(0.52, 0.4, 0.32)
-			bar(0.36, 0.7, 0.24, 0.94)
-		elseif name == "box" then
-			rect(0.5, 0.5, 0.7, 0.7, false, 2)
-		elseif name == "polygon" then
-			bar(0.5, 0.14, 0.88, 0.82)
-			bar(0.88, 0.82, 0.12, 0.82)
-			bar(0.12, 0.82, 0.5, 0.14)
-		elseif name == "fill" then
-			rect(0.44, 0.5, 0.5, 0.5, false, 2).Rotation = 45
-			ring(0.86, 0.8, 0.09, true)
-		elseif name == "spline" then
-			bar(0.14, 0.78, 0.5, 0.3)
-			bar(0.5, 0.3, 0.86, 0.64)
-			ring(0.14, 0.78, 0.1, true)
-			ring(0.5, 0.3, 0.1, true)
-			ring(0.86, 0.64, 0.1, true)
-		elseif name == "area" then
-			rect(0.5, 0.5, 0.78, 0.78, false, 3)
-			ring(0.36, 0.38, 0.08, true)
-			ring(0.64, 0.56, 0.08, true)
-			ring(0.4, 0.68, 0.07, true)
-		elseif name == "clear" then -- a keep-clear zone: a crossed-out patch
-			rect(0.5, 0.5, 0.78, 0.78, false, 3)
-			bar(0.26, 0.74, 0.74, 0.26)
-		elseif name == "layers" then
-			rect(0.5, 0.26, 0.8, 0.14, true, 2)
-			rect(0.5, 0.5, 0.8, 0.14, true, 2)
-			rect(0.5, 0.74, 0.8, 0.14, true, 2)
-		elseif name == "settings" then
-			bar(0.12, 0.3, 0.88, 0.3)
-			bar(0.12, 0.7, 0.88, 0.7)
-			ring(0.34, 0.3, 0.11, true)
-			ring(0.66, 0.7, 0.11, true)
-		elseif name == "plus" then
-			bar(0.5, 0.16, 0.5, 0.84)
-			bar(0.16, 0.5, 0.84, 0.5)
-		elseif name == "minus" then
-			bar(0.16, 0.5, 0.84, 0.5)
-		elseif name == "stamp" then -- a rubber stamp: a knob, its stem, the pad, and the mark it leaves
-			ring(0.5, 0.2, 0.12, true)
-			bar(0.5, 0.3, 0.5, 0.5)
-			rect(0.5, 0.6, 0.64, 0.16, true, 2)
-			bar(0.18, 0.84, 0.82, 0.84)
-		elseif name == "spray" then -- copies scattered where the brush goes
-			ring(0.5, 0.5, 0.38)
-			ring(0.36, 0.38, 0.07, true)
-			ring(0.62, 0.34, 0.07, true)
-			ring(0.52, 0.56, 0.07, true)
-			ring(0.34, 0.66, 0.07, true)
-			ring(0.68, 0.64, 0.07, true)
-		elseif name == "close" then
-			bar(0.22, 0.22, 0.78, 0.78)
-			bar(0.22, 0.78, 0.78, 0.22)
-		elseif name == "info" then
-			ring(0.5, 0.5, 0.38)
-			bar(0.5, 0.46, 0.5, 0.7)
-			ring(0.5, 0.31, 0.05, true)
-		elseif name == "right" then
-			bar(0.38, 0.2, 0.66, 0.5)
-			bar(0.66, 0.5, 0.38, 0.8)
-		elseif name == "left" then
-			bar(0.62, 0.2, 0.34, 0.5)
-			bar(0.34, 0.5, 0.62, 0.8)
-		elseif name == "down" then
-			bar(0.2, 0.38, 0.5, 0.66)
-			bar(0.5, 0.66, 0.8, 0.38)
-		elseif name == "trash" then -- a trash can: a lid with its handle, a body with ribs
-			bar(0.14, 0.27, 0.86, 0.27)
-			bar(0.4, 0.13, 0.6, 0.13)
-			bar(0.4, 0.13, 0.4, 0.27)
-			bar(0.6, 0.13, 0.6, 0.27)
-			rect(0.5, 0.62, 0.54, 0.6, false, 2)
-			bar(0.42, 0.46, 0.42, 0.78)
-			bar(0.58, 0.46, 0.58, 0.78)
-		elseif name == "logo" then
-			ring(0.5, 0.2, 0.08, true)
-			ring(0.24, 0.72, 0.08, true)
-			ring(0.76, 0.72, 0.08, true)
-			bar(0.5, 0.3, 0.5, 0.42)
-			bar(0.36, 0.62, 0.44, 0.48)
-			bar(0.64, 0.62, 0.56, 0.48)
-		elseif name == "refresh" then
-			ring(0.5, 0.52, 0.32)
-			bar(0.62, 0.14, 0.84, 0.2)
-			bar(0.84, 0.2, 0.8, 0.42)
+		elseif name == "mountain" then -- slopes and terrain
+			path({ 0.12, 0.8, 0.42, 0.3, 0.6, 0.6, 0.7, 0.46, 0.88, 0.8, 0.12, 0.8 })
+		elseif name == "tag" then -- the object's basics
+			path({ 0.16, 0.18, 0.54, 0.18, 0.84, 0.5, 0.52, 0.82, 0.16, 0.46, 0.16, 0.18 })
+			dot(0.32, 0.33, 0.06)
 		end
 		return f
 	end
@@ -1078,26 +1214,29 @@ return function(App)
 		return f, t
 	end
 
-	-- keyboard hints: { { "Shift", "height" }, ... } as small raised chips
+	-- keyboard hints: { { "Shift", "height" }, ... } as a quiet line of keycaps, each with what it does
 	local function keyChips(parent, list)
-		local row = buttonRow(parent, 6)
+		local row = buttonRow(parent, 12)
 		for _, k in list do
 			local chip = new("Frame", {
-				BackgroundColor3 = P.raised,
-				Size = UDim2.fromOffset(0, 24),
+				BackgroundTransparency = 1,
+				Size = UDim2.fromOffset(0, 20),
 				AutomaticSize = Enum.AutomaticSize.X,
 				Parent = row,
-			}, { corner(6), pad(5, 8, 0, 0), hlist(5) })
-			local key = label(k[1], 10, P.text, SANS_B, {
-				Size = UDim2.fromOffset(0, 16),
+			}, { hlist(5) })
+			local key = label(k[1], 10, P.dim, SANS_B, {
+				Size = UDim2.fromOffset(0, 18),
 				AutomaticSize = Enum.AutomaticSize.X,
+				TextXAlignment = Enum.TextXAlignment.Center,
 				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised:Lerp(Color3.new(1, 1, 1), 0.08),
+				BackgroundColor3 = P.raised,
 				Parent = chip,
 			})
 			corner(4).Parent = key
 			pad(5, 5, 0, 0).Parent = key
-			label(k[2], 11, P.dim, SANS, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
+			local edge = stroke(P.line)
+			edge.Parent = key
+			label(k[2], 11, P.faint, SANS, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
 		end
 		return row
 	end
@@ -1244,11 +1383,13 @@ return function(App)
 	-- a small selectable tile in a grid (surfaces, marks, road styles). isOn (optional): whether it shows as picked.
 	-- Returns the tile and its refresh.
 	local function chip(parent, text, isOn, onClick, swatch)
-		local b = new(
-			"TextButton",
-			{ Text = (swatch and "     " or "") .. text, TextSize = 12, AutoButtonColor = false, Parent = parent },
-			{ corner(8) }
-		)
+		local b = new("TextButton", {
+			Text = text,
+			TextSize = 12,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			AutoButtonColor = false,
+			Parent = parent,
+		}, { corner(8), pad(swatch and 22 or 8, 8, 0, 0) })
 		local st = stroke(P.line)
 		st.Parent = b
 		if swatch then -- a colour dot before the name
@@ -1256,7 +1397,7 @@ return function(App)
 				BackgroundTransparency = 0,
 				BackgroundColor3 = swatch,
 				Size = UDim2.fromOffset(8, 8),
-				Position = UDim2.new(0, 9, 0.5, -4),
+				Position = UDim2.new(0, -13, 0.5, -4), -- (in the padding before the name)
 				ZIndex = b.ZIndex + 1,
 				Parent = b,
 			}, { corner(4) })
@@ -1276,22 +1417,38 @@ return function(App)
 		end)
 		return b, look
 	end
-	local function chipGrid(parent, cols, h)
-		return col({ Parent = parent }, {
-			new("UIGridLayout", {
-				CellSize = UDim2.new(1 / cols, -6, 0, h or 30),
-				CellPadding = UDim2.fromOffset(6, 6),
-				SortOrder = Enum.SortOrder.LayoutOrder,
-			}),
+	-- a grid of chips or tiles: up to `cols` a row, fewer when the panel is too narrow for cells of minCell pixels
+	-- (so names never spill out of their cell), more room again when it's widened
+	local function chipGrid(parent, cols, h, minCell)
+		local layout = new("UIGridLayout", {
+			CellSize = UDim2.new(1 / cols, -6, 0, h or 30),
+			CellPadding = UDim2.fromOffset(6, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
+		local g = col({ Parent = parent }, { layout })
+		local shown
+		local function fit()
+			local w = g.AbsoluteSize.X
+			local n = cols
+			if type(w) == "number" and w > 0 then
+				n = math.clamp(math.floor((w + 6) / ((minCell or 84) + 6)), 1, cols)
+			end
+			if n ~= shown then
+				shown = n
+				layout.CellSize = UDim2.new(1 / n, -6 * (n - 1) / n, 0, h or 30)
+			end
+		end
+		fit()
+		g:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+		return g
 	end
 
 	-- A grid of tool tiles: an icon and a name, and optionally a line under it saying what the tool does (so it reads
 	-- without hovering). The picked one glows in its colour; a tinted one (Erase: red) shows its colour even when not
 	-- picked, so it's never taken for another tool. tiles.add{ icon, text, sub?, color?, tinted?, hint?, on(), click() };
 	-- tiles.refresh() after anything that changes which is picked.
-	local function toolTiles(parent, cols, h)
-		local grid = chipGrid(parent, cols, h)
+	local function toolTiles(parent, cols, h, minCell)
+		local grid = chipGrid(parent, cols, h, minCell)
 		local tiles = { cells = {} }
 		function tiles.add(spec)
 			local color = spec.color or P.accent
@@ -1309,6 +1466,7 @@ return function(App)
 				spec.sub and pad(10, 8, 0, 0) or nil,
 			})
 			local ic = icon(spec.icon, spec.sub and 16 or 14, P.dim)
+			ic.LayoutOrder = 0 -- (the icon first, then the words: its name, then what it does)
 			ic.Parent = inner
 			local words = box({ Size = UDim2.new(1, -26, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = inner }, {
 				new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
@@ -1319,16 +1477,19 @@ return function(App)
 			local t = label(spec.text, 12, P.dim, SANS_B, {
 				Size = spec.sub and UDim2.new(1, 0, 0, 16) or UDim2.fromOffset(0, 16),
 				AutomaticSize = not spec.sub and Enum.AutomaticSize.X or nil,
+				LayoutOrder = 0,
 				Parent = words,
 			})
-			local sub = spec.sub
-				and label(
-					spec.sub,
-					11,
-					P.faint,
-					SANS,
-					{ Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, TextTruncate = Enum.TextTruncate.AtEnd, Parent = words }
-				)
+			local sub = spec.sub -- (wraps onto a second line in a narrow panel)
+				and label(spec.sub, 11, P.faint, SANS, {
+					Size = UDim2.new(1, 0, 0, 0),
+					AutomaticSize = Enum.AutomaticSize.Y,
+					TextWrapped = true,
+					TextTruncate = Enum.TextTruncate.None,
+					LineHeight = 1.05,
+					LayoutOrder = 1,
+					Parent = words,
+				})
 			if spec.hint then
 				hintOn(b, spec.hint)
 			end

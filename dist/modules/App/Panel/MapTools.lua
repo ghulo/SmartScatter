@@ -116,13 +116,12 @@ return function(App)
 		th.Position = UDim2.fromOffset(0, 3)
 		th.Parent = row
 		label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -170, 0, 18), Parent = row })
-		label(
-			string.format("%s cop%s · %d part%s", num(#list), #list == 1 and "y" or "ies", k.parts, k.parts == 1 and "" or "s"),
-			11,
-			P.dim,
-			SANS,
-			{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -170, 0, 16), Parent = row }
-		)
+		label(string.format("%s cop%s", num(#list), #list == 1 and "y" or "ies"), 11, P.dim, SANS, {
+			Position = UDim2.fromOffset(40, 18),
+			Size = UDim2.new(1, -170, 0, 16),
+			Parent = row,
+		})
+		hintOn(row, string.format("%s: %s copies of %d part%s each.", k.name, num(#list), k.parts, k.parts == 1 and "" or "s"))
 		local acts = box({
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, 0, 0.5, 0),
@@ -190,13 +189,8 @@ return function(App)
 		for _, k in kinds do
 			copies += k.count
 		end
-		label(
-			string.format("%d kinds · %s copies · in %s", #kinds, num(copies), scope),
-			12,
-			P.faint,
-			SANS_B,
-			{ Size = UDim2.new(1, 0, 0, 20), Parent = b }
-		)
+		App.para(string.format("%d kind%s · %s copies · in %s", #kinds, #kinds == 1 and "" or "s", num(copies), scope), { Parent = b }).Font =
+			SANS_B
 		local list = col({ Parent = b }, { vlist(4) })
 		for i, k in kinds do
 			if i > SHOWN and not showAll then
