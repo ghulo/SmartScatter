@@ -141,9 +141,14 @@ return function(App)
 						return
 					end
 					local moved = App.bindKey(a.id, k)
+					local studio = App.STUDIO_KEYS[k]
 					App.status(
-						moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
+						(
+							moved
+								and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
 							or string.format("%s is now %s.", a.label, App.keyText(a.id))
+						) .. (studio and string.format(" Careful: in Studio %s also %s.", App.keyText(a.id), studio) or ""),
+						studio and "error" or nil
 					)
 					App.rebuildAll() -- every hint that names a key shows the new one
 				end)

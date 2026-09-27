@@ -191,8 +191,8 @@ return function(App)
 		return workspace:Raycast(ray.Origin, ray.Direction * 5000, App.probeParams)
 	end
 
-	-- F resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
-	-- its centre; a click, F or Enter keeps the size, Esc or a right-click puts it back
+	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
+	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local function updateGizmo(hit)
 		if App.mode == "Spline" or App.mode == "Remove" then
@@ -800,7 +800,7 @@ return function(App)
 		end
 	end
 	-- keys that always do the same as a bound one (the keypad's Enter, Delete), whatever the keymap says
-	local ALIASES = { KeypadEnter = "close", Delete = "back" }
+	local ALIASES = { KeypadEnter = "close" } -- (not Delete: in Studio it deletes the selected parts too)
 	-- what the plugin mouse reports for a KeyCode (it gives characters, not KeyCodes)
 	local CHAR = { LeftBracket = "[", RightBracket = "]", Return = "\r", Backspace = "\b", Escape = "\27", Space = " ", Tab = "\t" }
 	for n, d in { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", Six = "6", Seven = "7", Eight = "8", Nine = "9", Zero = "0" } do

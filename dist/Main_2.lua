@@ -521,9 +521,14 @@ lit:pulse(false)
 return
 end
 local moved = App.bindKey(a.id, k)
+local studio = App.STUDIO_KEYS[k]
 App.status(
-moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
+(
+moved
+and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
 or string.format("%s is now %s.", a.label, App.keyText(a.id))
+) .. (studio and string.format(" Careful: in Studio %s also %s.", App.keyText(a.id), studio) or ""),
+studio and "error" or nil
 )
 App.rebuildAll()
 end)
@@ -2108,7 +2113,7 @@ elseif name == "cancel" then
 cancelShape()
 end
 end
-local ALIASES = { KeypadEnter = "close", Delete = "back" }
+local ALIASES = { KeypadEnter = "close" }
 local CHAR = { LeftBracket = "[", RightBracket = "]", Return = "\r", Backspace = "\b", Escape = "\27", Space = " ", Tab = "\t" }
 for n, d in { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", Six = "6", Seven = "7", Eight = "8", Nine = "9", Zero = "0" } do
 CHAR[n] = d
@@ -3490,7 +3495,11 @@ if inArea() and App.kindOf(App.area) == "Path" then
 return "Press Draw path, then click in the viewport to place points. Hold and drag to draw freely."
 end
 return "Brush paints, Lasso and Box fill a shape, Polygon clicks corners, Fill takes a whole field in one click. "
-.. "Shift erases, F resizes the brush with the mouse, Esc stops.\n\n"
+.. "Shift erases, "
+.. App.keyText("size")
+.. " resizes the brush with the mouse, "
+.. App.keyText("cancel")
+.. " stops.\n\n"
 .. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
 end,
 tab = shapeTab,
@@ -3509,9 +3518,15 @@ text = "Each area is scanned: roads, paths, water, roofs and walls are found by 
 {
 chapter = "Paths",
 title = "Drawing paths",
-text = "Click to add points; drag one to move it. Shift+drag changes its height, C makes a sharp corner, X deletes "
-.. "a point. Select a point and click the ground to branch off; drop an end on another point to join them.\n\n"
-.. "Give the path a width and turn on Road to lay a real road or dirt path along it.",
+text = function()
+return "Click to add points; drag one to move it. Shift+drag changes its height, "
+.. App.keyText("corner")
+.. " makes a sharp corner, "
+.. App.keyText("delete")
+.. " deletes a point. Select a point and click the ground to branch off; drop an end on another "
+.. "point to join them.\n\n"
+.. "Give the path a width and turn on Road to lay a real road or dirt path along it."
+end,
 },
 {
 chapter = "Objects",

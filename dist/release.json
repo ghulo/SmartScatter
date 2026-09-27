@@ -1,6 +1,6 @@
 {
- "version": "9.59",
- "build": 123,
+ "version": "9.60",
+ "build": 124,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -28,11 +28,11 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 112667992
+   "sum": 756633018
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
-   "sum": 293738169
+   "sum": 606855337
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
@@ -64,11 +64,11 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 399080283
+   "sum": 73098825
   },
   "App/Panel/Tour": {
    "path": "modules/App/Panel/Tour.lua",
-   "sum": 470807796
+   "sum": 855603997
   },
   "App/Viewport/Focus": {
    "path": "modules/App/Viewport/Focus.lua",
@@ -80,7 +80,7 @@
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 123723347
+   "sum": 189459153
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",

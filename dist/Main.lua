@@ -119,8 +119,8 @@ local KEYMAP = {
 { id = "tool3", group = "Painting", label = "Box", key = "Three" },
 { id = "tool4", group = "Painting", label = "Polygon", key = "Four" },
 { id = "tool5", group = "Painting", label = "Fill", key = "Five" },
-{ id = "erase", group = "Painting", label = "Erase on / off", key = "E" },
-{ id = "size", group = "Painting", label = "Resize brush with the mouse", key = "F" },
+{ id = "erase", group = "Painting", label = "Erase on / off", key = "G" },
+{ id = "size", group = "Painting", label = "Resize brush with the mouse", key = "B" },
 { id = "shrink", group = "Painting", label = "Smaller brush", key = "LeftBracket" },
 { id = "grow", group = "Painting", label = "Bigger brush", key = "RightBracket" },
 { id = "close", group = "Shapes and paths", label = "Close polygon / finish", key = "Return" },
@@ -202,6 +202,16 @@ G.keys[id] = key
 saveG()
 return moved
 end
+App.STUDIO_KEYS = {
+W = "moves the camera",
+A = "moves the camera",
+S = "moves the camera",
+D = "moves the camera",
+Q = "moves the camera down",
+E = "moves the camera up",
+F = "focuses the camera on the selection",
+Delete = "deletes the selected parts",
+}
 local function resetKeys()
 table.clear(G.keys)
 saveG()
@@ -3317,7 +3327,13 @@ end,
 1,
 nil,
 saveG,
-"Radius of the brush. While painting, press F and move the mouse to set it (click to keep), or step it with [ and ].",
+"Radius of the brush. While painting, press "
+.. App.keyText("size")
+.. " and move the mouse to set it (click to keep), or step it with "
+.. App.keyText("shrink")
+.. " and "
+.. App.keyText("grow")
+.. ".",
 24
 ).Parent =
 brushOpts
