@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 127
-local BUNDLED_VERSION = "9.63"
+local BUNDLED_BUILD = 128
+local BUNDLED_VERSION = "9.64"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -3250,6 +3250,24 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- Scatter area, step 1: the tools that mark ground (inside the step card)
 	--------------------------------------------------------------------------------
+	-- the overlay's colours and what they mean (App.overlayLegend), as small swatches with a line each
+	local function legend(parent, which)
+		local list = col({ Parent = parent }, { vlist(3) })
+		for _, e in App.overlayLegend(which) do
+			local row = box({ Size = UDim2.new(1, 0, 0, 16), Parent = list })
+			box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = e[1],
+				Position = UDim2.fromOffset(0, 3),
+				Size = UDim2.fromOffset(10, 10),
+				Parent = row,
+			}, { corner(3) })
+			label(e[3], 11, P.dim, SANS, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = row })
+		end
+		return list
+	end
+	App.overlayLegendRows = legend
+
 	local function buildPaintTools(parent)
 		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
@@ -3321,6 +3339,7 @@ return function(App)
 		end
 		refresh()
 		App.ui.refreshMode = refresh
+		legend(parent)
 		keyChips(parent, {
 			{ "Shift", "erase" },
 			{ App.keyText("size"), "size" },
@@ -6093,6 +6112,7 @@ return function(App)
 				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
 					b
 				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
+				App.overlayLegendRows(b, "object") -- (while brushing it, the overlay shows its painting in these colours)
 				if l.paint then
 					hintOn(
 						button("Reset all painting", nil, function()
@@ -9033,7 +9053,7 @@ return function(App)
 
 	local LOOK = { Saturation = -0.35, Brightness = -0.05, Contrast = -0.06 } -- how far the world steps back
 	local cc -- the camera's colour correction while focused
-	local gui, group, frame, glowLine, dot, title, detail -- the frame and the corner text, over the viewport
+	local gui, group, frame, glowLine, dot, title, detail, keyRow -- the frame and the corner text, over the viewport
 
 	-- what the tool is doing now: the mode, what it works on, and whether it takes things away
 	local function describe()
@@ -9113,6 +9133,15 @@ return function(App)
 			SANS_M,
 			{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Parent = lines }
 		)
+		-- under it, while painting: the overlay's colours and what they mean
+		keyRow = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 3, Parent = lines }, {
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
 		for _, t in { title, detail } do
 			t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
 			t.TextTruncate = Enum.TextTruncate.None
@@ -9137,6 +9166,41 @@ return function(App)
 			glowLine.Color = col
 			dot.BackgroundColor3 = col
 			title.Text = what
+			-- the colour key, for the tools the overlay colours the ground for
+			keyRow:ClearAllChildren()
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = keyRow,
+			})
+			local painting = App.mode == "Paint" or App.mode == "Erase" or LAYER_MODES[App.mode] ~= nil
+			keyRow.Visible = painting and App.overlayLegend ~= nil
+			if keyRow.Visible then
+				for i, e in App.overlayLegend() do
+					local item = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, Parent = keyRow }, {
+						new("UIListLayout", {
+							FillDirection = Enum.FillDirection.Horizontal,
+							VerticalAlignment = Enum.VerticalAlignment.Center,
+							Padding = UDim.new(0, 4),
+						}),
+					})
+					local sw = box(
+						{ BackgroundTransparency = 0, BackgroundColor3 = e[1], Size = UDim2.fromOffset(9, 9), Parent = item },
+						{ corner(2) }
+					)
+					App.stroke(Color3.new(0, 0, 0)).Parent = sw
+					local t = label(
+						e[2],
+						11,
+						Color3.fromRGB(225, 225, 225),
+						SANS_M,
+						{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = item }
+					)
+					t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
+				end
+			end
 			detail.Text = (where ~= "" and (where .. "  ·  ") or "") .. App.keyText("cancel") .. " to stop"
 			local cam = workspace.CurrentCamera
 			if cam and not (cc and cc.Parent == cam) then
@@ -9404,8 +9468,60 @@ return function(App)
 		end
 		rowParts, App.dirtyRows = {}, {}
 	end
+	local classColor -- (below)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
 	local BLOCKED = { Building = true, Water = true }
+	-- nothing under the cell at all (off the edge of an island or a platform): a pale grey
+	local function noneColor()
+		return VIEW.muted:Lerp(Color3.new(1, 1, 1), 0.55)
+	end
+	-- the colour a cell of ground takes in the overlay, by what the scan found there
+	classColor = function(cls)
+		return cls == "None" and noneColor() or BLOCKED[cls] and VIEW.blocked or QUIET[cls] and VIEW.muted or VIEW.accent
+	end
+	-- what a class of ground means for what grows on it (the label by the brush says it; nil: things grow there)
+	local CLASS_NOTE = {
+		Building = "a building or roof: nothing grows here",
+		Water = "water: nothing grows here",
+		Road = "a road: only objects set to go on roads",
+		Dirt = "a path: only objects set to go on paths",
+		None = "nothing under it: nothing grows here",
+	}
+	-- The overlay's colours and what they mean, for what's on show now: { { colour, short, long } }. The panel and the
+	-- viewport's corner show it, so no colour is a mystery.
+	-- which: "object" for the one-object brush's key, whatever is on
+	App.overlayLegend = function(which)
+		if which == "object" or (App.paintLayer and LAYER_MODES[App.mode]) then
+			return {
+				{ VIEW.muted:Lerp(VIEW.accent, 0.7), "more", "More of this object" },
+				{ VIEW.muted, "normal", "As many as its rules place" },
+				{ VIEW.muted:Lerp(VIEW.less, 0.8), "less / none", "Less of it, or none" },
+			}
+		end
+		if App.area and App.kindOf and App.kindOf(App.area) == "Clear" then
+			return { { VIEW.blocked, "kept clear", "Kept clear: nothing from any area goes here" } }
+		end
+		return {
+			{ VIEW.accent, "grows", "Things grow here" },
+			{ VIEW.muted, "roads, paths", "Road or path: only objects set to go there" },
+			{ VIEW.blocked, "building, water", "Building, roof or water: nothing grows" },
+			{ noneColor(), "nothing under", "Nothing under it (off an edge): nothing grows" },
+		}
+	end
+	-- what the ground at a world point is, as the overlay knows it, and what that means ("" when things grow there)
+	App.groundNote = function(x, z)
+		if not App.area then
+			return ""
+		end
+		local cls
+		local an = App.lastAnalysis
+		if an and not App.analysisDirty then
+			local j = Engine.indexAt(an, x, z)
+			cls = j and an.cls[j]
+		end
+		cls = cls or probe(math.floor(x / App.area.cell), math.floor(z / App.area.cell)).cls
+		return CLASS_NOTE[cls] or ""
+	end
 	local function cellColor(cx, cz, zone)
 		-- the heatmap of one object: dark where it never goes, the accent where it grows thickest
 		local an = App.lastAnalysis
@@ -9434,7 +9550,7 @@ return function(App)
 			cls = j and App.lastAnalysis.cls[j]
 		end
 		cls = cls or probe(cx, cz).cls
-		return BLOCKED[cls] and VIEW.blocked or QUIET[cls] and VIEW.muted or VIEW.accent
+		return classColor(cls)
 	end
 	-- a cell on the area's border (a neighbour isn't painted): drawn as a brighter outline
 	local function onEdge(cx, cz)
@@ -9839,6 +9955,12 @@ return function(App)
 		local surf = Engine.surfaceOf(hit.Instance, hit.Material)
 		local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 			or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
+		if not LAYER_MODES[App.mode] and App.groundNote then -- why the ground under the brush is coloured as it is
+			local note = App.groundNote(p.X, p.Z)
+			if note ~= "" then
+				what ..= "  ·  " .. note
+			end
+		end
 		if tool == "Polygon" and App.polyPts then
 			what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
 		elseif tool == "Box" and down and boxStart then
@@ -18518,25 +18640,39 @@ return function(E, I)
 						on[i] = true -- chosen as ground: never taken for a roof
 					elseif c ~= "Water" and not explicit and r.Instance ~= workspace.Terrain then
 						local p = r.Instance
-						-- follow the ray down through stacked parts to the real ground;
-						-- if the top surface is well above it, it's a roof / structure
+						-- Is the top a roof? Follow the ray down through what's stacked under it: open air of more than
+						-- 3 studs between one part's underside and the next surface (the inside of a house) makes it one;
+						-- so does standing on real ground more than 3 studs below (a solid building). A stack that ends in
+						-- open sky (a floating island: grass on dirt over nothing) is ground.
 						if not (p.Size.X > 80 and p.Size.Z > 80) then
 							local roof = roofMemo[p]
 							if roof == nil then
-								local lowest, from = r.Position.Y, r.Position
+								roof = false
+								local cur, from, lowest, floating = p, r.Position, r.Position.Y, false
 								for _ = 1, 8 do
 									local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 									if not r2 then
+										floating = true -- nothing below: the sky under a floating island
+										break
+									end
+									local cf, sz = cur.CFrame, cur.Size
+									local underside = cf.Position.Y
+										- (math.abs(cf.RightVector.Y) * sz.X + math.abs(cf.UpVector.Y) * sz.Y + math.abs(cf.LookVector.Y) * sz.Z)
+											/ 2
+									if underside - r2.Position.Y > 3 then
+										roof = true
 										break
 									end
 									lowest = r2.Position.Y
 									local q = r2.Instance
-									if q == workspace.Terrain or (q.Size.X > 80 and q.Size.Z > 80) then
+									if q == workspace.Terrain or not q:IsA("BasePart") or (q.Size.X > 80 and q.Size.Z > 80) then
 										break
 									end
-									from = r2.Position
+									cur, from = q, r2.Position
 								end
-								roof = r.Position.Y - lowest > 3
+								if not roof and not floating then
+									roof = r.Position.Y - lowest > 3
+								end
 								roofMemo[p] = roof
 							end
 							if roof then

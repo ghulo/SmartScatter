@@ -1,6 +1,1019 @@
 -- GENERATED part 2 of src/App by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
+-- #module Panel/MapTools
+MODULES["Panel/MapTools"] = (function()
+--[[
+Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
+(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
+first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
+(snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything changes them,
+and putting them back).
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Selection, Engine, G, saveG, P, num = App.Selection, App.Engine, App.G, App.saveG, App.P, App.num
+local SANS, SANS_M, SANS_B, box, col, label, vlist = App.SANS, App.SANS_M, App.SANS_B, App.box, App.col, App.label, App.vlist
+local button, buttonRow, hintOn, explain, beginRec, endRec = App.button, App.buttonRow, App.hintOn, App.explain, App.beginRec, App.endRec
+local SHOWN = 12
+App.kinds = nil
+local scanning, showAll, scope = false, false, "the whole map"
+local function alive(k)
+local out = {}
+for _, c in k.copies do
+if c.inst.Parent then
+table.insert(out, c.inst)
+end
+end
+return out
+end
+local restoreButton
+local function keepOriginals(list)
+local rec = beginRec("Smart Scatter: Keep originals")
+local n = Engine.snapshot(list)
+endRec(rec, n == 0)
+return n
+end
+local lastRoots, lastScanned = nil, false
+local runScan
+local function scanAgain()
+if lastScanned then
+runScan(lastRoots or false, true)
+end
+end
+function runScan(roots, quiet)
+if scanning then
+return
+end
+if roots == false then
+roots = nil
+elseif roots == nil and G.scanSelection then
+roots = {}
+for _, s in Selection:Get() do
+table.insert(roots, s)
+end
+if #roots == 0 then
+App.status("Select the models or folders to scan in the Explorer first, or turn off Only the selection.")
+return
+end
+end
+for _, r in roots or {} do
+if not r.Parent then
+return
+end
+end
+scanning = true
+lastRoots, lastScanned = roots, true
+App.rebuildAll()
+if not quiet then
+App.status("Scanning the map…")
+end
+task.spawn(function()
+local ok, kinds = pcall(Engine.scanKinds, { roots = roots, pause = task.wait })
+scanning = false
+if not ok then
+App.status("The scan stopped: " .. tostring(kinds), "error")
+App.rebuildAll()
+return
+end
+App.kinds, showAll = kinds, false
+scope = roots and (#roots == 1 and roots[1].Name or (#roots .. " selected")) or "the whole map"
+local copies = 0
+for _, k in kinds do
+copies += k.count
+end
+if not quiet then
+App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+end
+App.rebuildAll()
+end)
+end
+local swap = { key = nil, with = {}, size = 1, match = false, turn = 0, scripts = false, tags = true, attributes = true }
+local selectedModels
+local function swapKind()
+for _, k in App.kinds or {} do
+if k.key == swap.key then
+return k
+end
+end
+return nil
+end
+local function kindRow(parent, k)
+local list = alive(k)
+local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = parent })
+local th = App.thumbnail(k.copies[1].inst, 30)
+th.Position = UDim2.fromOffset(0, 3)
+th.Parent = row
+label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -170, 0, 18), Parent = row })
+label(
+string.format("%s cop%s · %d part%s", num(#list), #list == 1 and "y" or "ies", k.parts, k.parts == 1 and "" or "s"),
+11,
+P.dim,
+SANS,
+{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -170, 0, 16), Parent = row }
+)
+local acts = box({
+AnchorPoint = Vector2.new(1, 0.5),
+Position = UDim2.new(1, 0, 0.5, 0),
+Size = UDim2.fromOffset(0, 30),
+AutomaticSize = Enum.AutomaticSize.X,
+Parent = row,
+}, { App.hlist(6) })
+hintOn(
+button("Select", nil, function()
+local now = alive(k)
+Selection:Set(now)
+App.status(string.format("Selected %s %s.", num(#now), #now == 1 and "copy" or "copies"))
+end, { LayoutOrder = 1, Parent = acts }),
+"Selects every copy of this kind in the Explorer and the viewport."
+)
+local picked = swap.key == k.key
+hintOn(
+button("Swap", picked and "accent" or nil, function()
+if swap.key ~= k.key then
+swap.key, swap.preview, swap.ref, swap.with = k.key, nil, nil, {}
+end
+for _, inst in selectedModels(k) do
+table.insert(swap.with, { inst = inst, w = 1 })
+break
+end
+swap.jump = true
+App.status(
+#swap.with > 0 and string.format("Swapping %s for %s: Try on 5 to check it, or Swap all.", k.name, swap.with[1].inst.Name)
+or string.format("Now select the model to swap in for %s, and press Use selected models.", k.name)
+)
+App.rebuildAll()
+end, { LayoutOrder = 2, Parent = acts }),
+"Swap every copy of this kind for another model, or a mix. Tip: select the new model first, then press Swap."
+)
+end
+App.buildMapScan = function(b)
+App.switchRow("Only the selection", function()
+return G.scanSelection == true
+end, function(v)
+G.scanSelection = v
+end, function()
+saveG()
+end, "On: scans only inside the models and folders selected in the Explorer. Off: the whole Workspace.").Parent =
+b
+local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), function()
+runScan()
+end)
+go.Parent = b
+hintOn(
+go,
+"Finds every model that appears more than once, by its shape: renamed, turned and resized copies still match. What Smart Scatter placed, and characters, are left out."
+)
+local kinds = App.kinds
+if not kinds then
+explain(b, "Groups the copies in a finished map into kinds, so you can pick every copy of one at once.")
+return
+end
+if #kinds == 0 then
+App.emptyState(b, "No repeated models", "Nothing in " .. scope .. " appears more than once.")
+return
+end
+local copies = 0
+for _, k in kinds do
+copies += k.count
+end
+label(
+string.format("%d kinds · %s copies · in %s", #kinds, num(copies), scope),
+12,
+P.faint,
+SANS_B,
+{ Size = UDim2.new(1, 0, 0, 20), Parent = b }
+)
+local list = col({ Parent = b }, { vlist(4) })
+for i, k in kinds do
+if i > SHOWN and not showAll then
+break
+end
+kindRow(list, k)
+end
+if #kinds > SHOWN then
+button(showAll and "Show fewer" or string.format("Show all %d", #kinds), "ghost", function()
+showAll = not showAll
+App.rebuildAll()
+end, { Parent = buttonRow(b) })
+end
+end
+function selectedModels(k)
+local out, own = {}, {}
+for _, c in k and k.copies or {} do
+own[c.inst] = true
+end
+for _, sel in Selection:Get() do
+for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+if (inst:IsA("Model") or inst:IsA("BasePart")) and not own[inst] and Engine.keyOf(inst) then
+table.insert(out, inst)
+end
+end
+end
+return out
+end
+local function doSwap(k, copies, preview)
+keepOriginals(alive(k))
+local rec = beginRec(preview and "Smart Scatter: Try swap" or "Smart Scatter: Swap models")
+swap.ref = swap.ref or Engine.kindRef(k.copies)
+local ok, pairsOrErr = pcall(Engine.swapCopies, copies, swap.with, {
+ref = swap.ref,
+size = swap.size,
+match = swap.match,
+turn = swap.turn,
+scripts = swap.scripts,
+tags = swap.tags,
+attributes = swap.attributes,
+seed = #k.copies,
+})
+endRec(rec, not ok)
+if not ok then
+App.status("The swap stopped: " .. tostring(pairsOrErr), "error")
+return nil
+end
+local newOf = {}
+for _, pr in pairsOrErr do
+newOf[pr.old] = pr.new
+end
+for _, c in k.copies do
+c.inst = newOf[c.inst] or c.inst
+end
+return pairsOrErr
+end
+App.buildSwap = function(b)
+local k = swapKind()
+if not k then
+swap.key, swap.preview, swap.ref = nil, nil, nil
+explain(
+b,
+App.kinds and "Press Swap on a kind in the Map scan to replace its copies with another model or a mix."
+or "Scan the map first, then press Swap on a kind."
+)
+return
+end
+if swap.jump then
+swap.jump = false
+App.scrollIntoView(b.Parent)
+end
+local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+local th = App.thumbnail(k.copies[1].inst, 32)
+th.Position = UDim2.fromOffset(0, 2)
+th.Parent = head
+label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
+label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
+Position = UDim2.fromOffset(40, 18),
+Size = UDim2.new(1, -40, 0, 16),
+Parent = head,
+})
+if #swap.with == 0 then
+App.hintBox(b, "Select the model to swap in (or several to mix) in the Explorer, then press Use selected models.")
+end
+label("For", 13, P.text, SANS, { Parent = b })
+for i, w in swap.with do
+local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
+local t = App.thumbnail(w.inst, 28)
+t.Position = UDim2.fromOffset(0, 2)
+t.Parent = row
+label(w.inst.Name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -120, 1, 0), Parent = row })
+button("Remove", "danger", function()
+table.remove(swap.with, i)
+App.rebuildAll()
+end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Parent = row })
+if #swap.with > 1 then
+App.slider("Share", 0, 10, function()
+return w.w
+end, function(v)
+w.w = v
+end, "%.1f", 0.5, nil, nil, "How often this model is picked compared to the others.", 1).Parent =
+b
+end
+end
+local pickRow = buttonRow(b)
+hintOn(
+button(#swap.with == 0 and "Use selected models" or "Add selected models", #swap.with == 0 and "accent" or nil, function()
+local found = selectedModels(k)
+if #found == 0 then
+App.status("Select the new model, or several to mix, in the Explorer first (not a copy of this kind).")
+return
+end
+for _, inst in found do
+local dup = false
+for _, w in swap.with do
+dup = dup or w.inst == inst
+end
+if not dup then
+table.insert(swap.with, { inst = inst, w = 1 })
+end
+end
+App.rebuildAll()
+end, { Parent = pickRow }),
+"Select the model to swap in, or several to mix (a folder works too), in the Explorer, then click."
+)
+if #swap.with == 0 then
+return
+end
+App.slider("Size", 0.2, 4, function()
+return swap.size
+end, function(v)
+swap.size = v
+end, "%.2f×", 0.05, nil, nil, "On top of each copy's own scale.", 1).Parent =
+b
+App.switchRow(
+"Same size as the old ones",
+function()
+return swap.match
+end,
+function(v)
+swap.match = v
+end,
+nil,
+"On: each new copy is made as big as the one it replaces. Off: the new model keeps its own size, bigger or smaller where the old copies were."
+).Parent =
+b
+label("Turn", 13, P.text, SANS, { Parent = b })
+App.segmented({ "0°", "90°", "180°", "270°" }, function()
+return swap.turn .. "°"
+end, function(v)
+swap.turn = tonumber(string.match(v, "%d+")) or 0
+end).Parent =
+b
+explain(b, "If the new model faces another way than the old one, turn every copy about its up.")
+for _, o in
+{
+{ "scripts", "Carry over scripts", "Copies the old copy's scripts into the new one." },
+{ "tags", "Carry over tags", "The old copy's CollectionService tags go on the new one." },
+{ "attributes", "Carry over attributes", "The old copy's attributes go on the new one." },
+}
+do
+App.switchRow(o[2], function()
+return swap[o[1]]
+end, function(v)
+swap[o[1]] = v
+end, nil, o[3]).Parent = b
+end
+local acts = buttonRow(b)
+local n = #alive(k)
+if swap.preview then
+hintOn(
+button("Undo the try", nil, function()
+local only = {}
+for _, pr in swap.preview do
+only[pr.new] = true
+end
+local rec = beginRec("Smart Scatter: Undo try")
+local back, map = Engine.restoreSnapshot(only)
+endRec(rec, back == 0)
+for _, c in k.copies do
+c.inst = map[c.inst] or c.inst
+end
+swap.preview = nil
+App.status(string.format("Put %d back as they were.", back))
+App.rebuildAll()
+end, { Parent = acts }),
+"Puts the tried copies back as they were."
+)
+else
+hintOn(
+button("Try on 5", nil, function()
+local copies, list = {}, {}
+for _, c in k.copies do
+if c.inst.Parent then
+table.insert(list, c)
+end
+end
+for i = 1, math.min(5, #list) do
+table.insert(copies, list[math.floor((i - 0.5) * #list / math.min(5, #list)) + 1])
+end
+local done = doSwap(k, copies, true)
+if done then
+swap.preview = done
+local sel = {}
+for _, pr in done do
+table.insert(sel, pr.new)
+end
+Selection:Set(sel)
+App.status(string.format("Swapped %d copies to try (selected). Swap all, or undo the try.", #done))
+end
+App.rebuildAll()
+end, { Parent = acts }),
+"Swaps 5 copies spread over the map, and selects them, so you can check the look first."
+)
+end
+hintOn(
+button(string.format("Swap all %s", num(n)), "accent", function()
+local tried, copies = {}, {}
+for _, pr in swap.preview or {} do
+tried[pr.new] = true
+end
+for _, c in k.copies do
+if not tried[c.inst] then
+table.insert(copies, c)
+end
+end
+local done = doSwap(k, copies, false)
+if done then
+App.status(
+string.format(
+"Swapped %s copies. The originals are kept: Restore original in the Snapshot card puts them back.",
+num(#done + #(swap.preview or {}))
+)
+)
+scanAgain()
+swap.key, swap.preview, swap.ref = nil, nil, nil
+end
+App.rebuildAll()
+end, { Parent = acts }),
+"Swaps every copy of this kind. Their originals are kept in the snapshot first."
+)
+App.keptNote(b)
+end
+local tidy = { key = nil, spacing = 1, crowd = 0.5, gap = 1.7, fill = true, fixRules = true, remove = false, plan = nil }
+local tidyBusy = false
+local PREVIEW = "SmartScatterLayoutPreview"
+local function clearPreview()
+local cam = workspace.CurrentCamera
+local f = cam and cam:FindFirstChild(PREVIEW)
+if f then
+f:Destroy()
+end
+end
+clearPreview()
+local function drawPreview(plan)
+clearPreview()
+local f = App.new("Folder", { Name = PREVIEW, Archivable = false, Parent = workspace.CurrentCamera })
+local T = workspace.Terrain
+local MOVE, ADD, OUT = Color3.fromRGB(245, 166, 60), Color3.fromRGB(110, 210, 120), Color3.fromRGB(235, 80, 70)
+local flat = CFrame.Angles(math.rad(90), 0, 0)
+local function disc(at, r, color, inner)
+App.new("CylinderHandleAdornment", {
+Adornee = T,
+CFrame = CFrame.new(at + Vector3.new(0, 0.3, 0)) * flat,
+Radius = r,
+InnerRadius = inner or 0,
+Height = 0.2,
+Color3 = color,
+Transparency = inner and 0.1 or 0.35,
+AlwaysOnTop = true,
+ZIndex = 3,
+Parent = f,
+})
+end
+local function dot(at, color)
+App.new("SphereHandleAdornment", {
+Adornee = T,
+CFrame = CFrame.new(at + Vector3.new(0, 0.6, 0)),
+Radius = 0.9,
+Color3 = color,
+AlwaysOnTop = true,
+ZIndex = 4,
+Parent = f,
+})
+end
+local r = math.max(plan.spacing * 0.2, 1)
+for _, mv in plan.moves do
+local a, b = mv.from + Vector3.new(0, 0.6, 0), mv.to + Vector3.new(0, 0.6, 0)
+dot(mv.from, MOVE)
+App.new("LineHandleAdornment", {
+Adornee = T,
+CFrame = CFrame.lookAt(a, b),
+Length = (b - a).Magnitude,
+Thickness = 3,
+Color3 = MOVE,
+AlwaysOnTop = true,
+ZIndex = 3,
+Parent = f,
+})
+disc(mv.to, r, MOVE)
+end
+for _, ad in plan.adds do
+disc(ad.to, r, ADD)
+end
+for _, inst in plan.removes do
+if inst.Parent then
+local cf = inst:GetPivot()
+disc(cf.Position, r * 1.3, OUT, r * 1.1)
+end
+end
+end
+local function tidyKind()
+for _, k in App.kinds or {} do
+if k.key == tidy.key then
+return k
+end
+end
+return nil
+end
+local function dropPlan()
+tidy.plan = nil
+clearPreview()
+end
+local function runPlan()
+local k = tidyKind()
+if tidyBusy or not k then
+return
+end
+tidyBusy = true
+dropPlan()
+App.status("Reading the ground around " .. k.name .. "…")
+App.rebuildAll()
+task.spawn(function()
+local rows = 0
+local ok, plan, why = pcall(Engine.layoutPlan, k, {
+spacing = tidy.spacing,
+crowd = tidy.crowd,
+gap = tidy.gap,
+fill = tidy.fill,
+fixRules = tidy.fixRules,
+remove = tidy.remove,
+seed = 11,
+tick = function(p)
+rows += 1
+if rows % 8 == 0 then
+App.showProgress("Scanning", p)
+task.wait()
+end
+return true
+end,
+})
+App.showProgress(nil)
+tidyBusy = false
+if not ok then
+App.status("The plan stopped: " .. tostring(plan), "error")
+elseif not plan then
+App.status(why or "Nothing to plan.")
+else
+tidy.plan = plan
+drawPreview(plan)
+local nothing = #plan.moves + #plan.adds + #plan.removes == 0
+App.status(
+nothing and (k.name .. " is already well spaced: nothing to change.")
+or "The plan is in the viewport: orange moves, green is added, red is taken out. Apply, or change the settings and plan again."
+)
+end
+App.rebuildAll()
+end)
+end
+local function applyPlan()
+local k, plan = tidyKind(), tidy.plan
+if not (k and plan) then
+return
+end
+local touched = table.clone(plan.removes)
+for _, mv in plan.moves do
+table.insert(touched, mv.inst)
+end
+keepOriginals(touched)
+local rec = beginRec("Smart Scatter: Improve layout")
+local ok, added = pcall(Engine.layoutApply, plan)
+endRec(rec, not ok)
+dropPlan()
+if not ok then
+App.status("Stopped: " .. tostring(added), "error")
+App.rebuildAll()
+return
+end
+for _, inst in added do
+table.insert(k.copies, { inst = inst, scale = 1 })
+end
+local sel = table.clone(added)
+for _, mv in plan.moves do
+table.insert(sel, mv.inst)
+end
+Selection:Set(sel)
+App.status(
+string.format(
+"%s: moved %d, added %d, took out %d (the changed ones are selected). Restore original in the Snapshot card puts it all back.",
+k.name,
+#plan.moves,
+#added,
+#plan.removes
+)
+)
+App.rebuildAll()
+end
+App.buildImproveLayout = function(b)
+local kinds = {}
+for _, k in App.kinds or {} do
+if #alive(k) >= 3 then
+table.insert(kinds, k)
+end
+end
+if #kinds == 0 then
+tidy.key = nil
+dropPlan()
+explain(b, App.kinds and "No kind has enough copies (3 or more) to space out." or "Scan the map first, then pick a kind to space out.")
+return
+end
+if not tidyKind() then
+tidy.key = kinds[1].key
+dropPlan()
+end
+label("Kind", 13, P.text, SANS, { Parent = b })
+local grid = App.chipGrid(b, 2, 30)
+for i, k in kinds do
+if i > 8 then
+break
+end
+App.chip(grid, string.format("%s  ×%s", k.name, num(#alive(k))), function()
+return tidy.key == k.key
+end, function()
+if tidy.key ~= k.key then
+tidy.key = k.key
+dropPlan()
+App.rebuildAll()
+end
+end).LayoutOrder =
+i
+end
+local k = tidyKind()
+local list, hand = alive(k), 0
+for _, inst in list do
+hand += Engine.isHandPlaced(inst) and 1 or 0
+end
+local function changed()
+if tidy.plan then
+dropPlan()
+App.rebuildAll()
+end
+end
+App.slider(
+"Spacing",
+0.5,
+2,
+function()
+return tidy.spacing
+end,
+function(v)
+tidy.spacing = v
+end,
+"%.2f×",
+0.05,
+nil,
+changed,
+"1× keeps the kind's own typical spacing, the usual gap between neighbours. Lower packs it closer, higher spreads it out.",
+1
+).Parent =
+b
+App.slider("Crowded under", 0.2, 0.9, function()
+return tidy.crowd
+end, function(v)
+tidy.crowd = v
+end, "%.0f%%", 0.05, nil, changed, "A copy closer than this to another (as a share of the spacing), or overlapping it, is crowded.", 0.5).Parent =
+b
+App.slider(
+"Empty over",
+1.2,
+3,
+function()
+return tidy.gap
+end,
+function(v)
+tidy.gap = v
+end,
+"%.0f%%",
+0.05,
+nil,
+changed,
+"A spot farther than this from every copy (as a share of the spacing) is a hole. Lower fills smaller holes.",
+1.7
+).Parent =
+b
+for _, o in
+{
+{ "fill", "Fill holes with new copies", "Holes left once the crowded copies have moved get new copies, cloned from the kind." },
+{
+"fixRules",
+"Move ones that break the rules",
+"Copies standing where the kind never should (on a road, in water, too steep) move too.",
+},
+{ "remove", "Take out extras that can't move", "Crowded copies with no hole to go to are taken out. Off: they stay where they are." },
+}
+do
+App.switchRow(o[2], function()
+return tidy[o[1]]
+end, function(v)
+tidy[o[1]] = v
+end, changed, o[3]).Parent = b
+end
+explain(
+b,
+hand > 0
+and string.format(
+"%d hand-placed cop%s stay%s exactly where %s.",
+hand,
+hand == 1 and "y" or "ies",
+hand == 1 and "s" or "",
+hand == 1 and "it is" or "they are"
+)
+or "Mark copies you placed on purpose as hand-placed: they never move, and others make room around them."
+)
+local handRow = buttonRow(b)
+local function mark(on)
+local sel = Selection:Get()
+if #sel == 0 then
+App.status("Select the copies (or a folder of them) in the Explorer first.")
+return
+end
+local rec = beginRec(on and "Smart Scatter: Mark hand-placed" or "Smart Scatter: Unmark hand-placed")
+Engine.setHandPlaced(sel, on)
+endRec(rec)
+App.status(string.format("%s %d as hand-placed.", on and "Marked" or "Unmarked", #sel))
+dropPlan()
+App.rebuildAll()
+end
+hintOn(
+button("Mark selected as hand-placed", nil, function()
+mark(true)
+end, { Parent = handRow }),
+"The selected copies, or everything in a selected folder, never move or go."
+)
+button("Unmark", "ghost", function()
+mark(false)
+end, { Parent = handRow })
+local plan = tidy.plan
+if plan then
+local stats = col({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Parent = b }, {
+App.corner(10),
+App.pad(12, 12, 10, 10),
+vlist(4),
+})
+label(
+string.format("Spacing %.0f studs · crowded %d · breaking rules %d · holes %d", plan.spacing, plan.crowded, plan.bad, plan.holes),
+12,
+P.dim,
+SANS,
+{ Parent = stats }
+)
+label(string.format("Move %d · add %d · take out %d", #plan.moves, #plan.adds, #plan.removes), 13, P.text, SANS_B, { Parent = stats })
+label(
+string.format("Evenness %d%% → %d%%", math.floor(plan.evenBefore * 100 + 0.5), math.floor(plan.evenAfter * 100 + 0.5)),
+13,
+plan.evenAfter >= plan.evenBefore and P.accent or P.danger,
+SANS_B,
+{ Parent = stats }
+)
+end
+local acts = buttonRow(b)
+if plan and #plan.moves + #plan.adds + #plan.removes > 0 then
+hintOn(
+button("Apply", "accent", applyPlan, { Parent = acts }),
+"Carries out the plan as one step (Ctrl+Z undoes it). Every copy it touches is kept in the snapshot first."
+)
+end
+hintOn(
+button(tidyBusy and "Planning…" or (plan and "Plan again" or "Plan"), if plan then nil else "accent", runPlan, { Parent = acts }),
+"Reads the ground around the kind with its placement rules and works out what to move, add or take out. Nothing changes until you Apply."
+)
+if plan then
+button("Clear preview", "ghost", function()
+dropPlan()
+App.rebuildAll()
+end, { Parent = acts })
+end
+App.keptNote(b)
+end
+local season = {
+name = "Snow",
+strength = 1,
+patchy = 0,
+patchSize = 90,
+selection = false,
+terrainColors = true,
+terrainMaterials = false,
+}
+local seasonBusy = false
+local function runSeason(off)
+if seasonBusy then
+return
+end
+local roots
+if season.selection then
+roots = Selection:Get()
+if #roots == 0 then
+App.status("Select the models or folders to change in the Explorer first, or turn off Only the selection.")
+return
+end
+end
+seasonBusy = true
+App.status(off and "Taking the season off…" or ("Turning the map " .. string.lower(season.name) .. "…"))
+App.rebuildAll()
+task.spawn(function()
+local rec = beginRec(off and "Smart Scatter: Season off" or ("Smart Scatter: " .. season.name))
+local ok, n, terrainOk = pcall(function()
+if off then
+return Engine.clearSeason({ roots = roots, pause = task.wait })
+end
+return Engine.applySeason({
+season = season.name,
+strength = season.strength,
+patchy = season.patchy,
+patchSize = season.patchSize,
+seed = 7,
+roots = roots,
+terrainColors = season.terrainColors,
+terrainMaterials = season.terrainMaterials,
+pause = task.wait,
+})
+end)
+endRec(rec, not ok)
+seasonBusy = false
+if not ok then
+App.status("Stopped: " .. tostring(n), "error")
+elseif off then
+App.status(string.format("Season off: %s parts back to their own colours.", num(n)))
+else
+App.status(
+string.format("%s: %s parts changed.", season.name, num(n))
+.. (terrainOk == false and " The terrain was too big to keep a copy of, so its grass stayed; try Only the selection." or "")
+)
+end
+App.rebuildAll()
+end)
+end
+App.buildSeasons = function(b)
+local grid = App.chipGrid(b, 3, 30)
+for i, name in Engine.SEASONS do
+local c = App.chip(grid, name, function()
+return season.name == name
+end, function()
+season.name = name
+App.rebuildAll()
+end)
+c.LayoutOrder = i
+hintOn(c, Engine.SEASON_HINT[name])
+end
+App.slider("Strength", 0, 1, function()
+return season.strength
+end, function(v)
+season.strength = v
+end, "%.0f%%", 0.05, nil, nil, "How far into the season: 100% is fully snowy, autumn or dry.", 1).Parent =
+b
+App.slider("Patchy", 0, 1, function()
+return season.patchy
+end, function(v)
+season.patchy = v
+end, "%.0f%%", 0.05, nil, nil, "0%: the same everywhere. Higher: stronger in some places and lighter in others, like the first snow.", 0).Parent =
+b
+if season.patchy > 0 then
+App.slider("Patch size", 20, 300, function()
+return season.patchSize
+end, function(v)
+season.patchSize = v
+end, "%.0f studs", 5, nil, nil, "How big the stronger and lighter patches are.", 90).Parent =
+b
+end
+for _, o in
+{
+{ "selection", "Only the selection", "On: changes only the models and folders selected in the Explorer. Off: the whole Workspace." },
+{ "terrainColors", "Terrain grass colour", "Tints the terrain's grass for the season." },
+{
+"terrainMaterials",
+season.name == "Dry" and "Terrain grass to dry ground" or "Terrain grass to snow",
+"Turns the terrain's grass itself around the map. The terrain there is kept first, so it comes back exactly.",
+},
+}
+do
+if not (o[1] == "terrainMaterials" and season.name == "Autumn") then
+App.switchRow(o[2], function()
+return season[o[1]]
+end, function(v)
+season[o[1]] = v
+end, nil, o[3]).Parent = b
+end
+end
+local info = Engine.seasonInfo()
+explain(
+b,
+info
+and string.format(
+"The map is %s now (%d%%). Applying again starts from the original colours.",
+string.lower(info.season),
+info.strength * 100
+)
+or "Colours keep their originals, so a season can be switched or taken off again exactly. What Smart Scatter places has its own Colour zones."
+)
+local row = buttonRow(b)
+button(seasonBusy and "Working…" or ("Make it " .. string.lower(season.name == "Snow" and "snowy" or season.name)), "accent", function()
+runSeason(false)
+end, { Parent = row })
+if info then
+hintOn(
+button("Take it off", nil, function()
+runSeason(true)
+end, { Parent = row }),
+"Every colour back to its own, and the terrain as it was."
+)
+end
+end
+function restoreButton(row)
+local armed = 0
+local restore
+restore = button("Restore original", "danger", function()
+if os.clock() - armed > 3 then
+armed = os.clock()
+restore.Text = "Click again to restore"
+task.delay(3, function()
+if os.clock() - armed >= 2.9 then
+restore.Text = "Restore original"
+end
+end)
+return
+end
+armed = 0
+local rec = beginRec("Smart Scatter: Restore original")
+local back = Engine.restoreSnapshot()
+endRec(rec, back == 0)
+swap.preview = nil
+dropPlan()
+scanAgain()
+App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
+App.rebuildAll()
+end, { Parent = row })
+hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+return restore
+end
+local function keptNote(b)
+local info = Engine.snapshotInfo()
+if info and info.changed > 0 then
+explain(b, string.format("The originals are kept (%s changed so far).", num(info.changed)))
+restoreButton(buttonRow(b))
+else
+explain(b, "The originals are kept automatically before anything changes: Restore original puts them back.")
+end
+end
+App.keptNote = keptNote
+App.buildSnapshot = function(b)
+local info = Engine.snapshotInfo()
+local text
+if not info then
+text = "Nothing kept yet. Keep the originals before swapping models or changing seasons, and put them back with one click."
+else
+text = string.format(
+"%s cop%s kept%s. %s",
+num(info.saved),
+info.saved == 1 and "y" or "ies",
+info.time and os.date(" on %d %b, %H:%M", info.time) or "",
+info.changed > 0 and string.format("%s changed since.", num(info.changed)) or "Nothing changed since."
+)
+end
+explain(b, text)
+local row = buttonRow(b)
+local kinds = App.kinds
+hintOn(
+button("Keep originals", "accent", function()
+if not (App.kinds and #App.kinds > 0) then
+App.status("Scan the map first: the snapshot keeps the copies it finds.")
+return
+end
+local list = {}
+for _, k in App.kinds do
+for _, inst in alive(k) do
+table.insert(list, inst)
+end
+end
+local rec = beginRec("Smart Scatter: Keep originals")
+local added = Engine.snapshot(list)
+endRec(rec, added == 0)
+App.status(
+added == 0 and "Every copy found is already kept."
+or string.format("Kept the originals of %s copies (ServerStorage › SmartScatter Snapshot).", num(added))
+)
+App.rebuildAll()
+end, { Parent = row }),
+kinds and "Keeps a copy of every model the scan found, as it is now. Copies kept before stay as they were."
+or "Scan the map first; this keeps a copy of every model it finds."
+)
+if info and info.changed > 0 then
+restoreButton(row)
+end
+if info then
+hintOn(
+button("Forget", "ghost", function()
+App.dialog(
+"Forget the snapshot?",
+"The map stays as it is now, but the kept originals are deleted, so changed copies can't be put back any more.",
+{
+{
+"Forget it",
+"danger",
+function()
+local rec = beginRec("Smart Scatter: Forget snapshot")
+Engine.clearSnapshot()
+endRec(rec)
+App.status("Snapshot forgotten.")
+App.rebuildAll()
+end,
+},
+{ "Keep it", nil, function() end },
+}
+)
+end, { Parent = row }),
+"Deletes the kept originals (the map stays as it is)."
+)
+end
+end
+end
+end)()
 -- #module Panel/Tabs/Scatter
 MODULES["Panel/Tabs/Scatter"] = (function()
 --[[
@@ -1598,6 +2611,12 @@ App.gz.anchor.CFrame = CFrame.new(p)
 local surf = Engine.surfaceOf(hit.Instance, hit.Material)
 local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
+if not LAYER_MODES[App.mode] and App.groundNote then
+local note = App.groundNote(p.X, p.Z)
+if note ~= "" then
+what ..= "  ·  " .. note
+end
+end
 if tool == "Polygon" and App.polyPts then
 what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
 elseif tool == "Box" and down and boxStart then
@@ -3399,7 +4418,7 @@ local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 local LAYER_MODES = App.LAYER_MODES
 local LOOK = { Saturation = -0.35, Brightness = -0.05, Contrast = -0.06 }
 local cc
-local gui, group, frame, glowLine, dot, title, detail
+local gui, group, frame, glowLine, dot, title, detail, keyRow
 local function describe()
 local m = App.mode
 local shift = App.shiftHeld and App.shiftHeld()
@@ -3474,6 +4493,14 @@ Color3.fromRGB(215, 215, 215),
 SANS_M,
 { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Parent = lines }
 )
+keyRow = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 3, Parent = lines }, {
+new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+Padding = UDim.new(0, 10),
+SortOrder = Enum.SortOrder.LayoutOrder,
+}),
+})
 for _, t in { title, detail } do
 t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
 t.TextTruncate = Enum.TextTruncate.None
@@ -3495,6 +4522,40 @@ frame:FindFirstChildOfClass("UIStroke").Color = col
 glowLine.Color = col
 dot.BackgroundColor3 = col
 title.Text = what
+keyRow:ClearAllChildren()
+new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+Padding = UDim.new(0, 10),
+SortOrder = Enum.SortOrder.LayoutOrder,
+Parent = keyRow,
+})
+local painting = App.mode == "Paint" or App.mode == "Erase" or LAYER_MODES[App.mode] ~= nil
+keyRow.Visible = painting and App.overlayLegend ~= nil
+if keyRow.Visible then
+for i, e in App.overlayLegend() do
+local item = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, Parent = keyRow }, {
+new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+Padding = UDim.new(0, 4),
+}),
+})
+local sw = box(
+{ BackgroundTransparency = 0, BackgroundColor3 = e[1], Size = UDim2.fromOffset(9, 9), Parent = item },
+{ corner(2) }
+)
+App.stroke(Color3.new(0, 0, 0)).Parent = sw
+local t = label(
+e[2],
+11,
+Color3.fromRGB(225, 225, 225),
+SANS_M,
+{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = item }
+)
+t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
+end
+end
 detail.Text = (where ~= "" and (where .. "  ·  ") or "") .. App.keyText("cancel") .. " to stop"
 local cam = workspace.CurrentCamera
 if cam and not (cc and cc.Parent == cam) then

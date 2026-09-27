@@ -352,20 +352,32 @@ local p = r.Instance
 if not (p.Size.X > 80 and p.Size.Z > 80) then
 local roof = roofMemo[p]
 if roof == nil then
-local lowest, from = r.Position.Y, r.Position
+roof = false
+local cur, from, lowest, floating = p, r.Position, r.Position.Y, false
 for _ = 1, 8 do
 local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 if not r2 then
+floating = true
+break
+end
+local cf, sz = cur.CFrame, cur.Size
+local underside = cf.Position.Y
+- (math.abs(cf.RightVector.Y) * sz.X + math.abs(cf.UpVector.Y) * sz.Y + math.abs(cf.LookVector.Y) * sz.Z)
+/ 2
+if underside - r2.Position.Y > 3 then
+roof = true
 break
 end
 lowest = r2.Position.Y
 local q = r2.Instance
-if q == workspace.Terrain or (q.Size.X > 80 and q.Size.Z > 80) then
+if q == workspace.Terrain or not q:IsA("BasePart") or (q.Size.X > 80 and q.Size.Z > 80) then
 break
 end
-from = r2.Position
+cur, from = q, r2.Position
 end
+if not roof and not floating then
 roof = r.Position.Y - lowest > 3
+end
 roofMemo[p] = roof
 end
 if roof then

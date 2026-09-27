@@ -1,6 +1,6 @@
 {
- "version": "9.63",
- "build": 127,
+ "version": "9.64",
+ "build": 128,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -32,7 +32,7 @@
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
-   "sum": 606855337
+   "sum": 282688960
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
@@ -44,7 +44,7 @@
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
-   "sum": 127164076
+   "sum": 870294142
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
@@ -72,7 +72,7 @@
   },
   "App/Viewport/Focus": {
    "path": "modules/App/Viewport/Focus.lua",
-   "sum": 639171697
+   "sum": 226310561
   },
   "App/Viewport/Grid": {
    "path": "modules/App/Viewport/Grid.lua",
@@ -80,11 +80,11 @@
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
-   "sum": 598534354
+   "sum": 49500848
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 926852680
+   "sum": 939603175
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
@@ -136,7 +136,7 @@
   },
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",
-   "sum": 99826139
+   "sum": 130066229
   },
   "Engine/Seasons": {
    "path": "modules/Engine/Seasons.lua",

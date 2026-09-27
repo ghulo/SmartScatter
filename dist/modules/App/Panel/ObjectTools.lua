@@ -462,6 +462,7 @@ return function(App)
 				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
 					b
 				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
+				App.overlayLegendRows(b, "object") -- (while brushing it, the overlay shows its painting in these colours)
 				if l.paint then
 					hintOn(
 						button("Reset all painting", nil, function()
