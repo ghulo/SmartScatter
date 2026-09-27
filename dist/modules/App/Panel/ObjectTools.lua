@@ -436,8 +436,8 @@ return function(App)
 					on = function()
 						return App.paintLayer == l and App.mode == "None"
 					end,
+					full = true, -- (centred in its own width, set below)
 				})
-				erase.AutomaticSize = Enum.AutomaticSize.None
 				erase.Size = UDim2.fromOffset(92, 30)
 				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
 				erase.Parent = row

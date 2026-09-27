@@ -1546,8 +1546,12 @@ Text = "",
 AutoButtonColor = false,
 Size = opts.full and UDim2.new(1, 0, 0, 32) or UDim2.fromOffset(0, 30),
 AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
+}, { corner(8) })
+local content = box({
+Size = opts.full and UDim2.fromScale(1, 1) or UDim2.new(0, 0, 1, 0),
+AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
+Parent = b,
 }, {
-corner(8),
 pad(10, 12, 0, 0),
 new("UIListLayout", {
 FillDirection = Enum.FillDirection.Horizontal,
@@ -1561,12 +1565,12 @@ local st = stroke(P.danger)
 st.Parent = b
 local ic = icon("trash", 14, P.danger)
 ic.LayoutOrder = 1
-ic.Parent = b
+ic.Parent = content
 local t = label(text, 13, P.danger, SANS_B, {
 Size = UDim2.fromOffset(0, 30),
 AutomaticSize = Enum.AutomaticSize.X,
 LayoutOrder = 2,
-Parent = b,
+Parent = content,
 })
 local lit = glow(b, 8, 0.7, P.danger)
 local hot, armed = false, 0
@@ -4230,8 +4234,8 @@ end, {
 on = function()
 return App.paintLayer == l and App.mode == "None"
 end,
+full = true,
 })
-erase.AutomaticSize = Enum.AutomaticSize.None
 erase.Size = UDim2.fromOffset(92, 30)
 erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
 erase.Parent = row

@@ -1,6 +1,6 @@
 {
- "version": "9.51",
- "build": 115,
+ "version": "9.52",
+ "build": 116,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -16,7 +16,7 @@
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
-   "sum": 453414670
+   "sum": 370016808
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
@@ -40,7 +40,7 @@
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
-   "sum": 614852384
+   "sum": 963445370
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
