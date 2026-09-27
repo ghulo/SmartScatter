@@ -1498,6 +1498,44 @@ local ok, err = pcall(function()
 		map:Destroy()
 	end
 
+	-- the ground under non-collidable parts: a big one (a floating island's mesh) is ground, a small one (a leaf) and
+	-- an invisible one are passed through
+	do
+		local island =
+			part({ Name = "IslandTop", Size = Vector3.new(60, 4, 60), CFrame = CFrame.new(O + Vector3.new(-250, 40, -250)), CanCollide = false })
+		local leaf = part({ Name = "Leaf", Size = Vector3.new(4, 4, 4), CFrame = CFrame.new(O + Vector3.new(-200, 10, -250)), CanCollide = false })
+		local ghost = part({
+			Name = "Zone",
+			Size = Vector3.new(40, 40, 40),
+			CFrame = CFrame.new(O + Vector3.new(-150, 20, -250)),
+			CanCollide = false,
+			Transparency = 1,
+		})
+		local rp = E.rayParams()
+		local down = Vector3.new(0, -200, 0)
+		local onIsland = E.cast(O + Vector3.new(-250, 100, -250), down, rp)
+		local underLeaf = E.cast(O + Vector3.new(-200, 100, -250), down, rp)
+		local underGhost = E.cast(O + Vector3.new(-150, 100, -250), down, rp)
+		check(
+			"a ray finds a non-collidable island as ground, and goes through a leaf and an invisible zone",
+			onIsland ~= nil
+				and onIsland.Instance == island
+				and underLeaf ~= nil
+				and underLeaf.Instance ~= leaf
+				and underGhost ~= nil
+				and underGhost.Instance ~= ghost,
+			string.format(
+				"island %s, under the leaf %s, under the zone %s",
+				onIsland and onIsland.Instance.Name or "nothing",
+				underLeaf and underLeaf.Instance.Name or "nothing",
+				underGhost and underGhost.Instance.Name or "nothing"
+			)
+		)
+		island:Destroy()
+		leaf:Destroy()
+		ghost:Destroy()
+	end
+
 	-- improving a layout: a forest with a hole, a crowded pair, a tree on a road and a hand-placed one
 	do
 		local map = Instance.new("Folder")

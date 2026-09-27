@@ -491,7 +491,7 @@ return function(E, I)
 			for _, d in PROBES do
 				for sgn = -1, 1, 2 do
 					local q = pos + right * (d * sgn)
-					local h = workspace:Raycast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
+					local h = E.cast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
 					if h then
 						-- something standing well above the path is a building, whatever it's made of (a concrete roof
 						-- isn't a road); otherwise the surface decides

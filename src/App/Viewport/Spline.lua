@@ -465,7 +465,7 @@ return function(App)
 		local hit = mouseHit()
 		local sp = App.area and App.area.spline
 		if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-			local down = workspace:Raycast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
+			local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
 			if down and down.Normal.Y >= 0.55 then
 				return down
 			end
@@ -550,7 +550,7 @@ return function(App)
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
 							-- raised off the ground: the curve keeps this height instead of snapping down
-							local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
 							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
