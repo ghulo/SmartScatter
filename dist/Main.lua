@@ -229,7 +229,7 @@ App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.mode = "Off"
 local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
 App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
-App.LAYER_LABEL = { Place = "Place", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+App.LAYER_LABEL = { Place = "Spray", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
 App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 local function num(n)
 local str = tostring(math.floor(n + 0.5))
@@ -1158,6 +1158,20 @@ ring(0.66, 0.7, 0.11, true)
 elseif name == "plus" then
 bar(0.5, 0.16, 0.5, 0.84)
 bar(0.16, 0.5, 0.84, 0.5)
+elseif name == "minus" then
+bar(0.16, 0.5, 0.84, 0.5)
+elseif name == "stamp" then
+ring(0.5, 0.2, 0.12, true)
+bar(0.5, 0.3, 0.5, 0.5)
+rect(0.5, 0.6, 0.64, 0.16, true, 2)
+bar(0.18, 0.84, 0.82, 0.84)
+elseif name == "spray" then
+ring(0.5, 0.5, 0.38)
+ring(0.36, 0.38, 0.07, true)
+ring(0.62, 0.34, 0.07, true)
+ring(0.52, 0.56, 0.07, true)
+ring(0.34, 0.66, 0.07, true)
+ring(0.68, 0.64, 0.07, true)
 elseif name == "close" then
 bar(0.22, 0.22, 0.78, 0.78)
 bar(0.22, 0.78, 0.78, 0.22)
@@ -1551,6 +1565,87 @@ SortOrder = Enum.SortOrder.LayoutOrder,
 }),
 })
 end
+local function toolTiles(parent, cols, h)
+local grid = chipGrid(parent, cols, h)
+local tiles = { cells = {} }
+function tiles.add(spec)
+local color = spec.color or P.accent
+local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
+local st = stroke(P.line)
+st.Parent = b
+local inner = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
+new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+HorizontalAlignment = spec.sub and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Center,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+Padding = UDim.new(0, spec.sub and 8 or 6),
+SortOrder = Enum.SortOrder.LayoutOrder,
+}),
+spec.sub and pad(10, 8, 0, 0) or nil,
+})
+local ic = icon(spec.icon, spec.sub and 16 or 14, P.dim)
+ic.Parent = inner
+local words = box({ Size = UDim2.new(1, -26, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = inner }, {
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
+})
+if not spec.sub then
+words.Size, words.AutomaticSize = UDim2.fromOffset(0, 16), Enum.AutomaticSize.X
+end
+local t = label(spec.text, 12, P.dim, SANS_B, {
+Size = spec.sub and UDim2.new(1, 0, 0, 16) or UDim2.fromOffset(0, 16),
+AutomaticSize = not spec.sub and Enum.AutomaticSize.X or nil,
+Parent = words,
+})
+local sub = spec.sub
+and label(
+spec.sub,
+11,
+P.faint,
+SANS,
+{ Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, TextTruncate = Enum.TextTruncate.AtEnd, Parent = words }
+)
+if spec.hint then
+hintOn(b, spec.hint)
+end
+pressable(b, 0.96)
+local lit = glow(b, 8, 0.6, color)
+local c = { hot = false }
+function c.look()
+local on = spec.on() == true
+lit:set(on)
+local idle = spec.tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
+b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
+st.Color = on and color:Lerp(P.card, 0.4) or (spec.tinted and color:Lerp(P.card, 0.6) or P.line)
+local fg = on and color or (spec.tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
+setIconColor(ic, fg)
+t.TextColor3 = fg
+if sub then
+sub.TextColor3 = on and color:Lerp(P.dim, 0.35) or P.faint
+end
+end
+b.MouseEnter:Connect(function()
+c.hot = true
+c.look()
+end)
+b.MouseLeave:Connect(function()
+c.hot = false
+c.look()
+end)
+b.MouseButton1Click:Connect(function()
+spec.click()
+tiles.refresh()
+end)
+table.insert(tiles.cells, c)
+c.look()
+return c
+end
+function tiles.refresh()
+for _, c in tiles.cells do
+c.look()
+end
+end
+return tiles
+end
 local function pageHead(parent, backText, title, onBack)
 local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
 local back = new("TextButton", {
@@ -1694,6 +1789,7 @@ App.chip = chip
 App.emptyState = emptyState
 App.captureKey = captureKey
 App.chipGrid = chipGrid
+App.toolTiles = toolTiles
 App.iconButton = iconButton
 end
 end)()
@@ -3330,74 +3426,39 @@ return list
 end
 App.overlayLegendRows = legend
 local function buildPaintTools(parent)
-local grid = chipGrid(parent, 3, 36)
 local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-local cells = {}
-local function cell(iconName, text, color, hint, onClick, tinted)
-local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
-local st = stroke(P.line)
-st.Parent = b
-local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-new("UIListLayout", {
-FillDirection = Enum.FillDirection.Horizontal,
-HorizontalAlignment = Enum.HorizontalAlignment.Center,
-VerticalAlignment = Enum.VerticalAlignment.Center,
-Padding = UDim.new(0, 6),
-SortOrder = Enum.SortOrder.LayoutOrder,
-}),
-})
-local ic = icon(iconName, 14, P.dim)
-ic.Parent = row
-local t = label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
-hintOn(b, hint)
-b.MouseButton1Click:Connect(onClick)
-App.pressable(b, 0.96)
-local lit = App.glow(b, 8, 0.6, color)
-local c = { hot = false }
-c.paint = function(on)
-lit:set(on)
-local idle = tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
-b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
-st.Color = on and color:Lerp(P.card, 0.4) or (tinted and color:Lerp(P.card, 0.6) or P.line)
-local fg = on and color or (tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
-setIconColor(ic, fg)
-t.TextColor3 = fg
-end
-b.MouseEnter:Connect(function()
-c.hot = true
-c.look()
-end)
-b.MouseLeave:Connect(function()
-c.hot = false
-c.look()
-end)
-table.insert(cells, c)
-return c
-end
+local tiles = App.toolTiles(parent, 3, 36)
 for _, t in TOOLS do
-local c = cell(ICON[t], t, P.accent, t .. ": " .. (TOOL_HINT[t] or ""), function()
+tiles.add({
+icon = ICON[t],
+text = t,
+hint = t .. ": " .. (TOOL_HINT[t] or ""),
+on = function()
+return G.tool == t and App.mode == "Paint"
+end,
+click = function()
 if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
 App.setMode("Off")
 else
 App.setTool(t)
 end
-end)
-c.look = function()
-c.paint(G.tool == t and App.mode == "Paint")
+end,
+})
 end
-end
-local er = cell("trash", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
+tiles.add({
+icon = "trash",
+text = "Erase",
+color = P.danger,
+tinted = true,
+hint = "Erase: take ground out of the area (Shift does it while painting).",
+on = function()
+return App.mode == "Erase"
+end,
+click = function()
 App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-end, true)
-er.look = function()
-er.paint(App.mode == "Erase")
-end
-local function refresh()
-for _, c in cells do
-c.look()
-end
-end
-refresh()
+end,
+})
+local refresh = tiles.refresh
 App.ui.refreshMode = refresh
 legend(parent)
 keyChips(parent, {
@@ -4537,181 +4598,6 @@ end, { Parent = buttonRow(b) }),
 end,
 })
 end
-local LAYER_HINT = {
-Place = "Puts copies down exactly where you brush, at the object's spacing.",
-Stamp = "One copy exactly where you click: the model shows under the mouse. Drag to turn it.",
-More = "More of it where you brush (up to three times as much).",
-Less = "Less of it where you brush; twice clears it.",
-Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
-Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
-}
-local function buildLayerPaint(l, parent, more)
-parent.add({
-id = "layerpaint",
-title = "Paint or place this object",
-keys = "brush more less erase reset place pins stamp single one copy add rotate turn size",
-more = more,
-build = function(b)
-local labels, modeOf = {}, {}
-for _, m in App.LAYER_ORDER do
-if m ~= "None" then
-table.insert(labels, App.LAYER_LABEL[m])
-modeOf[App.LAYER_LABEL[m]] = m
-end
-end
-local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
-local seg, refresh = segmented(labels, function()
-return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
-end, function(label)
-App.setMode(modeOf[label], l)
-end, nil, nil, true, nil, LAYER_HINT)
-seg.Size = UDim2.new(1, -100, 1, 0)
-seg.Parent = row
-local erase, eraseLook = App.dangerButton("Erase", function()
-App.setMode("None", l)
-end, {
-on = function()
-return App.paintLayer == l and App.mode == "None"
-end,
-full = true,
-})
-erase.Size = UDim2.fromOffset(92, 30)
-erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
-erase.Parent = row
-hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
-local what = App.para("", { Parent = b })
-what.TextColor3 = P.dim
-local function say()
-local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
-local shift = App.mode == "Stamp" and "turns it freely" or string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]] or "")
-what.Text = label and (LAYER_HINT[label] .. " Shift: " .. shift .. ".") or "Pick one, then brush over the area in the viewport."
-end
-say()
-local stampBox = col({ Parent = b }, { vlist(6) })
-local function buildStamp()
-for _, c in stampBox:GetChildren() do
-if c:IsA("GuiObject") then
-c:Destroy()
-end
-end
-if not (App.mode == "Stamp" and App.paintLayer == l) then
-return
-end
-local st, key = App.stamp, App.keyText
-slider(
-"Turn",
-0,
-359,
-function()
-return math.floor(math.deg(st.yaw) + 0.5) % 360
-end,
-function(v)
-App.setStamp(v)
-end,
-"%d°",
-1,
-nil,
-nil,
-"Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.",
-0
-).Parent =
-stampBox
-slider(
-"Size",
-0.1,
-5,
-function()
-return st.k
-end,
-function(v)
-App.setStamp(nil, v)
-end,
-"%.2f×",
-0.05,
-nil,
-nil,
-"1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.",
-1
-).Parent =
-stampBox
-if #l.variants > 1 then
-local grid = chipGrid(stampBox, 3, 28)
-for i, v in l.variants do
-chip(grid, v.inst.Name, function()
-return st.vi == i
-end, function()
-App.setStamp(nil, nil, i)
-buildStamp()
-end)
-end
-end
-switchRow(
-"A random one after each stamp",
-function()
-return G.stampRandom
-end,
-function(v)
-G.stampRandom = v
-end,
-saveG,
-"After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety."
-).Parent =
-stampBox
-hintOn(
-button("Random now", nil, App.rollStamp, { Parent = buttonRow(stampBox) }),
-"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-)
-App.keyChips(stampBox, {
-{ key("turn"), "turn" },
-{ "Shift", "turn freely" },
-{ key("shrink") .. " " .. key("grow"), "size" },
-{ key("model"), "model" },
-{ key("shuffle"), "random" },
-})
-end
-buildStamp()
-App.ui.refreshStamp = buildStamp
-App.ui.refreshLayerBrush = function()
-refresh()
-eraseLook()
-say()
-buildStamp()
-end
-slider("Brush size", 4, 200, function()
-return G.radius
-end, function(v)
-G.radius = v
-end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
-b
-App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
-App.overlayLegendRows(b, "object")
-if l.paint then
-hintOn(
-button("Reset all painting", nil, function()
-l.paint = nil
-if App.paintLayer == l then
-recolorOverlay()
-end
-commit(l)
-App.refreshObjects()
-end, { Parent = buttonRow(b) }),
-"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
-)
-end
-if l.pins then
-gap(b, 2)
-App.fadeLine(b, nil, 0.14)
-local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
-l.pins = nil
-commit(l)
-App.refreshObjects()
-end, { confirm = "Click again to remove", full = true })
-rm.Parent = b
-hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
-end
-end,
-})
-end
 local function buildSize(l, parent, c)
 local s = l.s
 parent.add({
@@ -5039,7 +4925,7 @@ if not line then
 buildSpread(cs, c)
 end
 if not onSpline then
-buildLayerPaint(l, cs, true)
+App.buildLayerPaint(l, cs, true)
 end
 if not line then
 buildGroups(l, cs, c)
@@ -5657,7 +5543,6 @@ App.addSelected = addSelected
 App.liveBox = liveBox
 App.buildBiomes = buildBiomes
 App.buildReport = buildReport
-App.buildLayerPaint = buildLayerPaint
 App.objectRules = function(l, parent)
 layerRules(l, parent, controls(l))
 end
@@ -5677,6 +5562,224 @@ return liveBox(parent, buildPresets)
 end
 App.removeCopiesBox = function(parent)
 return liveBox(parent, fillRemoveCopies)
+end
+end
+end)()
+-- #module Panel/HandTools
+MODULES["Panel/HandTools"] = (function()
+--[[
+Smart Scatter — HandTools: one object, by hand. Its tools come in two groups, each a tile that says what it does
+without hovering: putting copies down (Stamp: one, aimed; Spray: many, where you brush) and changing how much of it
+grows where (More, Less, Erase, Reset). Under the tiles, the picked tool's own panel: how to use it, its settings
+and its keys, and nothing of the tools not in use. Then what was done by hand, and undoing it all.
+Used by the object's page and by the Brush tab's "One object by hand" card (App.buildLayerPaint).
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
+local box, col, label, para, vlist, corner, stroke, pad = App.box, App.col, App.label, App.para, App.vlist, App.corner, App.stroke, App.pad
+local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
+App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
+local key = App.keyText
+local GROUPS = {
+{
+title = "Put copies down",
+{ mode = "Stamp", icon = "stamp", text = "Stamp", sub = "One copy, aimed" },
+{ mode = "Place", icon = "spray", text = "Spray", sub = "Copies where you brush" },
+},
+{
+title = "Change how much grows",
+{ mode = "More", icon = "plus", text = "More", sub = "Thicker here" },
+{ mode = "Less", icon = "minus", text = "Less", sub = "Thinner here" },
+{ mode = "None", icon = "trash", text = "Erase", sub = "None of it here", danger = true },
+{ mode = "Clear", icon = "refresh", text = "Reset", sub = "Back to its rules" },
+},
+}
+local TOOL = {}
+for _, g in GROUPS do
+for _, t in ipairs(g) do
+TOOL[t.mode] = t
+end
+end
+local HOW = {
+Stamp = "Click the ground to put one copy down, exactly as it shows under the mouse. Press and drag to turn it toward the mouse.",
+Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
+More = "Brush where you want it thicker, up to three times as much.",
+Less = "Brush where you want it thinner. Twice over clears it.",
+None = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
+Clear = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
+}
+local SHIFT = { Stamp = "turn freely", Place = "take away", More = "less", Less = "more", None = "reset", Clear = "erase" }
+local function brushSize(parent)
+slider("Brush size", 4, 200, function()
+return G.radius
+end, function(v)
+G.radius = v
+end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. key("size") .. " sizes it with the mouse.", 24).Parent =
+parent
+end
+local function stampControls(l, parent, rebuild)
+local st = App.stamp
+slider("Turn", 0, 359, function()
+return math.floor(math.deg(st.yaw) + 0.5) % 360
+end, function(v)
+App.setStamp(v)
+end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
+parent
+slider("Size", 0.1, 5, function()
+return st.k
+end, function(v)
+App.setStamp(nil, v)
+end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
+parent
+if #l.variants > 1 then
+local grid = chipGrid(parent, 3, 28)
+for i, v in l.variants do
+chip(grid, v.inst.Name, function()
+return st.vi == i
+end, function()
+App.setStamp(nil, nil, i)
+rebuild()
+end)
+end
+end
+switchRow("A random one after each stamp", function()
+return G.stampRandom
+end, function(v)
+G.stampRandom = v
+end, saveG, "After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety.").Parent =
+parent
+hintOn(
+button("Random now", nil, App.rollStamp, { Parent = buttonRow(parent) }),
+"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+)
+end
+local function toolPanel(l, parent, rebuild)
+local m = App.paintLayer == l and App.mode or nil
+local t = m and TOOL[m]
+if not t then
+local hint = para("Pick a tool, then work in the viewport. Esc stops.", { Parent = parent })
+hint.TextColor3 = P.faint
+return
+end
+local color = t.danger and P.danger or P.accent
+local card = col(
+{ BackgroundTransparency = 0, BackgroundColor3 = color:Lerp(P.card, 0.9), Parent = parent },
+{ corner(10), stroke(color:Lerp(P.card, 0.55)), pad(12, 12, 10, 12), vlist(6) }
+)
+local head = box({ Size = UDim2.new(1, 0, 0, 18), Parent = card }, {
+App.new("UIListLayout", {
+FillDirection = Enum.FillDirection.Horizontal,
+VerticalAlignment = Enum.VerticalAlignment.Center,
+Padding = UDim.new(0, 7),
+SortOrder = Enum.SortOrder.LayoutOrder,
+}),
+})
+App.icon(t.icon, 15, color).Parent = head
+label(string.upper(t.text) .. "  ·  " .. l.inst.Name, 12, color, SANS_B, {
+Size = UDim2.fromOffset(0, 18),
+AutomaticSize = Enum.AutomaticSize.X,
+LayoutOrder = 1,
+Parent = head,
+})
+local how = para(HOW[m], { Parent = card })
+how.TextColor3 = P.text
+if m == "Stamp" then
+stampControls(l, card, rebuild)
+App.keyChips(card, {
+{ key("turn"), "turn" },
+{ "Shift", SHIFT[m] },
+{ key("shrink") .. " " .. key("grow"), "size" },
+{ key("model"), "model" },
+{ key("shuffle"), "random" },
+{ key("cancel"), "stop" },
+})
+else
+brushSize(card)
+App.keyChips(card, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
+if m ~= "Place" then
+App.overlayLegendRows(card, "object")
+end
+end
+end
+local function handWork(l, parent)
+if not (l.paint or l.pins) then
+return
+end
+App.fadeLine(parent, nil, 0.14)
+if l.paint then
+hintOn(
+button("Reset all painting", nil, function()
+l.paint = nil
+if App.paintLayer == l then
+App.recolorOverlay()
+end
+App.commit(l)
+App.refreshObjects()
+end, { Parent = buttonRow(parent) }),
+"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+)
+end
+if l.pins then
+local rm = App.dangerButton(string.format("Remove all %d put down by hand", #l.pins), function()
+l.pins = nil
+App.commit(l)
+App.refreshObjects()
+end, { confirm = "Click again to remove", full = true })
+rm.Parent = parent
+hintOn(rm, "Takes out every copy of it you put down with Stamp or Spray. Ctrl+Z brings them back.")
+end
+end
+App.buildLayerPaint = function(l, parent, more)
+parent.add({
+id = "layerpaint",
+title = "By hand",
+sub = "Stamp or spray copies, or paint where it grows",
+keys = "brush more less erase reset place spray pins stamp single one copy add rotate turn size by hand",
+more = more,
+build = function(b)
+local groups = {}
+for _, g in GROUPS do
+label(string.upper(g.title), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
+local tiles = App.toolTiles(b, 2, 44)
+for _, t in ipairs(g) do
+tiles.add({
+icon = t.icon,
+text = t.text,
+sub = t.sub,
+color = t.danger and P.danger or nil,
+tinted = t.danger,
+hint = HOW[t.mode],
+on = function()
+return App.paintLayer == l and App.mode == t.mode
+end,
+click = function()
+App.setMode(t.mode, l)
+end,
+})
+end
+table.insert(groups, tiles)
+end
+local panel = col({ Parent = b }, { vlist(6) })
+local function buildPanel()
+for _, c in panel:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+toolPanel(l, panel, buildPanel)
+end
+buildPanel()
+App.ui.refreshStamp = buildPanel
+App.ui.refreshLayerBrush = function()
+for _, tiles in groups do
+tiles.refresh()
+end
+buildPanel()
+end
+handWork(l, b)
+end,
+})
 end
 end
 end)()
@@ -5724,6 +5827,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/HandTools",
 	"Panel/MapTools",
 	"Panel/Tabs/Scatter",
 	"Panel/Tabs/Brush",

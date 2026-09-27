@@ -422,185 +422,6 @@ return function(App)
 		})
 	end
 
-	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
-	local LAYER_HINT = {
-		Place = "Puts copies down exactly where you brush, at the object's spacing.",
-		Stamp = "One copy exactly where you click: the model shows under the mouse. Drag to turn it.",
-		More = "More of it where you brush (up to three times as much).",
-		Less = "Less of it where you brush; twice clears it.",
-		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
-		Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
-	}
-	local function buildLayerPaint(l, parent, more)
-		parent.add({
-			id = "layerpaint",
-			title = "Paint or place this object",
-			keys = "brush more less erase reset place pins stamp single one copy add rotate turn size",
-			more = more,
-			build = function(b)
-				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
-				local labels, modeOf = {}, {}
-				for _, m in App.LAYER_ORDER do
-					if m ~= "None" then
-						table.insert(labels, App.LAYER_LABEL[m])
-						modeOf[App.LAYER_LABEL[m]] = m
-					end
-				end
-				local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
-				local seg, refresh = segmented(labels, function()
-					return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
-				end, function(label)
-					App.setMode(modeOf[label], l)
-				end, nil, nil, true, nil, LAYER_HINT)
-				seg.Size = UDim2.new(1, -100, 1, 0)
-				seg.Parent = row
-				local erase, eraseLook = App.dangerButton("Erase", function()
-					App.setMode("None", l)
-				end, {
-					on = function()
-						return App.paintLayer == l and App.mode == "None"
-					end,
-					full = true, -- (centred in its own width, set below)
-				})
-				erase.Size = UDim2.fromOffset(92, 30)
-				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
-				erase.Parent = row
-				hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
-				local what = App.para("", { Parent = b })
-				what.TextColor3 = P.dim
-				local function say()
-					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
-					local shift = App.mode == "Stamp" and "turns it freely" or string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]] or "")
-					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. shift .. ".") or "Pick one, then brush over the area in the viewport."
-				end
-				say()
-				-- while stamping: the stamp's turn, size and model (the keys in the viewport do the same)
-				local stampBox = col({ Parent = b }, { vlist(6) })
-				local function buildStamp()
-					for _, c in stampBox:GetChildren() do
-						if c:IsA("GuiObject") then
-							c:Destroy()
-						end
-					end
-					if not (App.mode == "Stamp" and App.paintLayer == l) then
-						return
-					end
-					local st, key = App.stamp, App.keyText
-					slider(
-						"Turn",
-						0,
-						359,
-						function()
-							return math.floor(math.deg(st.yaw) + 0.5) % 360
-						end,
-						function(v)
-							App.setStamp(v)
-						end,
-						"%d°",
-						1,
-						nil,
-						nil,
-						"Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.",
-						0
-					).Parent =
-						stampBox
-					slider(
-						"Size",
-						0.1,
-						5,
-						function()
-							return st.k
-						end,
-						function(v)
-							App.setStamp(nil, v)
-						end,
-						"%.2f×",
-						0.05,
-						nil,
-						nil,
-						"1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.",
-						1
-					).Parent =
-						stampBox
-					if #l.variants > 1 then
-						local grid = chipGrid(stampBox, 3, 28)
-						for i, v in l.variants do
-							chip(grid, v.inst.Name, function()
-								return st.vi == i
-							end, function()
-								App.setStamp(nil, nil, i)
-								buildStamp()
-							end)
-						end
-					end
-					switchRow(
-						"A random one after each stamp",
-						function()
-							return G.stampRandom
-						end,
-						function(v)
-							G.stampRandom = v
-						end,
-						saveG,
-						"After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety."
-					).Parent =
-						stampBox
-					hintOn(
-						button("Random now", nil, App.rollStamp, { Parent = buttonRow(stampBox) }),
-						"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-					)
-					App.keyChips(stampBox, {
-						{ key("turn"), "turn" },
-						{ "Shift", "turn freely" },
-						{ key("shrink") .. " " .. key("grow"), "size" },
-						{ key("model"), "model" },
-						{ key("shuffle"), "random" },
-					})
-				end
-				buildStamp()
-				App.ui.refreshStamp = buildStamp
-				App.ui.refreshLayerBrush = function()
-					refresh()
-					eraseLook()
-					say()
-					buildStamp()
-				end
-				slider("Brush size", 4, 200, function()
-					return G.radius
-				end, function(v)
-					G.radius = v
-				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
-					b
-				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
-				App.overlayLegendRows(b, "object") -- (while brushing it, the overlay shows its painting in these colours)
-				if l.paint then
-					hintOn(
-						button("Reset all painting", nil, function()
-							l.paint = nil
-							if App.paintLayer == l then
-								recolorOverlay()
-							end
-							commit(l)
-							App.refreshObjects()
-						end, { Parent = buttonRow(b) }),
-						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
-					)
-				end
-				if l.pins then -- what takes away for good, at the bottom, apart
-					gap(b, 2)
-					App.fadeLine(b, nil, 0.14)
-					local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
-						l.pins = nil
-						commit(l)
-						App.refreshObjects()
-					end, { confirm = "Click again to remove", full = true })
-					rm.Parent = b
-					hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
-				end
-			end,
-		})
-	end
-
 	local function buildSize(l, parent, c)
 		local s = l.s
 		parent.add({
@@ -940,7 +761,7 @@ return function(App)
 			buildSpread(cs, c)
 		end
 		if not onSpline then
-			buildLayerPaint(l, cs, true)
+			App.buildLayerPaint(l, cs, true) -- (Panel/HandTools)
 		end
 		if not line then
 			buildGroups(l, cs, c)
@@ -1598,7 +1419,6 @@ return function(App)
 	App.liveBox = liveBox
 	App.buildBiomes = buildBiomes
 	App.buildReport = buildReport
-	App.buildLayerPaint = buildLayerPaint
 	App.objectRules = function(l, parent) -- one object's rule cards alone (search results)
 		layerRules(l, parent, controls(l))
 	end

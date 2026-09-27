@@ -1,6 +1,6 @@
 --[[
-	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
-	less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
+	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, work one object by hand
+	(stamp or spray copies, paint where it grows more or less: Panel/HandTools), take single copies out; then which surfaces painting sticks to and cleaning up
 	the painted edge under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -9,7 +9,7 @@ return function(App)
 	local Engine, P, SANS = App.Engine, App.P, App.SANS
 	local label, hintOn = App.label, App.hintOn
 
-	-- the object the "Paint one object" card works on (this session only; the first one that can be painted)
+	-- the object the "One object by hand" card works on (this session only; the first one that can be painted)
 	local picked
 	local function paintable(l)
 		return not (Engine.isLine(l) and l.s.follow == "Spline")
@@ -82,8 +82,9 @@ return function(App)
 			end)
 			hintOn(row, "Brush " .. l.inst.Name .. ".")
 		end
-		App.buildLayerPaint(picked, { -- its controls straight into this card
+		App.buildLayerPaint(picked, { -- its tools straight into this card, under the pick
 			add = function(spec)
+				App.fadeLine(b, nil, 0.14)
 				spec.build(b)
 			end,
 		})
@@ -122,9 +123,9 @@ return function(App)
 			if kind ~= "Path" then
 				cs.add({
 					id = "objectbrush",
-					title = "Paint one object",
-					sub = "More, less or none of it where you brush; or place copies exactly",
-					keys = "more less erase reset place pins object brush by hand",
+					title = "One object by hand",
+					sub = "Stamp or spray copies of it, or paint where it grows more or less",
+					keys = "more less erase reset place spray stamp pins object brush by hand single copy",
 					build = buildObjectBrush,
 				})
 			end

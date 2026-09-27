@@ -44,75 +44,39 @@ return function(App)
 	App.overlayLegendRows = legend
 
 	local function buildPaintTools(parent)
-		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-		local cells = {}
-		-- a tool; tinted: in its colour even when not picked (Erase: red, so it's never taken for another tool)
-		local function cell(iconName, text, color, hint, onClick, tinted)
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
-			local st = stroke(P.line)
-			st.Parent = b
-			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-				new("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					HorizontalAlignment = Enum.HorizontalAlignment.Center,
-					VerticalAlignment = Enum.VerticalAlignment.Center,
-					Padding = UDim.new(0, 6),
-					SortOrder = Enum.SortOrder.LayoutOrder,
-				}),
-			})
-			local ic = icon(iconName, 14, P.dim)
-			ic.Parent = row
-			local t = label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
-			hintOn(b, hint)
-			b.MouseButton1Click:Connect(onClick)
-			App.pressable(b, 0.96)
-			local lit = App.glow(b, 8, 0.6, color)
-			local c = { hot = false }
-			c.paint = function(on)
-				lit:set(on)
-				local idle = tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
-				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
-				st.Color = on and color:Lerp(P.card, 0.4) or (tinted and color:Lerp(P.card, 0.6) or P.line)
-				local fg = on and color or (tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
-				setIconColor(ic, fg)
-				t.TextColor3 = fg
-			end
-			b.MouseEnter:Connect(function()
-				c.hot = true
-				c.look()
-			end)
-			b.MouseLeave:Connect(function()
-				c.hot = false
-				c.look()
-			end)
-			table.insert(cells, c)
-			return c
-		end
+		local tiles = App.toolTiles(parent, 3, 36)
 		for _, t in TOOLS do
-			local c = cell(ICON[t], t, P.accent, t .. ": " .. (TOOL_HINT[t] or ""), function()
-				if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
-					App.setMode("Off")
-				else
-					App.setTool(t)
-				end
-			end)
-			c.look = function()
-				c.paint(G.tool == t and App.mode == "Paint")
-			end
+			tiles.add({
+				icon = ICON[t],
+				text = t,
+				hint = t .. ": " .. (TOOL_HINT[t] or ""),
+				on = function()
+					return G.tool == t and App.mode == "Paint"
+				end,
+				click = function()
+					if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
+						App.setMode("Off")
+					else
+						App.setTool(t)
+					end
+				end,
+			})
 		end
-		local er = cell("trash", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
-			App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-		end, true)
-		er.look = function()
-			er.paint(App.mode == "Erase")
-		end
-		local function refresh()
-			for _, c in cells do
-				c.look()
-			end
-		end
-		refresh()
+		tiles.add({
+			icon = "trash",
+			text = "Erase",
+			color = P.danger,
+			tinted = true,
+			hint = "Erase: take ground out of the area (Shift does it while painting).",
+			on = function()
+				return App.mode == "Erase"
+			end,
+			click = function()
+				App.setMode(App.mode == "Erase" and "Paint" or "Erase")
+			end,
+		})
+		local refresh = tiles.refresh
 		App.ui.refreshMode = refresh
 		legend(parent)
 		keyChips(parent, {

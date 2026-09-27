@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX42"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX43"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 136
-local BUNDLED_VERSION = "9.72"
+local BUNDLED_BUILD = 137
+local BUNDLED_VERSION = "9.73"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -394,6 +394,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/HandTools",
 	"Panel/MapTools",
 	"Panel/Tabs/Scatter",
 	"Panel/Tabs/Brush",
@@ -2171,6 +2172,20 @@ return function(App)
 		elseif name == "plus" then
 			bar(0.5, 0.16, 0.5, 0.84)
 			bar(0.16, 0.5, 0.84, 0.5)
+		elseif name == "minus" then
+			bar(0.16, 0.5, 0.84, 0.5)
+		elseif name == "stamp" then -- a rubber stamp: a knob, its stem, the pad, and the mark it leaves
+			ring(0.5, 0.2, 0.12, true)
+			bar(0.5, 0.3, 0.5, 0.5)
+			rect(0.5, 0.6, 0.64, 0.16, true, 2)
+			bar(0.18, 0.84, 0.82, 0.84)
+		elseif name == "spray" then -- copies scattered where the brush goes
+			ring(0.5, 0.5, 0.38)
+			ring(0.36, 0.38, 0.07, true)
+			ring(0.62, 0.34, 0.07, true)
+			ring(0.52, 0.56, 0.07, true)
+			ring(0.34, 0.66, 0.07, true)
+			ring(0.68, 0.64, 0.07, true)
 		elseif name == "close" then
 			bar(0.22, 0.22, 0.78, 0.78)
 			bar(0.22, 0.78, 0.78, 0.22)
@@ -2590,6 +2605,92 @@ return function(App)
 		})
 	end
 
+	-- A grid of tool tiles: an icon and a name, and optionally a line under it saying what the tool does (so it reads
+	-- without hovering). The picked one glows in its colour; a tinted one (Erase: red) shows its colour even when not
+	-- picked, so it's never taken for another tool. tiles.add{ icon, text, sub?, color?, tinted?, hint?, on(), click() };
+	-- tiles.refresh() after anything that changes which is picked.
+	local function toolTiles(parent, cols, h)
+		local grid = chipGrid(parent, cols, h)
+		local tiles = { cells = {} }
+		function tiles.add(spec)
+			local color = spec.color or P.accent
+			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
+			local st = stroke(P.line)
+			st.Parent = b
+			local inner = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
+				new("UIListLayout", {
+					FillDirection = Enum.FillDirection.Horizontal,
+					HorizontalAlignment = spec.sub and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Center,
+					VerticalAlignment = Enum.VerticalAlignment.Center,
+					Padding = UDim.new(0, spec.sub and 8 or 6),
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}),
+				spec.sub and pad(10, 8, 0, 0) or nil,
+			})
+			local ic = icon(spec.icon, spec.sub and 16 or 14, P.dim)
+			ic.Parent = inner
+			local words = box({ Size = UDim2.new(1, -26, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = inner }, {
+				new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
+			})
+			if not spec.sub then
+				words.Size, words.AutomaticSize = UDim2.fromOffset(0, 16), Enum.AutomaticSize.X
+			end
+			local t = label(spec.text, 12, P.dim, SANS_B, {
+				Size = spec.sub and UDim2.new(1, 0, 0, 16) or UDim2.fromOffset(0, 16),
+				AutomaticSize = not spec.sub and Enum.AutomaticSize.X or nil,
+				Parent = words,
+			})
+			local sub = spec.sub
+				and label(
+					spec.sub,
+					11,
+					P.faint,
+					SANS,
+					{ Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, TextTruncate = Enum.TextTruncate.AtEnd, Parent = words }
+				)
+			if spec.hint then
+				hintOn(b, spec.hint)
+			end
+			pressable(b, 0.96)
+			local lit = glow(b, 8, 0.6, color)
+			local c = { hot = false }
+			function c.look()
+				local on = spec.on() == true
+				lit:set(on)
+				local idle = spec.tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
+				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
+				st.Color = on and color:Lerp(P.card, 0.4) or (spec.tinted and color:Lerp(P.card, 0.6) or P.line)
+				local fg = on and color or (spec.tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
+				setIconColor(ic, fg)
+				t.TextColor3 = fg
+				if sub then
+					sub.TextColor3 = on and color:Lerp(P.dim, 0.35) or P.faint
+				end
+			end
+			b.MouseEnter:Connect(function()
+				c.hot = true
+				c.look()
+			end)
+			b.MouseLeave:Connect(function()
+				c.hot = false
+				c.look()
+			end)
+			b.MouseButton1Click:Connect(function()
+				spec.click()
+				tiles.refresh()
+			end)
+			table.insert(tiles.cells, c)
+			c.look()
+			return c
+		end
+		function tiles.refresh()
+			for _, c in tiles.cells do
+				c.look()
+			end
+		end
+		return tiles
+	end
+
 	-- a page's own top line: back, then its title
 	local function pageHead(parent, backText, title, onBack)
 		local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
@@ -2743,6 +2844,7 @@ return function(App)
 	App.emptyState = emptyState
 	App.captureKey = captureKey
 	App.chipGrid = chipGrid
+	App.toolTiles = toolTiles
 	App.iconButton = iconButton
 end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX5"><Properties><string name="Name">Lifecycle</string><ProtectedString name="Source"><![CDATA[--[[
@@ -3115,14 +3217,14 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" | "Stamp" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" (Spray) | "Stamp" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand,
 	-- "stamp" puts one copy down exactly as shown (Viewport/Stamp)
 	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
 	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground; a
 	-- stamp's Shift turns it freely instead)
 	App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
-	App.LAYER_LABEL = { Place = "Place", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+	App.LAYER_LABEL = { Place = "Spray", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
 	App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 	-- App.paintLayer: the layer being painted or placed
 
@@ -3261,7 +3363,7 @@ return function(App)
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX19"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX8"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX20"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX8"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
 	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
 	and the welcome shown before there are any areas. Each builder fills the body it's given.
@@ -3307,75 +3409,39 @@ return function(App)
 	App.overlayLegendRows = legend
 
 	local function buildPaintTools(parent)
-		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-		local cells = {}
-		-- a tool; tinted: in its colour even when not picked (Erase: red, so it's never taken for another tool)
-		local function cell(iconName, text, color, hint, onClick, tinted)
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
-			local st = stroke(P.line)
-			st.Parent = b
-			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-				new("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					HorizontalAlignment = Enum.HorizontalAlignment.Center,
-					VerticalAlignment = Enum.VerticalAlignment.Center,
-					Padding = UDim.new(0, 6),
-					SortOrder = Enum.SortOrder.LayoutOrder,
-				}),
-			})
-			local ic = icon(iconName, 14, P.dim)
-			ic.Parent = row
-			local t = label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
-			hintOn(b, hint)
-			b.MouseButton1Click:Connect(onClick)
-			App.pressable(b, 0.96)
-			local lit = App.glow(b, 8, 0.6, color)
-			local c = { hot = false }
-			c.paint = function(on)
-				lit:set(on)
-				local idle = tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
-				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
-				st.Color = on and color:Lerp(P.card, 0.4) or (tinted and color:Lerp(P.card, 0.6) or P.line)
-				local fg = on and color or (tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
-				setIconColor(ic, fg)
-				t.TextColor3 = fg
-			end
-			b.MouseEnter:Connect(function()
-				c.hot = true
-				c.look()
-			end)
-			b.MouseLeave:Connect(function()
-				c.hot = false
-				c.look()
-			end)
-			table.insert(cells, c)
-			return c
-		end
+		local tiles = App.toolTiles(parent, 3, 36)
 		for _, t in TOOLS do
-			local c = cell(ICON[t], t, P.accent, t .. ": " .. (TOOL_HINT[t] or ""), function()
-				if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
-					App.setMode("Off")
-				else
-					App.setTool(t)
-				end
-			end)
-			c.look = function()
-				c.paint(G.tool == t and App.mode == "Paint")
-			end
+			tiles.add({
+				icon = ICON[t],
+				text = t,
+				hint = t .. ": " .. (TOOL_HINT[t] or ""),
+				on = function()
+					return G.tool == t and App.mode == "Paint"
+				end,
+				click = function()
+					if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
+						App.setMode("Off")
+					else
+						App.setTool(t)
+					end
+				end,
+			})
 		end
-		local er = cell("trash", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
-			App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-		end, true)
-		er.look = function()
-			er.paint(App.mode == "Erase")
-		end
-		local function refresh()
-			for _, c in cells do
-				c.look()
-			end
-		end
-		refresh()
+		tiles.add({
+			icon = "trash",
+			text = "Erase",
+			color = P.danger,
+			tinted = true,
+			hint = "Erase: take ground out of the area (Shift does it while painting).",
+			on = function()
+				return App.mode == "Erase"
+			end,
+			click = function()
+				App.setMode(App.mode == "Erase" and "Paint" or "Erase")
+			end,
+		})
+		local refresh = tiles.refresh
 		App.ui.refreshMode = refresh
 		legend(parent)
 		keyChips(parent, {
@@ -4148,7 +4214,235 @@ return function(App)
 	App.buildScanFix = buildScanFix
 	App.buildWelcome = buildWelcome
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — HandTools: one object, by hand. Its tools come in two groups, each a tile that says what it does
+	without hovering: putting copies down (Stamp: one, aimed; Spray: many, where you brush) and changing how much of it
+	grows where (More, Less, Erase, Reset). Under the tiles, the picked tool's own panel: how to use it, its settings
+	and its keys, and nothing of the tools not in use. Then what was done by hand, and undoing it all.
+	Used by the object's page and by the Brush tab's "One object by hand" card (App.buildLayerPaint).
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
+	local box, col, label, para, vlist, corner, stroke, pad = App.box, App.col, App.label, App.para, App.vlist, App.corner, App.stroke, App.pad
+	local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
+		App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
+	local key = App.keyText
+
+	-- the tools, in their groups (mode: App.mode while it's in use)
+	local GROUPS = {
+		{
+			title = "Put copies down",
+			{ mode = "Stamp", icon = "stamp", text = "Stamp", sub = "One copy, aimed" },
+			{ mode = "Place", icon = "spray", text = "Spray", sub = "Copies where you brush" },
+		},
+		{
+			title = "Change how much grows",
+			{ mode = "More", icon = "plus", text = "More", sub = "Thicker here" },
+			{ mode = "Less", icon = "minus", text = "Less", sub = "Thinner here" },
+			{ mode = "None", icon = "trash", text = "Erase", sub = "None of it here", danger = true },
+			{ mode = "Clear", icon = "refresh", text = "Reset", sub = "Back to its rules" },
+		},
+	}
+	local TOOL = {}
+	for _, g in GROUPS do
+		for _, t in ipairs(g) do
+			TOOL[t.mode] = t
+		end
+	end
+	-- how to use each one, said in the panel while it's picked (and on its tile when hovered)
+	local HOW = {
+		Stamp = "Click the ground to put one copy down, exactly as it shows under the mouse. Press and drag to turn it toward the mouse.",
+		Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
+		More = "Brush where you want it thicker, up to three times as much.",
+		Less = "Brush where you want it thinner. Twice over clears it.",
+		None = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
+		Clear = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
+	}
+	-- what Shift does while each is in use
+	local SHIFT = { Stamp = "turn freely", Place = "take away", More = "less", Less = "more", None = "reset", Clear = "erase" }
+
+	local function brushSize(parent)
+		slider("Brush size", 4, 200, function()
+			return G.radius
+		end, function(v)
+			G.radius = v
+		end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. key("size") .. " sizes it with the mouse.", 24).Parent =
+			parent
+	end
+
+	-- the stamp's settings: its turn, size and model (the keys in the viewport do the same)
+	local function stampControls(l, parent, rebuild)
+		local st = App.stamp
+		slider("Turn", 0, 359, function()
+			return math.floor(math.deg(st.yaw) + 0.5) % 360
+		end, function(v)
+			App.setStamp(v)
+		end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
+			parent
+		slider("Size", 0.1, 5, function()
+			return st.k
+		end, function(v)
+			App.setStamp(nil, v)
+		end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
+			parent
+		if #l.variants > 1 then
+			local grid = chipGrid(parent, 3, 28)
+			for i, v in l.variants do
+				chip(grid, v.inst.Name, function()
+					return st.vi == i
+				end, function()
+					App.setStamp(nil, nil, i)
+					rebuild()
+				end)
+			end
+		end
+		switchRow("A random one after each stamp", function()
+			return G.stampRandom
+		end, function(v)
+			G.stampRandom = v
+		end, saveG, "After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety.").Parent =
+			parent
+		hintOn(
+			button("Random now", nil, App.rollStamp, { Parent = buttonRow(parent) }),
+			"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+		)
+	end
+
+	-- the picked tool's panel: its name, how it works, its settings, its keys
+	local function toolPanel(l, parent, rebuild)
+		local m = App.paintLayer == l and App.mode or nil
+		local t = m and TOOL[m]
+		if not t then
+			local hint = para("Pick a tool, then work in the viewport. Esc stops.", { Parent = parent })
+			hint.TextColor3 = P.faint
+			return
+		end
+		local color = t.danger and P.danger or P.accent
+		local card = col(
+			{ BackgroundTransparency = 0, BackgroundColor3 = color:Lerp(P.card, 0.9), Parent = parent },
+			{ corner(10), stroke(color:Lerp(P.card, 0.55)), pad(12, 12, 10, 12), vlist(6) }
+		)
+		local head = box({ Size = UDim2.new(1, 0, 0, 18), Parent = card }, {
+			App.new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 7),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		App.icon(t.icon, 15, color).Parent = head
+		label(string.upper(t.text) .. "  ·  " .. l.inst.Name, 12, color, SANS_B, {
+			Size = UDim2.fromOffset(0, 18),
+			AutomaticSize = Enum.AutomaticSize.X,
+			LayoutOrder = 1,
+			Parent = head,
+		})
+		local how = para(HOW[m], { Parent = card })
+		how.TextColor3 = P.text
+		if m == "Stamp" then
+			stampControls(l, card, rebuild)
+			App.keyChips(card, {
+				{ key("turn"), "turn" },
+				{ "Shift", SHIFT[m] },
+				{ key("shrink") .. " " .. key("grow"), "size" },
+				{ key("model"), "model" },
+				{ key("shuffle"), "random" },
+				{ key("cancel"), "stop" },
+			})
+		else
+			brushSize(card)
+			App.keyChips(card, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
+			if m ~= "Place" then -- (the overlay shows how much grows where, in these colours)
+				App.overlayLegendRows(card, "object")
+			end
+		end
+	end
+
+	-- what's been done to it by hand, and taking it all back (only when there's something)
+	local function handWork(l, parent)
+		if not (l.paint or l.pins) then
+			return
+		end
+		App.fadeLine(parent, nil, 0.14)
+		if l.paint then
+			hintOn(
+				button("Reset all painting", nil, function()
+					l.paint = nil
+					if App.paintLayer == l then
+						App.recolorOverlay()
+					end
+					App.commit(l)
+					App.refreshObjects()
+				end, { Parent = buttonRow(parent) }),
+				"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+			)
+		end
+		if l.pins then
+			local rm = App.dangerButton(string.format("Remove all %d put down by hand", #l.pins), function()
+				l.pins = nil
+				App.commit(l)
+				App.refreshObjects()
+			end, { confirm = "Click again to remove", full = true })
+			rm.Parent = parent
+			hintOn(rm, "Takes out every copy of it you put down with Stamp or Spray. Ctrl+Z brings them back.")
+		end
+	end
+
+	App.buildLayerPaint = function(l, parent, more)
+		parent.add({
+			id = "layerpaint",
+			title = "By hand",
+			sub = "Stamp or spray copies, or paint where it grows",
+			keys = "brush more less erase reset place spray pins stamp single one copy add rotate turn size by hand",
+			more = more,
+			build = function(b)
+				local groups = {}
+				for _, g in GROUPS do
+					label(string.upper(g.title), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
+					local tiles = App.toolTiles(b, 2, 44)
+					for _, t in ipairs(g) do
+						tiles.add({
+							icon = t.icon,
+							text = t.text,
+							sub = t.sub,
+							color = t.danger and P.danger or nil,
+							tinted = t.danger,
+							hint = HOW[t.mode],
+							on = function()
+								return App.paintLayer == l and App.mode == t.mode
+							end,
+							click = function()
+								App.setMode(t.mode, l)
+							end,
+						})
+					end
+					table.insert(groups, tiles)
+				end
+				local panel = col({ Parent = b }, { vlist(6) })
+				local function buildPanel()
+					for _, c in panel:GetChildren() do
+						if c:IsA("GuiObject") then
+							c:Destroy()
+						end
+					end
+					toolPanel(l, panel, buildPanel)
+				end
+				buildPanel()
+				App.ui.refreshStamp = buildPanel
+				App.ui.refreshLayerBrush = function()
+					for _, tiles in groups do
+						tiles.refresh()
+					end
+					buildPanel()
+				end
+				handWork(l, b)
+			end,
+		})
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -4675,7 +4969,7 @@ return function(App)
 	App.maskOp = maskOp
 	App.primaryButton = primaryButton
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
 	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
@@ -5735,7 +6029,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
 	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
 	settings (a card per rule), biomes, presets, the performance report and removing single copies.
@@ -6159,185 +6453,6 @@ return function(App)
 		})
 	end
 
-	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
-	local LAYER_HINT = {
-		Place = "Puts copies down exactly where you brush, at the object's spacing.",
-		Stamp = "One copy exactly where you click: the model shows under the mouse. Drag to turn it.",
-		More = "More of it where you brush (up to three times as much).",
-		Less = "Less of it where you brush; twice clears it.",
-		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
-		Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
-	}
-	local function buildLayerPaint(l, parent, more)
-		parent.add({
-			id = "layerpaint",
-			title = "Paint or place this object",
-			keys = "brush more less erase reset place pins stamp single one copy add rotate turn size",
-			more = more,
-			build = function(b)
-				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
-				local labels, modeOf = {}, {}
-				for _, m in App.LAYER_ORDER do
-					if m ~= "None" then
-						table.insert(labels, App.LAYER_LABEL[m])
-						modeOf[App.LAYER_LABEL[m]] = m
-					end
-				end
-				local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
-				local seg, refresh = segmented(labels, function()
-					return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
-				end, function(label)
-					App.setMode(modeOf[label], l)
-				end, nil, nil, true, nil, LAYER_HINT)
-				seg.Size = UDim2.new(1, -100, 1, 0)
-				seg.Parent = row
-				local erase, eraseLook = App.dangerButton("Erase", function()
-					App.setMode("None", l)
-				end, {
-					on = function()
-						return App.paintLayer == l and App.mode == "None"
-					end,
-					full = true, -- (centred in its own width, set below)
-				})
-				erase.Size = UDim2.fromOffset(92, 30)
-				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
-				erase.Parent = row
-				hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
-				local what = App.para("", { Parent = b })
-				what.TextColor3 = P.dim
-				local function say()
-					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
-					local shift = App.mode == "Stamp" and "turns it freely" or string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]] or "")
-					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. shift .. ".") or "Pick one, then brush over the area in the viewport."
-				end
-				say()
-				-- while stamping: the stamp's turn, size and model (the keys in the viewport do the same)
-				local stampBox = col({ Parent = b }, { vlist(6) })
-				local function buildStamp()
-					for _, c in stampBox:GetChildren() do
-						if c:IsA("GuiObject") then
-							c:Destroy()
-						end
-					end
-					if not (App.mode == "Stamp" and App.paintLayer == l) then
-						return
-					end
-					local st, key = App.stamp, App.keyText
-					slider(
-						"Turn",
-						0,
-						359,
-						function()
-							return math.floor(math.deg(st.yaw) + 0.5) % 360
-						end,
-						function(v)
-							App.setStamp(v)
-						end,
-						"%d°",
-						1,
-						nil,
-						nil,
-						"Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.",
-						0
-					).Parent =
-						stampBox
-					slider(
-						"Size",
-						0.1,
-						5,
-						function()
-							return st.k
-						end,
-						function(v)
-							App.setStamp(nil, v)
-						end,
-						"%.2f×",
-						0.05,
-						nil,
-						nil,
-						"1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.",
-						1
-					).Parent =
-						stampBox
-					if #l.variants > 1 then
-						local grid = chipGrid(stampBox, 3, 28)
-						for i, v in l.variants do
-							chip(grid, v.inst.Name, function()
-								return st.vi == i
-							end, function()
-								App.setStamp(nil, nil, i)
-								buildStamp()
-							end)
-						end
-					end
-					switchRow(
-						"A random one after each stamp",
-						function()
-							return G.stampRandom
-						end,
-						function(v)
-							G.stampRandom = v
-						end,
-						saveG,
-						"After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety."
-					).Parent =
-						stampBox
-					hintOn(
-						button("Random now", nil, App.rollStamp, { Parent = buttonRow(stampBox) }),
-						"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-					)
-					App.keyChips(stampBox, {
-						{ key("turn"), "turn" },
-						{ "Shift", "turn freely" },
-						{ key("shrink") .. " " .. key("grow"), "size" },
-						{ key("model"), "model" },
-						{ key("shuffle"), "random" },
-					})
-				end
-				buildStamp()
-				App.ui.refreshStamp = buildStamp
-				App.ui.refreshLayerBrush = function()
-					refresh()
-					eraseLook()
-					say()
-					buildStamp()
-				end
-				slider("Brush size", 4, 200, function()
-					return G.radius
-				end, function(v)
-					G.radius = v
-				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
-					b
-				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
-				App.overlayLegendRows(b, "object") -- (while brushing it, the overlay shows its painting in these colours)
-				if l.paint then
-					hintOn(
-						button("Reset all painting", nil, function()
-							l.paint = nil
-							if App.paintLayer == l then
-								recolorOverlay()
-							end
-							commit(l)
-							App.refreshObjects()
-						end, { Parent = buttonRow(b) }),
-						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
-					)
-				end
-				if l.pins then -- what takes away for good, at the bottom, apart
-					gap(b, 2)
-					App.fadeLine(b, nil, 0.14)
-					local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
-						l.pins = nil
-						commit(l)
-						App.refreshObjects()
-					end, { confirm = "Click again to remove", full = true })
-					rm.Parent = b
-					hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
-				end
-			end,
-		})
-	end
-
 	local function buildSize(l, parent, c)
 		local s = l.s
 		parent.add({
@@ -6677,7 +6792,7 @@ return function(App)
 			buildSpread(cs, c)
 		end
 		if not onSpline then
-			buildLayerPaint(l, cs, true)
+			App.buildLayerPaint(l, cs, true) -- (Panel/HandTools)
 		end
 		if not line then
 			buildGroups(l, cs, c)
@@ -7335,7 +7450,6 @@ return function(App)
 	App.liveBox = liveBox
 	App.buildBiomes = buildBiomes
 	App.buildReport = buildReport
-	App.buildLayerPaint = buildLayerPaint
 	App.objectRules = function(l, parent) -- one object's rule cards alone (search results)
 		layerRules(l, parent, controls(l))
 	end
@@ -7357,7 +7471,7 @@ return function(App)
 		return liveBox(parent, fillRemoveCopies)
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
 	Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
 	update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
@@ -8184,9 +8298,9 @@ return function(App)
 	App.applyTheme = applyTheme
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX17"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
-	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
-	less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX18"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, work one object by hand
+	(stamp or spray copies, paint where it grows more or less: Panel/HandTools), take single copies out; then which surfaces painting sticks to and cleaning up
 	the painted edge under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -8195,7 +8309,7 @@ return function(App)
 	local Engine, P, SANS = App.Engine, App.P, App.SANS
 	local label, hintOn = App.label, App.hintOn
 
-	-- the object the "Paint one object" card works on (this session only; the first one that can be painted)
+	-- the object the "One object by hand" card works on (this session only; the first one that can be painted)
 	local picked
 	local function paintable(l)
 		return not (Engine.isLine(l) and l.s.follow == "Spline")
@@ -8268,8 +8382,9 @@ return function(App)
 			end)
 			hintOn(row, "Brush " .. l.inst.Name .. ".")
 		end
-		App.buildLayerPaint(picked, { -- its controls straight into this card
+		App.buildLayerPaint(picked, { -- its tools straight into this card, under the pick
 			add = function(spec)
+				App.fadeLine(b, nil, 0.14)
 				spec.build(b)
 			end,
 		})
@@ -8308,9 +8423,9 @@ return function(App)
 			if kind ~= "Path" then
 				cs.add({
 					id = "objectbrush",
-					title = "Paint one object",
-					sub = "More, less or none of it where you brush; or place copies exactly",
-					keys = "more less erase reset place pins object brush by hand",
+					title = "One object by hand",
+					sub = "Stamp or spray copies of it, or paint where it grows more or less",
+					keys = "more less erase reset place spray stamp pins object brush by hand single copy",
 					build = buildObjectBrush,
 				})
 			end
@@ -8344,7 +8459,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
 	for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -8437,7 +8552,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
 	when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
 	performance report under More options.
@@ -8565,7 +8680,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
 	viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -8796,7 +8911,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
@@ -9266,7 +9381,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX27"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX28"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
 	edit mode and local view feel: the scene fades toward grey and dims (a colour correction on the camera, never
@@ -9495,7 +9610,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
 	ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
 	toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
@@ -9626,7 +9741,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Overlay: the widget and the painted-area overlay in the viewport.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -9946,7 +10061,7 @@ return function(App)
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -10930,7 +11045,7 @@ return function(App)
 		Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
-		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
@@ -11046,7 +11161,7 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
 	round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
 	centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
@@ -11234,7 +11349,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -12266,7 +12381,7 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamp: puts one copy of an object down exactly where and how you want it. The real model floats
 	under the mouse, see-through, standing just as it will (it's posed by the same placement code, on the same ground);
 	a click puts it down, a drag from where you pressed turns it to face the mouse (15° steps; Shift turns freely).
@@ -12549,7 +12664,7 @@ return function(App)
 		clearGhost()
 	end
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -12579,7 +12694,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13565,7 +13680,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14365,7 +14480,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14816,7 +14931,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -15331,7 +15446,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -15966,7 +16081,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17044,7 +17159,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17818,7 +17933,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -17984,7 +18099,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18988,7 +19103,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -19313,7 +19428,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -19825,7 +19940,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or
