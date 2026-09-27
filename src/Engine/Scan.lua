@@ -387,25 +387,39 @@ return function(E, I)
 						on[i] = true -- chosen as ground: never taken for a roof
 					elseif c ~= "Water" and not explicit and r.Instance ~= workspace.Terrain then
 						local p = r.Instance
-						-- follow the ray down through stacked parts to the real ground;
-						-- if the top surface is well above it, it's a roof / structure
+						-- Is the top a roof? Follow the ray down through what's stacked under it: open air of more than
+						-- 3 studs between one part's underside and the next surface (the inside of a house) makes it one;
+						-- so does standing on real ground more than 3 studs below (a solid building). A stack that ends in
+						-- open sky (a floating island: grass on dirt over nothing) is ground.
 						if not (p.Size.X > 80 and p.Size.Z > 80) then
 							local roof = roofMemo[p]
 							if roof == nil then
-								local lowest, from = r.Position.Y, r.Position
+								roof = false
+								local cur, from, lowest, floating = p, r.Position, r.Position.Y, false
 								for _ = 1, 8 do
 									local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 									if not r2 then
+										floating = true -- nothing below: the sky under a floating island
+										break
+									end
+									local cf, sz = cur.CFrame, cur.Size
+									local underside = cf.Position.Y
+										- (math.abs(cf.RightVector.Y) * sz.X + math.abs(cf.UpVector.Y) * sz.Y + math.abs(cf.LookVector.Y) * sz.Z)
+											/ 2
+									if underside - r2.Position.Y > 3 then
+										roof = true
 										break
 									end
 									lowest = r2.Position.Y
 									local q = r2.Instance
-									if q == workspace.Terrain or (q.Size.X > 80 and q.Size.Z > 80) then
+									if q == workspace.Terrain or not q:IsA("BasePart") or (q.Size.X > 80 and q.Size.Z > 80) then
 										break
 									end
-									from = r2.Position
+									cur, from = q, r2.Position
 								end
-								roof = r.Position.Y - lowest > 3
+								if not roof and not floating then
+									roof = r.Position.Y - lowest > 3
+								end
 								roofMemo[p] = roof
 							end
 							if roof then

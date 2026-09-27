@@ -25,6 +25,24 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- Scatter area, step 1: the tools that mark ground (inside the step card)
 	--------------------------------------------------------------------------------
+	-- the overlay's colours and what they mean (App.overlayLegend), as small swatches with a line each
+	local function legend(parent, which)
+		local list = col({ Parent = parent }, { vlist(3) })
+		for _, e in App.overlayLegend(which) do
+			local row = box({ Size = UDim2.new(1, 0, 0, 16), Parent = list })
+			box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = e[1],
+				Position = UDim2.fromOffset(0, 3),
+				Size = UDim2.fromOffset(10, 10),
+				Parent = row,
+			}, { corner(3) })
+			label(e[3], 11, P.dim, SANS, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = row })
+		end
+		return list
+	end
+	App.overlayLegendRows = legend
+
 	local function buildPaintTools(parent)
 		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
@@ -96,6 +114,7 @@ return function(App)
 		end
 		refresh()
 		App.ui.refreshMode = refresh
+		legend(parent)
 		keyChips(parent, {
 			{ "Shift", "erase" },
 			{ App.keyText("size"), "size" },

@@ -1536,6 +1536,45 @@ local ok, err = pcall(function()
 		ghost:Destroy()
 	end
 
+	-- a floating island (a grass mesh on a dirt one, sky below) is ground, not a roof
+	do
+		local isle = Instance.new("Folder")
+		isle.Name = "Isle"
+		isle.Parent = world
+		part({
+			Name = "Grass",
+			Size = Vector3.new(40, 2, 40),
+			CFrame = CFrame.new(O + Vector3.new(420, 61, 0)),
+			Material = Enum.Material.Grass,
+			Parent = isle,
+		})
+		part({
+			Name = "Dirt",
+			Size = Vector3.new(40, 12, 40),
+			CFrame = CFrame.new(O + Vector3.new(420, 54, 0)),
+			Material = Enum.Material.Ground,
+			Parent = isle,
+		})
+		local a = newArea("SS_Test_Isle", {})
+		table.insert(made, a)
+		a.topY = O.Y + 62
+		paintRect(a, 408, -12, 432, 12)
+		local an = E.analyze(a, templates)
+		local grass, building = 0, 0
+		for i = 1, an.nx * an.nz do
+			if an.inM[i] then
+				grass += an.cls[i] == "Grass" and 1 or 0
+				building += an.cls[i] == "Building" and 1 or 0
+			end
+		end
+		check(
+			"a floating island reads as ground, not as a roof",
+			grass > 0 and building == 0,
+			string.format("%d grass cells, %d read as building", grass, building)
+		)
+		isle:Destroy()
+	end
+
 	-- improving a layout: a forest with a hole, a crowded pair, a tree on a road and a hand-placed one
 	do
 		local map = Instance.new("Folder")

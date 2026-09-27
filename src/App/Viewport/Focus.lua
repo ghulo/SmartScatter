@@ -16,7 +16,7 @@ return function(App)
 
 	local LOOK = { Saturation = -0.35, Brightness = -0.05, Contrast = -0.06 } -- how far the world steps back
 	local cc -- the camera's colour correction while focused
-	local gui, group, frame, glowLine, dot, title, detail -- the frame and the corner text, over the viewport
+	local gui, group, frame, glowLine, dot, title, detail, keyRow -- the frame and the corner text, over the viewport
 
 	-- what the tool is doing now: the mode, what it works on, and whether it takes things away
 	local function describe()
@@ -96,6 +96,15 @@ return function(App)
 			SANS_M,
 			{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Parent = lines }
 		)
+		-- under it, while painting: the overlay's colours and what they mean
+		keyRow = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 3, Parent = lines }, {
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
 		for _, t in { title, detail } do
 			t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
 			t.TextTruncate = Enum.TextTruncate.None
@@ -120,6 +129,41 @@ return function(App)
 			glowLine.Color = col
 			dot.BackgroundColor3 = col
 			title.Text = what
+			-- the colour key, for the tools the overlay colours the ground for
+			keyRow:ClearAllChildren()
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 10),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = keyRow,
+			})
+			local painting = App.mode == "Paint" or App.mode == "Erase" or LAYER_MODES[App.mode] ~= nil
+			keyRow.Visible = painting and App.overlayLegend ~= nil
+			if keyRow.Visible then
+				for i, e in App.overlayLegend() do
+					local item = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, Parent = keyRow }, {
+						new("UIListLayout", {
+							FillDirection = Enum.FillDirection.Horizontal,
+							VerticalAlignment = Enum.VerticalAlignment.Center,
+							Padding = UDim.new(0, 4),
+						}),
+					})
+					local sw = box(
+						{ BackgroundTransparency = 0, BackgroundColor3 = e[1], Size = UDim2.fromOffset(9, 9), Parent = item },
+						{ corner(2) }
+					)
+					App.stroke(Color3.new(0, 0, 0)).Parent = sw
+					local t = label(
+						e[2],
+						11,
+						Color3.fromRGB(225, 225, 225),
+						SANS_M,
+						{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = item }
+					)
+					t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
+				end
+			end
 			detail.Text = (where ~= "" and (where .. "  ·  ") or "") .. App.keyText("cancel") .. " to stop"
 			local cam = workspace.CurrentCamera
 			if cam and not (cc and cc.Parent == cam) then

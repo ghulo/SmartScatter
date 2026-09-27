@@ -242,6 +242,12 @@ return function(App)
 		local surf = Engine.surfaceOf(hit.Instance, hit.Material)
 		local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 			or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
+		if not LAYER_MODES[App.mode] and App.groundNote then -- why the ground under the brush is coloured as it is
+			local note = App.groundNote(p.X, p.Z)
+			if note ~= "" then
+				what ..= "  ·  " .. note
+			end
+		end
 		if tool == "Polygon" and App.polyPts then
 			what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
 		elseif tool == "Box" and down and boxStart then

@@ -75,8 +75,60 @@ return function(App)
 		end
 		rowParts, App.dirtyRows = {}, {}
 	end
+	local classColor -- (below)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
 	local BLOCKED = { Building = true, Water = true }
+	-- nothing under the cell at all (off the edge of an island or a platform): a pale grey
+	local function noneColor()
+		return VIEW.muted:Lerp(Color3.new(1, 1, 1), 0.55)
+	end
+	-- the colour a cell of ground takes in the overlay, by what the scan found there
+	classColor = function(cls)
+		return cls == "None" and noneColor() or BLOCKED[cls] and VIEW.blocked or QUIET[cls] and VIEW.muted or VIEW.accent
+	end
+	-- what a class of ground means for what grows on it (the label by the brush says it; nil: things grow there)
+	local CLASS_NOTE = {
+		Building = "a building or roof: nothing grows here",
+		Water = "water: nothing grows here",
+		Road = "a road: only objects set to go on roads",
+		Dirt = "a path: only objects set to go on paths",
+		None = "nothing under it: nothing grows here",
+	}
+	-- The overlay's colours and what they mean, for what's on show now: { { colour, short, long } }. The panel and the
+	-- viewport's corner show it, so no colour is a mystery.
+	-- which: "object" for the one-object brush's key, whatever is on
+	App.overlayLegend = function(which)
+		if which == "object" or (App.paintLayer and LAYER_MODES[App.mode]) then
+			return {
+				{ VIEW.muted:Lerp(VIEW.accent, 0.7), "more", "More of this object" },
+				{ VIEW.muted, "normal", "As many as its rules place" },
+				{ VIEW.muted:Lerp(VIEW.less, 0.8), "less / none", "Less of it, or none" },
+			}
+		end
+		if App.area and App.kindOf and App.kindOf(App.area) == "Clear" then
+			return { { VIEW.blocked, "kept clear", "Kept clear: nothing from any area goes here" } }
+		end
+		return {
+			{ VIEW.accent, "grows", "Things grow here" },
+			{ VIEW.muted, "roads, paths", "Road or path: only objects set to go there" },
+			{ VIEW.blocked, "building, water", "Building, roof or water: nothing grows" },
+			{ noneColor(), "nothing under", "Nothing under it (off an edge): nothing grows" },
+		}
+	end
+	-- what the ground at a world point is, as the overlay knows it, and what that means ("" when things grow there)
+	App.groundNote = function(x, z)
+		if not App.area then
+			return ""
+		end
+		local cls
+		local an = App.lastAnalysis
+		if an and not App.analysisDirty then
+			local j = Engine.indexAt(an, x, z)
+			cls = j and an.cls[j]
+		end
+		cls = cls or probe(math.floor(x / App.area.cell), math.floor(z / App.area.cell)).cls
+		return CLASS_NOTE[cls] or ""
+	end
 	local function cellColor(cx, cz, zone)
 		-- the heatmap of one object: dark where it never goes, the accent where it grows thickest
 		local an = App.lastAnalysis
@@ -105,7 +157,7 @@ return function(App)
 			cls = j and App.lastAnalysis.cls[j]
 		end
 		cls = cls or probe(cx, cz).cls
-		return BLOCKED[cls] and VIEW.blocked or QUIET[cls] and VIEW.muted or VIEW.accent
+		return classColor(cls)
 	end
 	-- a cell on the area's border (a neighbour isn't painted): drawn as a brighter outline
 	local function onEdge(cx, cz)
