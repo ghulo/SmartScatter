@@ -78,7 +78,7 @@ query = true,
 chunks = false,
 accent = "Sage",
 keys = {},
-ghost = false,
+liveBoxes = true,
 tool = "Brush",
 shape = "Circle",
 fillReach = 120,
@@ -2301,10 +2301,11 @@ return a or b
 end
 return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
 end
-local function runGenerate(recorded, from, region)
+local function runGenerate(recorded, from, region, real)
 if not canGenerate() then
 return
 end
+local preview = G.live and G.liveBoxes and not real
 local me = { live = not recorded, from = from }
 while job do
 if job.live and job ~= me then
@@ -2360,9 +2361,9 @@ end
 if from and not table.find(area.layers, from) then
 from = nil
 end
-if me.live then
+if me.live or preview then
 local copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
-if parts > HEAVY_PARTS then
+if (preview and copies or parts) > HEAVY_PARTS then
 App.heavyWarning = { copies = copies, parts = parts, area = area }
 return
 end
@@ -2372,7 +2373,7 @@ phase = "Placing"
 local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 from = from,
 region = me.region,
-output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = G.ghost },
+output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = preview },
 tick = tick,
 })
 if counts then
@@ -2410,7 +2411,7 @@ num(w.parts)
 "Place anyway",
 "accent",
 function()
-runGenerate(true)
+runGenerate(true, nil, nil, true)
 end,
 },
 { "Keep it off", nil, function() end },
@@ -2427,7 +2428,9 @@ if area.folder:GetAttribute("SS_Failed") ~= App.failure then
 area.folder:SetAttribute("SS_Failed", App.failure)
 end
 end
-if success then
+if success and preview then
+App.status(string.format("Preview: %s objects as boxes. Press Generate to place the real models.", num(App.lastTotal)))
+elseif success then
 local ms = seconds * 1000
 local note, heavy = App.perfNote()
 App.status(
@@ -2445,7 +2448,7 @@ warn("[Smart Scatter] Generate failed. Please send this to the plugin author:\n"
 App.status("Generate failed: " .. App.failure .. " What you see is the last result that worked.", "error")
 end
 App.refreshCounts()
-if success and recorded and App.flashDone then
+if success and recorded and not preview and App.flashDone then
 App.flashDone(string.format("Done  ·  %s placed", num(App.lastTotal)))
 end
 end
@@ -2932,6 +2935,10 @@ n += #f:GetChildren()
 end
 if n == 0 then
 App.status("Nothing to bake yet. Generate first.")
+return
+end
+if Engine.isPreview(a) then
+App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
 return
 end
 App.cancelJob()

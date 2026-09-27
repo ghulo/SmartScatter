@@ -1545,6 +1545,14 @@ return x.parts > y.parts
 end)
 return rows, total
 end
+function E.isPreview(a)
+for _, f in a.folder:GetChildren() do
+if f:GetAttribute("SS_Ghost") then
+return true
+end
+end
+return false
+end
 function E.bake(a, name)
 local out = Instance.new("Folder")
 out.Name = name or (a.folder.Name .. " (baked)")
@@ -5183,11 +5191,18 @@ then
 ctx.hash:add(itemOf(inst))
 end
 end
+local previewed = {}
+for _, f in a.folder:GetChildren() do
+if f:GetAttribute("SS_Ghost") then
+previewed[f:GetAttribute("SS_Key") or ""] = true
+end
+end
 local keep = {}
 for _, p in plans do
 local l = p.layer
-if l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from)) then
-keep[E.layerKey(l)] = l
+local key = E.layerKey(l)
+if (l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from))) and not (previewed[key] and not ctx.output.ghost) then
+keep[key] = l
 end
 end
 local folders, counts, total = {}, {}, 0
@@ -5219,6 +5234,9 @@ local key = f:GetAttribute("SS_Key") or ""
 local pl = partial[key]
 if pl and not partial[pl] then
 partial[pl] = f
+if ctx.output.ghost then
+f:SetAttribute("SS_Ghost", true)
+end
 local n = 0
 for _, inst in f:GetDescendants() do
 if not CORE[inst:GetAttribute("SS_Type")] then
@@ -5276,6 +5294,7 @@ f = Instance.new("Folder")
 hide(f)
 f.Name = l.inst.Name
 f:SetAttribute("SS_Key", E.layerKey(l))
+f:SetAttribute("SS_Ghost", ctx.output.ghost or nil)
 folders[l] = f
 table.insert(staged, f)
 end

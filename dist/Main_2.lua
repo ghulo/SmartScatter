@@ -1503,9 +1503,9 @@ outSwitch(
 "Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
 )
 outSwitch(
-"Preview as boxes",
-"ghost",
-"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
+"Live previews as boxes",
+"liveBoxes",
+"With Live on, changes show as a see-through box per copy: quick, even on big areas. Generate places the real models. Off: Live places the real models every time."
 )
 box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 App.ui.perf = para("", { Parent = b })
@@ -1600,7 +1600,7 @@ cs.add({ id = "viewport", title = "Viewport", sub = "What's drawn over the 3D vi
 cs.add({
 id = "output",
 title = "Game-ready output",
-keys = "collision walk shadows clicks raycast streaming chunks preview boxes ghost performance parts",
+keys = "collision walk shadows clicks raycast streaming chunks live preview boxes ghost performance parts",
 build = buildOutput,
 })
 cs.add({
@@ -1636,8 +1636,8 @@ local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App
 local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 local runGenerate, commit, buildHeader = App.runGenerate, App.commit, App.buildHeader
 App.perfNote = function()
-if G.ghost then
-return "Boxes only: turn off Preview as boxes to place the real models.", false
+if App.area and App.area.folder.Parent and App.Engine.isPreview(App.area) then
+return "Some are still a preview (boxes): press Generate to place the real models.", false
 end
 local heavy = App.lastParts > 20000
 return heavy and "That's heavy. Lower the amount or use simpler models." or App.lastParts > 8000 and "Getting heavy for phones." or "", heavy
@@ -1830,7 +1830,7 @@ end
 if App.worldChanged() then
 App.analysisDirty = true
 end
-runGenerate(true)
+runGenerate(true, nil, nil, true)
 end)
 hintOn(App.ui.genBtn, function()
 if App.busy() then
@@ -1843,7 +1843,7 @@ end
 if App.failure then
 return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
 end
-return "Places everything now. With Live on, changes do this by themselves."
+return "Places the real models now. With Live on, changes show as see-through boxes first; this turns them into the models."
 end)
 local live = new("TextButton", {
 Text = "",
@@ -1878,9 +1878,16 @@ liveLook()
 if G.live then
 commit()
 end
-App.status(G.live and "Live update on: every change rebuilds as you make it." or "Live update off: changes wait for Generate.")
+App.status(
+G.live
+and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+or "Live off: changes wait for Generate."
+)
 end)
-hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
+hintOn(
+live,
+"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
+)
 local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 shuffle.LayoutOrder = 2
 shuffle.Parent = right
@@ -4998,8 +5005,8 @@ text = "Set an object to Along and it follows a line instead of spreading out: a
 {
 chapter = "Placing",
 title = "Placing it all",
-text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
-.. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
+text = "This bar stays at the bottom. Generate places the real models. Turn Live on for a quick preview: every "
+.. "change shows right away as see-through boxes, and Generate turns them into the models.\n\n"
 .. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
 .. "are your history: click one to jump back (or forward) to that step.",
 target = function()

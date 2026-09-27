@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 131
-local BUNDLED_VERSION = "9.67"
+local BUNDLED_BUILD = 132
+local BUNDLED_VERSION = "9.68"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -777,10 +777,13 @@ return function(App)
 		end
 		return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
 	end
-	local function runGenerate(recorded, from, region)
+	-- real: this run places the real models (the Generate button). Any other run while Live is on is a preview: a
+	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
+	local function runGenerate(recorded, from, region, real)
 		if not canGenerate() then -- the Generate button shows why
 			return
 		end
+		local preview = G.live and G.liveBoxes and not real
 		local me = { live = not recorded, from = from }
 		while job do -- wait for the running job; a newer request of any kind retires a live preview
 			if job.live and job ~= me then
@@ -837,10 +840,11 @@ return function(App)
 			if from and not table.find(area.layers, from) then
 				from = nil
 			end
-			-- a live preview that would place enough to stall Studio waits for a real Generate instead
-			if me.live then
+			-- a live preview that would place enough to stall Studio waits for a real Generate instead (a box is
+			-- one part, however many the model has)
+			if me.live or preview then
 				local copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
-				if parts > HEAVY_PARTS then
+				if (preview and copies or parts) > HEAVY_PARTS then
 					App.heavyWarning = { copies = copies, parts = parts, area = area }
 					return
 				end
@@ -850,7 +854,7 @@ return function(App)
 			local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 				from = from,
 				region = me.region,
-				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = G.ghost },
+				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = preview },
 				tick = tick,
 			})
 			if counts then
@@ -888,7 +892,7 @@ return function(App)
 								"Place anyway",
 								"accent",
 								function()
-									runGenerate(true)
+									runGenerate(true, nil, nil, true)
 								end,
 							},
 							{ "Keep it off", nil, function() end },
@@ -906,7 +910,9 @@ return function(App)
 				area.folder:SetAttribute("SS_Failed", App.failure)
 			end
 		end
-		if success then
+		if success and preview then
+			App.status(string.format("Preview: %s objects as boxes. Press Generate to place the real models.", num(App.lastTotal)))
+		elseif success then
 			local ms = seconds * 1000
 			local note, heavy = App.perfNote()
 			App.status(
@@ -924,7 +930,7 @@ return function(App)
 			App.status("Generate failed: " .. App.failure .. " What you see is the last result that worked.", "error")
 		end
 		App.refreshCounts()
-		if success and recorded and App.flashDone then
+		if success and recorded and not preview and App.flashDone then
 			App.flashDone(string.format("Done  ·  %s placed", num(App.lastTotal)))
 		end
 	end
@@ -2923,7 +2929,7 @@ return function(App)
 		chunks = false,
 		accent = "Sage", -- the accent theme (ACCENTS below)
 		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
-		ghost = false, -- preview as boxes: one see-through box per copy, for quick tuning of big areas
+		liveBoxes = true, -- Live previews as see-through boxes (one per copy) until Generate places the real models
 		tool = "Brush",
 		shape = "Circle",
 		fillReach = 120,
@@ -4285,6 +4291,10 @@ return function(App)
 				end
 				if n == 0 then
 					App.status("Nothing to bake yet. Generate first.")
+					return
+				end
+				if Engine.isPreview(a) then -- boxes would be baked, not the models
+					App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
 					return
 				end
 				App.cancelJob()
@@ -7233,8 +7243,8 @@ return function(App)
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
-		if G.ghost then
-			return "Boxes only: turn off Preview as boxes to place the real models.", false
+		if App.area and App.area.folder.Parent and App.Engine.isPreview(App.area) then
+			return "Some are still a preview (boxes): press Generate to place the real models.", false
 		end
 		local heavy = App.lastParts > 20000
 		return heavy and "That's heavy. Lower the amount or use simpler models." or App.lastParts > 8000 and "Getting heavy for phones." or "", heavy
@@ -7441,7 +7451,7 @@ return function(App)
 			if App.worldChanged() then -- read the ground again only if something under the area changed
 				App.analysisDirty = true
 			end
-			runGenerate(true)
+			runGenerate(true, nil, nil, true) -- the real models, a live preview's boxes too
 		end)
 		hintOn(App.ui.genBtn, function()
 			if App.busy() then
@@ -7454,7 +7464,7 @@ return function(App)
 			if App.failure then
 				return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
 			end
-			return "Places everything now. With Live on, changes do this by themselves."
+			return "Places the real models now. With Live on, changes show as see-through boxes first; this turns them into the models."
 		end)
 
 		-- Live update: a pill that lights up when on
@@ -7491,9 +7501,16 @@ return function(App)
 			if G.live then
 				commit()
 			end
-			App.status(G.live and "Live update on: every change rebuilds as you make it." or "Live update off: changes wait for Generate.")
+			App.status(
+				G.live
+						and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+					or "Live off: changes wait for Generate."
+			)
 		end)
-		hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
+		hintOn(
+			live,
+			"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
+		)
 
 		local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 		shuffle.LayoutOrder = 2
@@ -8529,9 +8546,9 @@ return function(App)
 			"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
 		)
 		outSwitch(
-			"Preview as boxes",
-			"ghost",
-			"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
+			"Live previews as boxes",
+			"liveBoxes",
+			"With Live on, changes show as a see-through box per copy: quick, even on big areas. Generate places the real models. Off: Live places the real models every time."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 		App.ui.perf = para("", { Parent = b })
@@ -8629,7 +8646,7 @@ return function(App)
 		cs.add({
 			id = "output",
 			title = "Game-ready output",
-			keys = "collision walk shadows clicks raycast streaming chunks preview boxes ghost performance parts",
+			keys = "collision walk shadows clicks raycast streaming chunks live preview boxes ghost performance parts",
 			build = buildOutput,
 		})
 		cs.add({
@@ -8805,8 +8822,8 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Placing it all",
-			text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
-				.. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
+			text = "This bar stays at the bottom. Generate places the real models. Turn Live on for a quick preview: every "
+				.. "change shows right away as see-through boxes, and Generate turns them into the models.\n\n"
 				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
 				.. "are your history: click one to jump back (or forward) to that step.",
 			target = function()
@@ -12464,6 +12481,16 @@ return function(E, I)
 	end
 
 	-- bake: the area's output becomes plain models (no tags or attributes), and the area lets go of them
+	-- true while any of the area's objects are a live preview (see-through boxes) that Generate hasn't placed yet
+	function E.isPreview(a)
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Ghost") then
+				return true
+			end
+		end
+		return false
+	end
+
 	function E.bake(a, name)
 		local out = Instance.new("Folder")
 		out.Name = name or (a.folder.Name .. " (baked)")
@@ -13983,12 +14010,20 @@ return function(E, I)
 			end
 		end
 
-		-- which layers can stay as they are
+		-- which layers can stay as they are. A live preview (see-through boxes) never stays for a real run: Generate
+		-- turns every preview into the real models, a locked object's too.
+		local previewed = {}
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Ghost") then
+				previewed[f:GetAttribute("SS_Key") or ""] = true
+			end
+		end
 		local keep = {}
 		for _, p in plans do
 			local l = p.layer
-			if l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from)) then
-				keep[E.layerKey(l)] = l
+			local key = E.layerKey(l)
+			if (l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from))) and not (previewed[key] and not ctx.output.ghost) then
+				keep[key] = l
 			end
 		end
 		local folders, counts, total = {}, {}, 0
@@ -14022,6 +14057,9 @@ return function(E, I)
 			local pl = partial[key]
 			if pl and not partial[pl] then
 				partial[pl] = f
+				if ctx.output.ghost then -- boxes merged into it: it's a preview now
+					f:SetAttribute("SS_Ghost", true)
+				end
 				local n = 0
 				for _, inst in f:GetDescendants() do
 					if not CORE[inst:GetAttribute("SS_Type")] then
@@ -14081,6 +14119,7 @@ return function(E, I)
 				hide(f)
 				f.Name = l.inst.Name
 				f:SetAttribute("SS_Key", E.layerKey(l))
+				f:SetAttribute("SS_Ghost", ctx.output.ghost or nil) -- a live preview: boxes, not the models yet
 				folders[l] = f
 				table.insert(staged, f)
 			end

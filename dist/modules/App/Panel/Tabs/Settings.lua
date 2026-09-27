@@ -109,9 +109,9 @@ return function(App)
 			"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
 		)
 		outSwitch(
-			"Preview as boxes",
-			"ghost",
-			"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
+			"Live previews as boxes",
+			"liveBoxes",
+			"With Live on, changes show as a see-through box per copy: quick, even on big areas. Generate places the real models. Off: Live places the real models every time."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 		App.ui.perf = para("", { Parent = b })
@@ -209,7 +209,7 @@ return function(App)
 		cs.add({
 			id = "output",
 			title = "Game-ready output",
-			keys = "collision walk shadows clicks raycast streaming chunks preview boxes ghost performance parts",
+			keys = "collision walk shadows clicks raycast streaming chunks live preview boxes ghost performance parts",
 			build = buildOutput,
 		})
 		cs.add({

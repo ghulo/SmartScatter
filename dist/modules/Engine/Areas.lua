@@ -390,6 +390,16 @@ return function(E, I)
 	end
 
 	-- bake: the area's output becomes plain models (no tags or attributes), and the area lets go of them
+	-- true while any of the area's objects are a live preview (see-through boxes) that Generate hasn't placed yet
+	function E.isPreview(a)
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Ghost") then
+				return true
+			end
+		end
+		return false
+	end
+
 	function E.bake(a, name)
 		local out = Instance.new("Folder")
 		out.Name = name or (a.folder.Name .. " (baked)")
