@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 119
-local BUNDLED_VERSION = "9.55"
+local BUNDLED_BUILD = 120
+local BUNDLED_VERSION = "9.56"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -13294,6 +13294,8 @@ return function(E, I)
 	--------------------------------------------------------------------------------
 	-- The snapshot: originals kept before anything changes them
 	--------------------------------------------------------------------------------
+	-- Nothing here (or in the other map tools) is ever :Destroy()ed: a destroyed instance can't be put back by
+	-- Ctrl+Z (its Parent is locked), so what's taken out of the map is unparented instead, and undo brings it back.
 	-- ServerStorage › SmartScatter Snapshot holds one entry per saved copy: the original (a clone, as it was), where
 	-- it lived, and the copy in the map now. A copy is saved once, so the snapshot always holds the true original,
 	-- however many times it's changed afterwards. Tools that change a copy say so (E.snapshotChanged); Restore puts
@@ -13429,14 +13431,14 @@ return function(E, I)
 			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
 			if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then -- added since: out again
 				if now.Value and now.Value.Parent then
-					now.Value:Destroy()
+					now.Value.Parent = nil
 				end
-				e:Destroy()
+				e.Parent = nil
 				back += 1
 			elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 				local was = now.Value
 				if was and was.Parent then
-					was:Destroy()
+					was.Parent = nil
 				end
 				local copy = orig:Clone()
 				copy.Name = e.Name
@@ -13457,7 +13459,7 @@ return function(E, I)
 	function E.clearSnapshot()
 		local f = folder(false)
 		if f then
-			f:Destroy()
+			f.Parent = nil
 		end
 		index = {}
 	end
@@ -13616,7 +13618,7 @@ return function(E, I)
 					end
 					new.Parent = old.Parent
 					E.snapshotChanged(old, new)
-					old:Destroy()
+					old.Parent = nil
 					table.insert(out, { old = old, new = new })
 				end
 			end
@@ -14256,7 +14258,7 @@ return function(E, I)
 		for _, inst in plan.removes do
 			if inst.Parent then
 				E.snapshotChanged(inst, false)
-				inst:Destroy()
+				inst.Parent = nil
 			end
 		end
 		return added
@@ -18081,7 +18083,7 @@ return function(E, I)
 			if typeof(corner) == "Vector3" then
 				workspace.Terrain:PasteRegion(saved, Vector3int16.new(corner.X, corner.Y, corner.Z), true)
 			end
-			saved:Destroy()
+			saved.Parent = nil
 			f:SetAttribute("SS_TerrainCorner", nil)
 		end
 		local t = workspace.Terrain
@@ -18238,7 +18240,7 @@ return function(E, I)
 		restoreTerrain()
 		local f = stateFolder(false)
 		if f then
-			f:Destroy()
+			f.Parent = nil
 		end
 		return n
 	end

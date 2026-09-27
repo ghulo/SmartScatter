@@ -191,7 +191,7 @@ return function(E, I)
 			if typeof(corner) == "Vector3" then
 				workspace.Terrain:PasteRegion(saved, Vector3int16.new(corner.X, corner.Y, corner.Z), true)
 			end
-			saved:Destroy()
+			saved.Parent = nil
 			f:SetAttribute("SS_TerrainCorner", nil)
 		end
 		local t = workspace.Terrain
@@ -348,7 +348,7 @@ return function(E, I)
 		restoreTerrain()
 		local f = stateFolder(false)
 		if f then
-			f:Destroy()
+			f.Parent = nil
 		end
 		return n
 	end

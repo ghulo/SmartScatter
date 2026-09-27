@@ -5579,14 +5579,14 @@ for _, e in entries() do
 local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
 if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then
 if now.Value and now.Value.Parent then
-now.Value:Destroy()
+now.Value.Parent = nil
 end
-e:Destroy()
+e.Parent = nil
 back += 1
 elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 local was = now.Value
 if was and was.Parent then
-was:Destroy()
+was.Parent = nil
 end
 local copy = orig:Clone()
 copy.Name = e.Name
@@ -5605,7 +5605,7 @@ end
 function E.clearSnapshot()
 local f = folder(false)
 if f then
-f:Destroy()
+f.Parent = nil
 end
 index = {}
 end
@@ -5744,7 +5744,7 @@ end
 end
 new.Parent = old.Parent
 E.snapshotChanged(old, new)
-old:Destroy()
+old.Parent = nil
 table.insert(out, { old = old, new = new })
 end
 end
@@ -5923,7 +5923,7 @@ local corner = f:GetAttribute("SS_TerrainCorner")
 if typeof(corner) == "Vector3" then
 workspace.Terrain:PasteRegion(saved, Vector3int16.new(corner.X, corner.Y, corner.Z), true)
 end
-saved:Destroy()
+saved.Parent = nil
 f:SetAttribute("SS_TerrainCorner", nil)
 end
 local t = workspace.Terrain
@@ -6064,7 +6064,7 @@ end
 restoreTerrain()
 local f = stateFolder(false)
 if f then
-f:Destroy()
+f.Parent = nil
 end
 return n
 end
@@ -6633,7 +6633,7 @@ end
 for _, inst in plan.removes do
 if inst.Parent then
 E.snapshotChanged(inst, false)
-inst:Destroy()
+inst.Parent = nil
 end
 end
 return added

@@ -178,6 +178,8 @@ return function(E, I)
 	--------------------------------------------------------------------------------
 	-- The snapshot: originals kept before anything changes them
 	--------------------------------------------------------------------------------
+	-- Nothing here (or in the other map tools) is ever :Destroy()ed: a destroyed instance can't be put back by
+	-- Ctrl+Z (its Parent is locked), so what's taken out of the map is unparented instead, and undo brings it back.
 	-- ServerStorage › SmartScatter Snapshot holds one entry per saved copy: the original (a clone, as it was), where
 	-- it lived, and the copy in the map now. A copy is saved once, so the snapshot always holds the true original,
 	-- however many times it's changed afterwards. Tools that change a copy say so (E.snapshotChanged); Restore puts
@@ -313,14 +315,14 @@ return function(E, I)
 			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
 			if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then -- added since: out again
 				if now.Value and now.Value.Parent then
-					now.Value:Destroy()
+					now.Value.Parent = nil
 				end
-				e:Destroy()
+				e.Parent = nil
 				back += 1
 			elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 				local was = now.Value
 				if was and was.Parent then
-					was:Destroy()
+					was.Parent = nil
 				end
 				local copy = orig:Clone()
 				copy.Name = e.Name
@@ -341,7 +343,7 @@ return function(E, I)
 	function E.clearSnapshot()
 		local f = folder(false)
 		if f then
-			f:Destroy()
+			f.Parent = nil
 		end
 		index = {}
 	end
@@ -500,7 +502,7 @@ return function(E, I)
 					end
 					new.Parent = old.Parent
 					E.snapshotChanged(old, new)
-					old:Destroy()
+					old.Parent = nil
 					table.insert(out, { old = old, new = new })
 				end
 			end
