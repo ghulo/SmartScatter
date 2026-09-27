@@ -39,6 +39,9 @@ return function(App)
 			return App.shapeTool, on(area, App.shapeTool == "Rectangle" and "drag corner to corner" or "drag from the centre"), false
 		elseif m == "Spline" then
 			return "Draw path", on(area), false
+		elseif m == "Stamp" then
+			local inst = App.stamp and App.stamp.models[App.stamp.vi]
+			return "Stamp", inst and inst.Name or nil, false
 		elseif m == "Remove" then
 			return "Remove copies", on(area, "click one"), true
 		elseif LAYER_MODES[m] then

@@ -3,13 +3,13 @@
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
 	A pin's seed picks its model, size and turn, so it looks the same every time.
-	A stamp is a pin that also says its turn, size and model ({ x, z, seed, yaw, size, model }): the stamp tool puts it
-	exactly as shown, and no rule moves or refuses it; only the ground under it sets its height.
+	A stamp (from 9.70 to 9.77, when stamps belonged to an area) is a pin that also says its turn, size and model
+	({ x, z, seed, yaw, size, model }): it's put exactly so, no rule moves or refuses it; only the ground sets its height.
+	Saved ones keep coming back; the stamp tool now makes plain models of its own (App's Viewport/Stamp).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
 
 return function(E, I)
-	local Hash = I.Hash
 	local placeAt = I.placeAt
 	local scaleRange = I.scaleRange
 
@@ -113,40 +113,6 @@ return function(E, I)
 		end
 		local v = l.variants[p[6]] or l.variants[1]
 		return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
-	end
-	-- where the stamp would stand, without making it (the preview): { cf, sc, sink, v }, or nil where it can't (off
-	-- the area's scan, or no ground)
-	local function stampCtx(a, an)
-		return { an = an, area = a, seed = a.seed, hash = Hash.new(), parts = 0, clear = E.clearZones(a.folder) }
-	end
-	function E.stampPose(a, an, l, p)
-		local g = pinG(l, p)
-		g.dry = true
-		return placeAt(stampCtx(a, an), l, nil, p[1], p[2], Random.new(p[3]), g)
-	end
-	-- makes the stamp's copy now, into its object's folder (real models, whatever else is still a preview). Returns
-	-- the copy, or nil (in a keep-clear zone, or no ground)
-	function E.placeStamp(a, an, l, p, output)
-		E.ensureFolder(a)
-		local key, folder = E.layerKey(l), nil
-		for _, f in a.folder:GetChildren() do
-			if f:GetAttribute("SS_Key") == key then
-				folder = f
-			end
-		end
-		if not folder then
-			folder = Instance.new("Folder")
-			folder.Name = l.inst.Name
-			folder:SetAttribute("SS_Key", key)
-			folder.Parent = a.folder
-		end
-		local ctx = stampCtx(a, an)
-		ctx.output = output
-		ctx.parentFor = function()
-			return folder
-		end
-		local out = placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p))
-		return out and out.clone
 	end
 
 	-- Places the object's pins (those `wanted(x, z)` accepts: all of them, or the ones in a rebuilt patch). Each

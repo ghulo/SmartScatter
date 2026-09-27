@@ -21,6 +21,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/StampTools",
 	"Panel/HandTools",
 	"Panel/MapTools",
 	"Panel/Tabs/Scatter",

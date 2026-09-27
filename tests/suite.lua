@@ -1240,16 +1240,19 @@ local ok, err = pcall(function()
 		local l = a.layers[1]
 		l.s.surfaces = {} -- the rules allow nowhere: only the stamp can stand
 		local p = E.stampPin(O.X + 5, O.Z + 5, math.rad(30), 2, 1, 7)
-		local pose = E.stampPose(a, an, l, p)
-		local made = E.placeStamp(a, an, l, p, { walk = true, shadows = true, query = true })
+		l.pins = { p }
+		E.generate(a, an, 1, templates, {})
+		local made
+		for _, m in placed(a.folder) do
+			made = m:GetAttribute("SS_Stamp") and m or made
+		end
 		local size = made and made:GetExtentsSize() or Vector3.zero
 		check(
 			"a stamp stands where it's aimed, at its size, even where the rules allow nothing",
-			pose ~= nil and made ~= nil and made:GetAttribute("SS_Pin") == true and math.abs(size.X - 10) < 0.3 and math.abs(size.Y - 6) < 0.3,
-			string.format("pose %s, copy %s, size %s", tostring(pose ~= nil), tostring(made ~= nil), tostring(size))
+			made ~= nil and made:GetAttribute("SS_Pin") == true and math.abs(size.X - 10) < 0.3 and math.abs(size.Y - 6) < 0.3,
+			string.format("copy %s, size %s", tostring(made ~= nil), tostring(size))
 		)
 		local at = made and made:GetPivot()
-		l.pins = { p }
 		local _, total = E.generate(a, an, 1, templates, {})
 		local again
 		for _, m in placed(a.folder) do
@@ -1273,8 +1276,12 @@ local ok, err = pcall(function()
 		local total, _, _, an = run(a)
 		local l = a.layers[1]
 		local p = E.stampPin(O.X - 20, O.Z + 20, 0, 1, 1, 3) -- (on the side that's erased)
-		local stamp = E.placeStamp(a, an, l, p, { walk = true, shadows = true, query = true })
 		l.pins = { p }
+		E.generate(a, an, 1, templates, {})
+		local stamp
+		for _, m in placed(a.folder) do
+			stamp = m:GetAttribute("SS_Stamp") and m or stamp
+		end
 		local west = function(x)
 			return x < O.X
 		end

@@ -80,23 +80,37 @@ return function(App)
 			})
 			table.insert(groups, g)
 		end
+		-- by hand: the stamp (any model, anywhere) and, with an object in hand, spraying it
+		local hand = {
+			{
+				icon = "stamp",
+				name = "Stamp (the selected models, or the last ones)",
+				on = function()
+					return App.mode == "Stamp"
+				end,
+				click = function()
+					if App.mode == "Stamp" then
+						App.setMode("Off")
+					else
+						App.startStamp()
+					end
+				end,
+			},
+		}
 		local l = kind ~= "Path" and kind ~= "Clear" and handLayer() or nil
 		if l then
-			local g = {}
-			for _, h in { { "Stamp", "stamp", "Stamp" }, { "Place", "spray", "Spray" } } do
-				table.insert(g, {
-					icon = h[2],
-					name = h[3] .. " " .. l.inst.Name,
-					on = function()
-						return App.mode == h[1] and App.paintLayer == l
-					end,
-					click = function()
-						App.setMode(h[1], l)
-					end,
-				})
-			end
-			table.insert(groups, g)
+			table.insert(hand, {
+				icon = "spray",
+				name = "Spray " .. l.inst.Name,
+				on = function()
+					return App.mode == "Place" and App.paintLayer == l
+				end,
+				click = function()
+					App.setMode("Place", l)
+				end,
+			})
 		end
+		table.insert(groups, hand)
 		local g = {}
 		if kind ~= "Clear" then
 			table.insert(g, {
@@ -226,8 +240,8 @@ return function(App)
 		App.refreshSliders()
 	end
 	local function stampChanged()
-		if App.ui.refreshStamp then
-			App.ui.refreshStamp()
+		if App.refreshStamp then
+			App.refreshStamp()
 		end
 	end
 
@@ -282,9 +296,11 @@ return function(App)
 			else
 				table.insert(items, { text = App.TOOL_HINT and App.TOOL_HINT[G.tool] or "" })
 			end
-		elseif m == "Stamp" and App.paintLayer then
-			local l, st = App.paintLayer, App.stamp
-			title = "Stamp · " .. l.inst.Name
+		elseif m == "Stamp" then
+			local st = App.stamp
+			local models = st.models
+			local cur = models[st.vi] or models[1]
+			title = "Stamp · " .. (cur and cur.Name or "")
 			table.insert(items, {
 				step = "Turn",
 				value = string.format("%d°", math.floor(math.deg(st.yaw) + 0.5) % 360),
@@ -309,17 +325,16 @@ return function(App)
 					stampChanged()
 				end,
 			})
-			if #l.variants > 1 then
-				local v = l.variants[st.vi] or l.variants[1]
+			if #models > 1 then
 				table.insert(items, {
 					step = "Model",
-					value = v.inst.Name,
+					value = cur.Name,
 					dec = function()
-						App.setStamp(nil, nil, (st.vi - 2) % #l.variants + 1)
+						App.setStamp(nil, nil, (st.vi - 2) % #models + 1)
 						stampChanged()
 					end,
 					inc = function()
-						App.setStamp(nil, nil, st.vi % #l.variants + 1)
+						App.setStamp(nil, nil, st.vi % #models + 1)
 						stampChanged()
 					end,
 				})
@@ -475,7 +490,7 @@ return function(App)
 			tostring(App.paintLayer and App.paintLayer.inst.Name),
 			tostring(App.shapeTool),
 			tostring(App.hasPath and App.hasPath()),
-			string.format("%.3f|%.3f|%s", st.yaw or 0, st.k or 0, tostring(st.vi)),
+			string.format("%.3f|%.3f|%s|%d", st.yaw or 0, st.k or 0, tostring(st.vi), st.models and #st.models or 0),
 		}, "|")
 		return s, b
 	end

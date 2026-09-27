@@ -1,10 +1,11 @@
 --[[
-	Smart Scatter — Stamp: puts one copy of an object down exactly where and how you want it. The real model floats
-	under the mouse, see-through, standing just as it will (it's posed by the same placement code, on the same ground);
-	a click puts it down, a drag from where you pressed turns it to face the mouse (15° steps; Shift turns freely).
-	Keys turn it, size it, pick the model or roll a random one; the panel has the same as sliders. Each stamp is a pin
-	that keeps its turn, size and model (Engine/Pins), so it comes back exactly so every time the area is generated,
-	and no rule moves or refuses it. One undo step each.
+	Smart Scatter — Stamp: one model, put down exactly where and how you want it, anywhere on the ground. No area,
+	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
+	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
+	The model floats under the mouse, see-through, standing just as it will; a click puts it down, a drag from where
+	you pressed turns it to face the mouse (15° steps; Shift turns freely). Keys turn it, size it, pick the model or
+	roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
+	Workspace › Stamps: Generate, Erase and the areas never touch them; Ctrl+Z takes one back, Delete removes one.
 	Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -13,21 +14,104 @@ return function(App)
 	local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
 	local STEP = math.rad(15) -- the turn's steps (keys, and dragging without Shift)
 	local DRAG_PX = 6 -- a press that moves further than this turns the stamp instead of just placing it
+	local FOLDER = "Stamps" -- where stamped copies go, in Workspace
+	local BARE = { s = {} } -- (placing asks the layer only whether it's a line: a stamp never is)
 
-	-- the stamp being aimed: its turn (radians), size (1 = the model's own size in the mix) and model (index)
-	local stamp = { yaw = 0, k = 1, vi = 1 }
+	-- the stamp being aimed: its models, which one, its turn (radians) and size (1 = the model's own size); from: the
+	-- object they came from, if they did
+	local stamp = { models = {}, vi = 1, yaw = 0, k = 1, from = nil }
 	App.stamp = stamp
-	local ghost -- the see-through model under the mouse: { clone, v, sc, offset (pivot relative to its stand) }
-	local press -- a press in progress: { x, z, y, at = screen position, turning }
-
-	local function layer()
-		local l = App.mode == "Stamp" and App.paintLayer or nil
-		if l and stamp.layer ~= l then -- a new object: its first model, at the size its copies grow on average
-			stamp.layer, stamp.vi = l, 1
-			stamp.k = (l.s.scaleMin + l.s.scaleMax) / 2 * (App.area and App.area.size or 1)
+	local measured = setmetatable({}, { __mode = "k" }) -- each model measured once: { m = size, bottom, footprint… }
+	local function variantOf(inst)
+		local v = measured[inst]
+		if v == nil then
+			v = Engine.makeVariant(inst, 1, 1) or false
+			measured[inst] = v
 		end
-		return l
+		return v or nil
 	end
+	local function current()
+		local inst = stamp.models[stamp.vi] or stamp.models[1]
+		return inst, inst and variantOf(inst)
+	end
+
+	--------------------------------------------------------------------------------
+	-- what to stamp
+	--------------------------------------------------------------------------------
+	-- the models in the Explorer's selection (a folder counts as its models); none that the plugin placed itself
+	local function selectedModels()
+		local out = {}
+		local function take(inst)
+			if (inst:IsA("Model") or inst:IsA("BasePart")) and variantOf(inst) then
+				table.insert(out, inst)
+			end
+		end
+		for _, s in App.Selection:Get() do
+			if s:IsA("Folder") then
+				for _, c in s:GetChildren() do
+					take(c)
+				end
+			else
+				take(s)
+			end
+		end
+		return out
+	end
+
+	-- starts stamping: `from` (an object) stamps its models; nil takes the selection, else keeps the last models, else
+	-- the object in hand. Returns false (and says why) when there's nothing to stamp.
+	App.startStamp = function(from)
+		local models
+		if from then
+			models = {}
+			for _, v in from.variants do
+				table.insert(models, v.inst)
+			end
+		else
+			models = selectedModels()
+			if #models == 0 then
+				models = #stamp.models > 0 and stamp.models or nil
+				from = stamp.from
+			end
+			if not models and App.handLayer then
+				from = App.handLayer
+				models = {}
+				for _, v in from.variants do
+					table.insert(models, v.inst)
+				end
+			end
+		end
+		if not models or #models == 0 then
+			App.status("Select a model in the Explorer (or a folder of them), then press Stamp.")
+			return false
+		end
+		if models ~= stamp.models then
+			stamp.models, stamp.vi, stamp.from = models, 1, from
+			local s = from and from.s
+			stamp.k = s and (s.scaleMin + s.scaleMax) / 2 or 1
+		end
+		if App.mode ~= "Stamp" then
+			App.setMode("Stamp")
+		end
+		if App.refreshStamp then
+			App.refreshStamp()
+		end
+		local inst = current()
+		App.status(
+			string.format(
+				"Stamping %s%s. Click to put it down, drag to turn it.",
+				inst.Name,
+				#models > 1 and string.format(" (and %d more)", #models - 1) or ""
+			)
+		)
+		return true
+	end
+
+	--------------------------------------------------------------------------------
+	-- the model under the mouse
+	--------------------------------------------------------------------------------
+	local ghost -- { clone, v, sc, offset (pivot relative to its stand) }
+	local press -- a press in progress: { pos, up, at = screen position, turning }
 
 	local function clearGhost()
 		if ghost then
@@ -36,12 +120,12 @@ return function(App)
 		end
 	end
 	-- the model, see-through and out of the way of clicks, rays and physics (made again when the model or size changes)
-	local function ghostFor(v, sc)
+	local function ghostFor(inst, v, sc)
 		if ghost and ghost.v == v and math.abs(ghost.sc - sc) < 1e-4 and ghost.clone.Parent then
 			return ghost
 		end
 		clearGhost()
-		local c = (v.src or v.inst):Clone()
+		local c = (v.src or inst):Clone()
 		c.Archivable = false
 		local all = c:GetDescendants()
 		table.insert(all, c)
@@ -59,27 +143,34 @@ return function(App)
 		return ghost
 	end
 
-	-- the stamp as a pin at (x, z), and where it would stand there (nil: it can't go there, and why)
-	local function aim(l, x, z, seed)
-		if not App.area or (App.area.count or 0) == 0 then
-			return nil, nil, "paint the area first: stamps go on its ground"
+	-- where the stamp stands at a point of the ground: turned, sized, upright (or along the surface), and settled on
+	-- the lowest ground under its footprint so no side floats
+	local function stand(v, pos, up)
+		local m, sc = v.m, stamp.k * v.size
+		local upV = (G.stampAlign and up and up.Y > 0.2) and up or Vector3.yAxis
+		local y = pos.Y
+		if upV == Vector3.yAxis then
+			local r = math.max(m.radius * sc * 0.6, 0.4)
+			for k = 0, 3 do
+				local a = k * math.pi / 2 + stamp.yaw
+				local h = Engine.cast(
+					Vector3.new(pos.X + math.cos(a) * r, pos.Y + r + 4, pos.Z + math.sin(a) * r),
+					Vector3.new(0, -(r * 3 + 8), 0),
+					App.probeParams
+				)
+				if h and h.Position.Y < y then
+					y = math.max(h.Position.Y, y - r * 1.5)
+				end
+			end
 		end
-		App.readGround(App.area) -- (only when the ground is out of date)
-		local an = App.lastAnalysis
-		if not an then
-			return nil, nil, "the ground couldn't be read"
-		end
-		stamp.vi = math.clamp(stamp.vi, 1, #l.variants)
-		local p = Engine.stampPin(x, z, stamp.yaw, stamp.k, stamp.vi, seed or 1)
-		local pose = Engine.stampPose(App.area, an, l, p)
-		return p, pose, not pose and "outside the area, or no ground here" or nil
+		local cf = CFrame.new(pos.X, y, pos.Z) * Engine.rotateUp(upV) * CFrame.Angles(0, stamp.yaw, 0)
+		return cf, sc
 	end
 
-	local function describe(l, extra)
-		local v = l.variants[stamp.vi] or l.variants[1]
+	local function describe(inst, extra)
 		return string.format(
 			"Stamp · %s · %d° · %.2f×%s",
-			v.inst.Name,
+			inst.Name,
 			math.floor(math.deg(stamp.yaw) + 0.5) % 360,
 			stamp.k,
 			extra and ("  ·  " .. extra) or ""
@@ -91,23 +182,22 @@ return function(App)
 		App.setLabel(text)
 	end
 
-	-- shows the stamp at (x, z): the model where it will stand, and what it is
-	local function show(l, x, z, y)
-		local _, pose, why = aim(l, x, z)
-		if not pose then
+	local function show(pos, up)
+		local inst, v = current()
+		if not v then
 			clearGhost()
-			label(Vector3.new(x, y, z), describe(l, "can't go here: " .. why))
 			return
 		end
-		local gh = ghostFor(pose.v, pose.sc)
+		local cf, sc = stand(v, pos, up)
+		local gh = ghostFor(inst, v, sc)
 		if not gh.offset then -- posed once (that scales it); after that only moved
-			Engine.poseCopy(gh.clone, l, pose.v, pose.sc, pose.cf, pose.sink)
-			gh.offset = pose.cf:Inverse() * gh.clone:GetPivot()
+			Engine.poseCopy(gh.clone, BARE, v, sc, cf, 0)
+			gh.offset = cf:Inverse() * gh.clone:GetPivot()
 			gh.clone.Parent = App.gizmoFolder()
 		else
-			gh.clone:PivotTo(pose.cf * gh.offset)
+			gh.clone:PivotTo(cf * gh.offset)
 		end
-		label(pose.cf.Position, describe(l, press and press.turning and "release to put it down" or "click to put it down, drag to turn"))
+		label(cf.Position, describe(inst, press and press.turning and "release to put it down" or "click to put it down, drag to turn"))
 	end
 
 	-- where the mouse points on the flat plane at height y (steady while turning, whatever is under the mouse)
@@ -123,21 +213,18 @@ return function(App)
 	end
 
 	App.stampMove = function()
-		local l = layer()
-		if not l then
-			return
-		end
 		if press then
 			local m = Vector2.new(rawMouse.X, rawMouse.Y)
 			press.turning = press.turning or (m - press.at).Magnitude > DRAG_PX
 			if press.turning then -- the front (the model's -Z) turns toward the mouse
-				local to = onPlane(press.y)
-				if to and (Vector3.new(to.X - press.x, 0, to.Z - press.z)).Magnitude > 0.5 then
-					local yaw = math.atan2(-(to.X - press.x), -(to.Z - press.z))
+				local to = onPlane(press.pos.Y)
+				local d = to and Vector3.new(to.X - press.pos.X, 0, to.Z - press.pos.Z)
+				if d and d.Magnitude > 0.5 then
+					local yaw = math.atan2(-d.X, -d.Z)
 					stamp.yaw = App.shiftHeld() and yaw or math.floor(yaw / STEP + 0.5) * STEP
 				end
 			end
-			show(l, press.x, press.z, press.y)
+			show(press.pos, press.up)
 			return
 		end
 		local hit = App.mouseHit()
@@ -146,86 +233,72 @@ return function(App)
 			App.setLabel("")
 			return
 		end
-		show(l, hit.Position.X, hit.Position.Z, hit.Position.Y)
+		show(hit.Position, hit.Normal)
 	end
 
-	-- a random turn, size (within the object's size range) and model (by its share of the mix)
-	local function roll(l)
-		local s = l.s
-		stamp.yaw = s.yawMode == "Fixed" and math.rad(s.yaw) or s.yawMode == "Snap" and math.random(0, 3) * math.pi / 2 or math.random() * math.pi * 2
-		local size = App.area and App.area.size or 1
-		stamp.k = (s.scaleMin + (s.scaleMax - s.scaleMin) * math.random()) * size
-		local sum = 0
-		for _, v in l.variants do
-			sum += math.max(v.w, 0)
-		end
-		local r = math.random() * sum
-		for i, v in l.variants do
-			r -= math.max(v.w, 0)
-			if r <= 0 and v.w > 0 then
-				stamp.vi = i
-				break
-			end
-		end
+	-- a random turn, size (±20% round the size set) and model
+	local function roll()
+		stamp.yaw = math.random() * math.pi * 2
+		stamp.base = stamp.base or stamp.k
+		stamp.k = stamp.base * (0.8 + math.random() * 0.4)
+		stamp.vi = math.random(1, math.max(#stamp.models, 1))
 	end
 
 	local function refresh()
-		if App.ui.refreshStamp then
-			App.ui.refreshStamp()
+		if App.refreshStamp then
+			App.refreshStamp()
 		end
 		App.stampMove()
 	end
 
-	-- puts the stamp down at (x, z): the copy now (the real model, Live or not), and its pin so it stays
-	local function put(l, x, z)
-		local p, pose, why = aim(l, x, z, math.random(1, 2 ^ 30))
-		if not pose then
-			App.status("Can't stamp there: " .. why .. ".", "error")
+	-- puts it down: a plain copy of the model, in Workspace › Stamps, one undo step
+	local function put(pos, up)
+		local inst, v = current()
+		if not v then
 			return
 		end
-		local rec = beginRec("Smart Scatter: Stamp " .. l.inst.Name)
-		local made = Engine.placeStamp(
-			App.area,
-			App.lastAnalysis,
-			l,
-			p,
-			{ walk = G.walk, shadows = G.shadows, query = G.query, chunks = false, ghost = false }
-		)
-		if not made then
-			endRec(rec, true)
-			App.status("Can't stamp there: it's a keep-clear zone.", "error")
-			return
+		local cf, sc = stand(v, pos, up)
+		local rec = beginRec("Smart Scatter: Stamp " .. inst.Name)
+		local folder = workspace:FindFirstChild(FOLDER)
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = FOLDER
+			folder.Parent = workspace
 		end
-		l.pins = l.pins or {}
-		table.insert(l.pins, p)
-		App.saveArea()
+		local copy = (v.src or inst):Clone()
+		Engine.poseCopy(copy, BARE, v, sc, cf, 0)
+		for _, d in copy:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+			end
+		end
+		if copy:IsA("BasePart") then
+			copy.Anchored = true
+		end
+		copy.Parent = folder
 		endRec(rec)
-		App.lastCounts[l] = (App.lastCounts[l] or 0) + 1
-		App.lastTotal = (App.lastTotal or 0) + 1
-		App.refreshCounts()
-		App.status(describe(l, "put down. Ctrl+Z takes it back."))
+		App.status(describe(inst, "put down in Workspace › Stamps. Ctrl+Z takes it back."))
 		if G.stampRandom then
-			roll(l)
-			if App.ui.refreshStamp then
-				App.ui.refreshStamp()
+			roll()
+			if App.refreshStamp then
+				App.refreshStamp()
 			end
 		end
 	end
 
 	App.stampDown = function()
 		local hit = App.mouseHit()
-		if not (layer() and hit) then
-			return
+		if hit and current() then
+			press = { pos = hit.Position, up = hit.Normal, at = Vector2.new(rawMouse.X, rawMouse.Y) }
 		end
-		press = { x = hit.Position.X, z = hit.Position.Z, y = hit.Position.Y, at = Vector2.new(rawMouse.X, rawMouse.Y) }
 	end
 	App.stampUp = function()
-		local l, pr = layer(), press
+		local pr = press
 		press = nil
-		if l and pr then
-			put(l, pr.x, pr.z)
-			if pr.turning and App.ui.refreshStamp then
-				App.ui.refreshStamp()
+		if pr then
+			put(pr.pos, pr.up)
+			if pr.turning and App.refreshStamp then
+				App.refreshStamp()
 			end
 			App.stampMove()
 		end
@@ -233,24 +306,19 @@ return function(App)
 
 	-- the stamp's keys; true when the key was one of them
 	App.stampKey = function(name)
-		local l = layer()
-		if not l then
-			return false
-		end
 		if name == "turn" then
 			stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + (App.shiftHeld() and -1 or 1)) * STEP % (math.pi * 2)
 		elseif name == "grow" or name == "shrink" then
 			stamp.k = math.clamp(stamp.k * (name == "grow" and 1.1 or 1 / 1.1), 0.05, 20)
+			stamp.base = stamp.k
 		elseif name == "model" then
-			stamp.vi = stamp.vi % #l.variants + 1
+			stamp.vi = stamp.vi % math.max(#stamp.models, 1) + 1
 		elseif name == "shuffle" then
-			roll(l)
+			roll()
 		elseif name == "size" then -- (there's no brush to size)
 			return true
 		elseif name == "cancel" and press then -- a press being dragged is dropped; the next Esc stops stamping
 			press = nil
-		elseif name == "cancel" then
-			return false
 		else
 			return false
 		end
@@ -258,21 +326,20 @@ return function(App)
 		return true
 	end
 
-	-- the panel's controls change the stamp through these
+	-- the panel's and the bar's controls change the stamp through these
 	App.setStamp = function(yaw, k, vi)
 		stamp.yaw = yaw and math.rad(yaw) % (math.pi * 2) or stamp.yaw
-		stamp.k = k or stamp.k
+		if k then
+			stamp.k, stamp.base = k, k
+		end
 		stamp.vi = vi or stamp.vi
 		if App.mode == "Stamp" then
 			App.stampMove()
 		end
 	end
 	App.rollStamp = function()
-		local l = layer() or App.paintLayer
-		if l then
-			roll(l)
-			refresh()
-		end
+		roll()
+		refresh()
 	end
 
 	-- leaving the stamp (another mode, Esc, the plugin closing): the model under the mouse goes
