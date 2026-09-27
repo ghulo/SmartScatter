@@ -84,7 +84,7 @@ return function(App)
 		shape = "Circle",
 		fillReach = 120,
 		paintOn = {},
-		page = "Main", -- Main (the area's steps) · Objects (its objects, or one object's settings) · Settings
+		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do
 		local saved = plugin:GetSetting(KEY)
@@ -96,7 +96,7 @@ return function(App)
 			end
 		end
 	end
-	G.page = "Main" -- every session opens on the area's page
+	G.page = "" -- every session opens on the area's home tab
 	-- the logo: the mark (a sage tile of scattered dots on a curve) and the card with the name under it
 	App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 	local function saveG()

@@ -3,7 +3,7 @@ lines that changed travel, so a one-line fix is one short snippet. For whole mod
 
 python3 tools/push_patch.py OUT_PREFIX VERSION BUILD MAXBYTES name=old.lua,new.lua [name=old.lua,new.lua ...]
 
-name is a module of the live copy by its path (Engine/Placement, App/Panel/ObjectsPage…; Engine, Main, Main_2… in a
+name is a module of the live copy by its path (Engine/Placement, App/Panel/ObjectTools…; Engine, Main, Main_2… in a
 flattened copy; Tests for the suite). old is what the live copy holds now: a file, "-" for a new module, or "*" to
 replace whatever it holds without checking it. Writes OUT_PREFIX_1.lua … (each adds line edits to _G.SS_ops[name]) and
 OUT_PREFIX_final.lua (checks every base, applies, checks every result, then sets the modules and the Build attribute

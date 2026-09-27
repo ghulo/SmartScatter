@@ -12,7 +12,7 @@ return function(App)
 		App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 
 	local TOUR_KEY = "SmartScatter_tour"
-	local TOUR_V = 2 -- raise when the tour changes enough that everyone should see it again
+	local TOUR_V = 3 -- raise when the tour changes enough that everyone should see it again
 
 	local function ui(name)
 		local o = App.ui[name]
@@ -22,7 +22,13 @@ return function(App)
 		return App.area ~= nil
 	end
 
-	-- each step: its chapter, a title, text, and the part of the panel it points at (nil: a card in the middle)
+	-- the tab a step about ground or objects is on
+	local function shapeTab()
+		return inArea() and App.kindOf(App.area) == "Path" and "Map" or "Brush"
+	end
+
+	-- each step: its chapter, a title, text, the part of the panel it points at (nil: a card in the middle), and
+	-- the tab that part is on (the tour opens it)
 	local STEPS = {
 		{
 			chapter = "Welcome",
@@ -62,6 +68,20 @@ return function(App)
 			end,
 		},
 		{
+			chapter = "Areas",
+			title = "Four tabs",
+			text = "Scatter: what fills the area, its objects and their rules.\n"
+				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
+				.. "Map: the path, its road, and fixing what the scan sees.\n"
+				.. "Settings: the plugin itself.\n\n"
+				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
+				.. "below the tabs, like road or spacing.",
+			target = function()
+				local t = App.ui.tabs and App.ui.tabs.Scatter
+				return t and t.Parent or nil
+			end,
+		},
+		{
 			chapter = "Shape",
 			title = "Mark the ground",
 			text = function()
@@ -72,6 +92,7 @@ return function(App)
 					.. "Shift erases, F resizes the brush with the mouse, Esc stops.\n\n"
 					.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
 			end,
+			tab = shapeTab,
 			target = function()
 				return ui("step1Card") or ui("welcomeChoice")
 			end,
@@ -94,10 +115,13 @@ return function(App)
 		{
 			chapter = "Objects",
 			title = "Add your models",
-			text = "Open this, select models in the Explorer and press Add selected models. Keep the originals outside the "
+			text = "Select models in the Explorer and press Add selected models. Keep the originals outside the "
 				.. "area, for example in ServerStorage.\n\n"
 				.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. "
 				.. "Save a set you like as a preset to reuse it in any area.",
+			tab = function()
+				return "Scatter"
+			end,
 			target = function()
 				return ui("step2Card")
 			end,
@@ -120,9 +144,9 @@ return function(App)
 		{
 			chapter = "Placing",
 			title = "Placing it all",
-			text = "With Live update on, every change rebuilds by itself. Too much for Studio? It pauses and asks first. "
-				.. "Turn Live update off to use a Generate button instead.\n\n"
-				.. "Shuffle gives a new random layout, Clear removes what was placed, and Ctrl+Z undoes any step.",
+			text = "This bar stays at the bottom. With Live on, every change rebuilds by itself; too much for Studio? It "
+				.. "pauses and asks first. Turn Live off and changes wait for Generate.\n\n"
+				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step.",
 			target = function()
 				return ui("foot")
 			end,
@@ -134,13 +158,13 @@ return function(App)
 				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
 				.. "Every shortcut is listed here too.",
 			target = function()
-				return ui("gearBtn")
+				return App.ui.tabs and App.ui.tabs.Settings
 			end,
 		},
 		{
 			chapter = "Finish",
 			title = "When you're done",
-			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it: its "
+			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it from the area menu: its "
 				.. "objects become plain models and the area steps aside.\n\n"
 				.. "Hover over anything for a tip, and right-click a slider to reset it. The plugin updates itself.",
 		},
@@ -196,6 +220,11 @@ return function(App)
 		end
 		local i = App.tour.i
 		local step = STEPS[i]
+		local tab = step.tab and inArea() and step.tab()
+		if tab and G.page ~= tab then
+			App.goPage(tab) -- rebuilds the panel, which shows this step again
+			return
+		end
 		local target = step.target and step.target()
 		if target then
 			scrollTo(target)
@@ -403,8 +432,8 @@ return function(App)
 			App.setMode("Off")
 		end
 		App.tour = { i = 1 }
-		if G.page ~= "Main" then
-			App.goPage("Main") -- rebuilds the panel, which shows the tour
+		if G.page == "Settings" then
+			App.goPage("") -- the area's home tab; rebuilds the panel, which shows the tour
 		else
 			App.renderTour()
 		end

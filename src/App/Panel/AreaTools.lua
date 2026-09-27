@@ -1,6 +1,7 @@
 --[[
-	Smart Scatter — AreaPage: the area's main page. Step 1 is a card (paint the ground, or draw the path); the
-	steps after it are flat labelled groups; objects live on their own page behind "Add objects".
+	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
+	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
+	and the welcome shown before there are any areas. Each builder fills the body it's given.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -10,11 +11,11 @@ return function(App)
 	local box, col, label, para = App.box, App.col, App.label, App.para
 	local pad, SANS_B, icon = App.pad, App.SANS_B, App.icon
 	local button, buttonRow = App.button, App.buttonRow
-	local hintOn, slider, switchRow, segmented, section = App.hintOn, App.slider, App.switchRow, App.segmented, App.section
+	local hintOn, slider, switchRow, segmented = App.hintOn, App.slider, App.switchRow, App.segmented
 	local rebuildOverlay, saveArea, runGenerate, requestLive = App.rebuildOverlay, App.saveArea, App.runGenerate, App.requestLive
 	local commit, heading, NICE, TOOLS, TOOL_HINT = App.commit, App.heading, App.NICE, App.TOOLS, App.TOOL_HINT
 	local FILTER_SURFACES, maskOp, primaryButton = App.FILTER_SURFACES, App.maskOp, App.primaryButton
-	local setIconColor, keyChips, stepLabel, navRow, hintBox = App.setIconColor, App.keyChips, App.stepLabel, App.navRow, App.hintBox
+	local setIconColor, keyChips = App.setIconColor, App.keyChips
 	local chip, chipGrid = App.chip, App.chipGrid
 
 	local function gap(parent, h)
@@ -149,7 +150,174 @@ return function(App)
 			refresh()
 			showTool()
 		end
+	end
 
+	-- a setting of the whole area, saved with it; every change rebuilds live
+	local function areaSlider(parent, key, text, min, max, fmt, step, hint, def)
+		slider(
+			text,
+			min,
+			max,
+			function()
+				return App.area and App.area[key] or def
+			end,
+			function(v)
+				if App.area then
+					App.area[key] = v
+				end
+			end,
+			fmt,
+			step,
+			function()
+				requestLive()
+			end,
+			function()
+				commit()
+			end,
+			hint,
+			def
+		).Parent =
+			parent
+	end
+	-- a choice of the whole area, as chips: key's value is one of options (hints: a tooltip for each)
+	local function areaChoice(parent, key, title, options, hints, def, onPick)
+		label(title, 13, P.text, SANS, { Parent = parent })
+		local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
+		for i, name in options do
+			local c = chip(grid, name, function()
+				return (App.area and App.area[key] or def) == name
+			end, function()
+				if App.area and App.area[key] ~= name then
+					App.area[key] = name
+					if onPick then
+						onPick(App.area)
+					end
+					commit()
+					App.rebuildAll()
+				end
+			end)
+			c.LayoutOrder = i
+			hintOn(c, hints[name])
+		end
+	end
+	-- picking a pattern or a mood means wanting to see it: a strength left at 0 comes on
+	local function showing(strengthKey, amount)
+		return function(a)
+			if (a[strengthKey] or 0) <= 0 then
+				a[strengthKey] = amount
+			end
+		end
+	end
+
+	local function buildEdges(parent)
+		areaSlider(
+			parent,
+			"edge",
+			"Soft edges",
+			0,
+			48,
+			"%.0f studs",
+			1,
+			"Thins things out toward the border so the area fades into its surroundings.",
+			12
+		)
+	end
+
+	-- patterns: the noise every object in the area thickens and thins with (Engine.PATTERNS)
+	local function buildPattern(parent)
+		areaChoice(parent, "pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
+		areaSlider(
+			parent,
+			"patches",
+			"Pattern strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"How much the pattern shapes the area: every object thickens and thins in the same places. 0% is off.",
+			0
+		)
+		areaSlider(parent, "patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
+	end
+
+	local function buildZones(parent)
+		areaChoice(parent, "zoneMood", "Mood", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
+		areaSlider(
+			parent,
+			"zones",
+			"Strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
+			0
+		)
+	end
+
+	local function buildWind(parent)
+		areaSlider(
+			parent,
+			"windDir",
+			"Wind direction",
+			0,
+			359,
+			"%.0f°",
+			5,
+			'The way objects with "Lean with the wind" lean (0° leans toward +Z).',
+			0
+		)
+	end
+
+	-- which surfaces painting and erasing work on
+	local function buildPaintFilter(parent)
+		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
+		hintOn(fHead, "Only paint or erase over these surfaces, e.g. just the grass between roads. None picked means any surface.")
+		local chips = chipGrid(parent, 4, 30)
+		local refreshers = {}
+		local function refreshHead()
+			fLabel.Text = App.paintFilterOn and "Paint only on" or "Paint only on · any"
+		end
+		for _, cls in FILTER_SURFACES do
+			local _, look = chip(chips, NICE[cls] or cls, function()
+				return G.paintOn[cls] == true
+			end, function()
+				G.paintOn[cls] = not G.paintOn[cls] or nil
+				refreshFilter()
+				saveG()
+				refreshHead()
+			end)
+			table.insert(refreshers, look)
+		end
+		button("Any surface", "ghost", function()
+			table.clear(G.paintOn)
+			refreshFilter()
+			saveG()
+			for _, f in refreshers do
+				f()
+			end
+			refreshHead()
+		end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = fHead })
+		refreshHead()
+	end
+
+	-- clean up the painted ground: fill holes, smooth, grow, shrink, or erase it all
+	local function buildTidy(parent)
+		local tools = buttonRow(parent, 6)
+		for _, t in
+			{
+				{ "Fill holes", "holes", "Fills gaps enclosed by the area." },
+				{ "Smooth", "smooth", "Rounds jagged edges and removes specks." },
+				{ "Grow", "grow", "Expands the area by one cell all around." },
+				{ "Shrink", "shrink", "Pulls the edge in by one cell." },
+			}
+		do
+			local b = button(t[1], nil, function()
+				maskOp(t[2], t[1])
+			end, { Parent = tools })
+			hintOn(b, t[3])
+		end
 		-- erase everything painted: only once there is some, and it asks twice
 		if App.area and App.area.count > 0 then
 			local armed = 0
@@ -181,139 +349,6 @@ return function(App)
 				App.status("Area erased. Objects and settings are kept, paint a new one.")
 			end, { Parent = buttonRow(parent) })
 			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
-		end
-	end
-
-	-- Scatter area, step 2: edges, which surfaces to paint on, cleanup
-	local function buildSurfaces(parent, done)
-		stepLabel(parent, 2, "Edges and surfaces", done)
-		-- a setting of the whole area, saved with it; every change rebuilds live
-		local function areaSlider(key, text, min, max, fmt, step, hint, def)
-			slider(
-				text,
-				min,
-				max,
-				function()
-					return App.area and App.area[key] or def
-				end,
-				function(v)
-					if App.area then
-						App.area[key] = v
-					end
-				end,
-				fmt,
-				step,
-				function()
-					requestLive()
-				end,
-				function()
-					commit()
-				end,
-				hint,
-				def
-			).Parent =
-				parent
-		end
-		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
-		-- patterns: the noise every object in the area thickens and thins with (Engine.PATTERNS)
-		-- a choice of the whole area, as chips: key's value is one of options (hints: a tooltip for each)
-		local function areaChoice(key, title, options, hints, def, onPick)
-			label(title, 13, P.text, SANS, { Parent = parent })
-			local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
-			for i, name in options do
-				local c = chip(grid, name, function()
-					return (App.area and App.area[key] or def) == name
-				end, function()
-					if App.area and App.area[key] ~= name then
-						App.area[key] = name
-						if onPick then
-							onPick(App.area)
-						end
-						commit()
-						App.rebuildAll()
-					end
-				end)
-				c.LayoutOrder = i
-				hintOn(c, hints[name])
-			end
-		end
-		-- picking a pattern or a mood means wanting to see it: a strength left at 0 comes on
-		local function showing(strengthKey, amount)
-			return function(a)
-				if (a[strengthKey] or 0) <= 0 then
-					a[strengthKey] = amount
-				end
-			end
-		end
-		areaChoice("pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
-		areaSlider(
-			"patches",
-			"Pattern strength",
-			0,
-			1,
-			"%.0f%%",
-			0.05,
-			"How much the pattern shapes the area: every object thickens and thins in the same places. 0% is off.",
-			0
-		)
-		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
-		areaChoice("zoneMood", "Colour zones", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
-		areaSlider(
-			"zones",
-			"Colour zone strength",
-			0,
-			1,
-			"%.0f%%",
-			0.05,
-			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
-			0
-		)
-		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
-		-- surface filter
-		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
-		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
-		hintOn(fHead, "Only paint or erase over these surfaces, e.g. just the grass between roads. None picked means any surface.")
-		local chips = chipGrid(parent, 4, 30)
-		local refreshers = {}
-		local function refreshHead()
-			fLabel.Text = App.paintFilterOn and "Paint only on" or "Paint only on · any"
-		end
-		for _, cls in FILTER_SURFACES do
-			local _, look = chip(chips, NICE[cls] or cls, function()
-				return G.paintOn[cls] == true
-			end, function()
-				G.paintOn[cls] = not G.paintOn[cls] or nil
-				refreshFilter()
-				saveG()
-				refreshHead()
-			end)
-			table.insert(refreshers, look)
-		end
-		button("Any surface", "ghost", function()
-			table.clear(G.paintOn)
-			refreshFilter()
-			saveG()
-			for _, f in refreshers do
-				f()
-			end
-			refreshHead()
-		end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = fHead })
-		refreshHead()
-		-- cleanup
-		gap(parent, 4)
-		local tools = buttonRow(parent, 6)
-		for _, t in
-			{
-				{ "Fill holes", "holes", "Fills gaps enclosed by the area." },
-				{ "Smooth", "smooth", "Rounds jagged edges and removes specks." },
-				{ "Grow", "grow", "Expands the area by one cell all around." },
-				{ "Shrink", "shrink", "Pulls the edge in by one cell." },
-			}
-		do
-			local b = button(t[1], nil, function()
-				maskOp(t[2], t[1])
-			end, { Parent = tools })
-			hintOn(b, t[3])
 		end
 	end
 
@@ -447,8 +482,7 @@ return function(App)
 		end
 	end
 
-	local function buildCurve(parent, n)
-		stepLabel(parent, n, "Curve", hasPath())
+	local function buildCurve(parent)
 		slider(
 			"Strip width",
 			0,
@@ -469,8 +503,6 @@ return function(App)
 			0
 		).Parent =
 			parent
-		gap(parent, 6)
-		App.fadeLine(parent, "left", 0.14)
 		gap(parent, 4)
 		local function toggle(text, key, def, rec, hint)
 			switchRow(text, spGet(key, def), spSet(key), function()
@@ -499,41 +531,38 @@ return function(App)
 
 	-- when the scan misreads a part (a road it thinks is grass): mark it by hand
 	local function buildScanFix(parent)
-		section(parent, "scanfix", "Fix what the scan sees", false, function(parent)
-			local markHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
-			hintOn(
-				markHead,
-				"The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
-			)
-			label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
-			hintOn(
-				button("Remove mark", "ghost", function()
-					App.markSelected(nil)
-				end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = markHead }),
-				"Lets the scan guess again for the selected parts."
-			)
-			local marks = chipGrid(parent, 4, 30)
-			for _, cls in { "Road", "Path", "Building", "Water" } do
-				local c = chip(marks, cls, nil, function()
-					App.markSelected(cls)
-				end)
-				hintOn(c, "Select parts, models or meshes in the Explorer or viewport, then click to mark them as " .. string.lower(cls) .. ".")
-			end
-			gap(parent, 4)
-			App.ui.scanText = para("", { Parent = parent })
-			hintOn(
-				button("Rescan", nil, function()
-					App.analysisDirty = true
-					rebuildOverlay(true)
-					runGenerate(true)
-				end, { Parent = buttonRow(parent) }),
-				"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
-			)
-		end)
+		local markHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+		hintOn(
+			markHead,
+			"The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
+		)
+		label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
+		hintOn(
+			button("Remove mark", "ghost", function()
+				App.markSelected(nil)
+			end, { Size = UDim2.fromOffset(0, 26), Position = UDim2.new(1, 0, 0, 2), AnchorPoint = Vector2.new(1, 0), Parent = markHead }),
+			"Lets the scan guess again for the selected parts."
+		)
+		local marks = chipGrid(parent, 4, 30)
+		for _, cls in { "Road", "Path", "Building", "Water" } do
+			local c = chip(marks, cls, nil, function()
+				App.markSelected(cls)
+			end)
+			hintOn(c, "Select parts, models or meshes in the Explorer or viewport, then click to mark them as " .. string.lower(cls) .. ".")
+		end
+		gap(parent, 4)
+		App.ui.scanText = para("", { Parent = parent })
+		hintOn(
+			button("Rescan", nil, function()
+				App.analysisDirty = true
+				rebuildOverlay(true)
+				runGenerate(true)
+			end, { Parent = buttonRow(parent) }),
+			"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
+		)
 	end
 
-	local function buildRoad(parent, withScan)
-		heading(parent, "Road", 0)
+	local function buildRoad(parent)
 		local function surf()
 			local sp = App.ensureSplineFn()
 			sp.surface = sp.surface or { on = false, style = "Asphalt", thick = 1 }
@@ -621,28 +650,6 @@ return function(App)
 				1
 			).Parent =
 				parent
-			if withScan then
-				gap(parent, 4)
-				buildScanFix(parent)
-			end
-		end
-	end
-
-	--------------------------------------------------------------------------------
-	-- The last step: objects, on their own page
-	--------------------------------------------------------------------------------
-	local function buildObjectsStep(parent, n, shaped)
-		local a = App.area
-		local has = #a.layers > 0
-		stepLabel(parent, n, "Add objects", has)
-		local sub = has and string.format("%d object%s", #a.layers, #a.layers == 1 and "" or "s") or "Pick models and how they spread"
-		local row, subLabel = navRow(parent, "layers", has and "Objects" or "Add objects", sub, function()
-			App.goPage("Objects")
-		end, not (shaped or has))
-		App.ui.step2Card = row
-		App.ui.objectsSub = subLabel
-		if not (shaped or has) then
-			hintBox(parent, App.kindOf(a) == "Path" and "Draw a path first" or "Paint an area first")
 		end
 	end
 
@@ -753,10 +760,7 @@ return function(App)
 		end
 	end
 
-	--------------------------------------------------------------------------------
-	-- The page
-	--------------------------------------------------------------------------------
-	-- what the page was built for: whether the ground is marked / the path drawn, and whether there are objects
+	-- what the panel was built for: whether the ground is marked / the path drawn, and whether there are objects
 	local function shapeKey()
 		local a = App.area
 		if not a then
@@ -764,86 +768,25 @@ return function(App)
 		end
 		return tostring((a.count or 0) > 0) .. tostring(a.spline ~= nil and #a.spline.pts >= 2) .. tostring(#a.layers > 0)
 	end
-	-- the page shows what comes next once a step gets done (e.g. Add objects unlocks): rebuild when that changes
+	-- the tabs show what comes next once a step gets done (the path's road once it's drawn, objects once there's
+	-- ground): rebuild when that changes
 	local pending = false
+	local function stale()
+		return G.page ~= "Settings" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
+	end
 	App.checkShape = function()
-		if pending or G.page ~= "Main" or App.ui.builtShape == nil or App.ui.builtShape == shapeKey() then
+		if pending or not stale() then
 			return
 		end
 		pending = true
 		task.defer(function()
 			pending = false
-			if G.page == "Main" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey() then
+			if stale() then
 				App.rebuildAll()
 			end
 		end)
 	end
-
-	local function buildArea(parent)
-		App.ui.builtShape = shapeKey()
-		if not App.area then
-			buildWelcome(parent)
-			return
-		end
-		local a = App.area
-		local kind = App.kindOf(a)
-		local page = col({ Parent = parent }, { vlist(22) })
-		if kind == "Clear" then
-			local painted = (a.count or 0) > 0
-			local body, card = App.stepCard(page, 1, "Paint the zone", nil, painted, nil, {
-				icon = "clear",
-				desc = "Nothing from any area goes here: spawns, doorways, a quest NPC's spot",
-			})
-			App.ui.step1Card = card
-			buildPaintTools(body)
-			hintBox(page, "Other areas leave this ground empty the next time they generate.")
-		elseif kind == "Path" then
-			local drawn = a.spline ~= nil and #a.spline.pts >= 2
-			local body, card = App.stepCard(page, 1, "Draw the path", nil, drawn, nil, {
-				icon = "spline",
-				desc = drawn and "Click to add more points, or move on below" or "Click in the viewport to place points",
-			})
-			App.ui.step1Card = card
-			buildDrawTools(body)
-			local curve = col({ Parent = page }, { vlist(2) })
-			buildCurve(curve, 2)
-			local road = col({ Parent = page }, { vlist(2) })
-			buildRoad(road, true)
-			local objects = col({ Parent = page }, { vlist(10) })
-			buildObjectsStep(objects, 3, drawn)
-		else
-			local painted = (a.count or 0) > 0
-			local body, card = App.stepCard(page, 1, "Paint the area", nil, painted, nil, {
-				icon = "brush",
-				desc = painted and string.format("%s studs² painted. Keep painting, or move on below.", App.num(a.count * a.cell * a.cell))
-					or "Pick a tool, then paint the ground in the viewport",
-			})
-			App.ui.step1Card = card
-			buildPaintTools(body)
-			local surfaces = col({ Parent = page }, { vlist(4) })
-			buildSurfaces(surfaces, painted)
-			-- a path through the area: its own card, so roads, fences and lamps are easy to find
-			local drawn = hasPath()
-			local pathBody = App.stepCard(page, nil, "Path through this area", nil, false, nil, {
-				icon = "spline",
-				tag = "Optional",
-				desc = drawn and "Objects set to follow it line it; a road can be laid along it"
-					or "A road, fence or row of lamps along a curve you draw",
-			})
-			buildDrawTools(pathBody)
-			if drawn then -- its shape and road once there's something to shape
-				local more = col({ Parent = pathBody }, { vlist(2) })
-				buildCurve(more)
-				gap(more, 12)
-				buildRoad(more)
-			end
-			local objects = col({ Parent = page }, { vlist(10) })
-			buildObjectsStep(objects, 3, painted or drawn)
-			local more = col({ Parent = page }, { vlist(8) })
-			heading(more, "More", 0)
-			buildScanFix(more)
-		end
-	end
+	App.shapeKey = shapeKey
 
 	App.refreshScan = function()
 		if not App.ui.scanText then
@@ -873,5 +816,17 @@ return function(App)
 	end
 
 	-- used by later modules
-	App.buildArea = buildArea
+	App.hasPath = hasPath
+	App.buildPaintTools = buildPaintTools
+	App.buildTidy = buildTidy
+	App.buildPaintFilter = buildPaintFilter
+	App.buildEdges = buildEdges
+	App.buildPattern = buildPattern
+	App.buildZones = buildZones
+	App.buildWind = buildWind
+	App.buildDrawTools = buildDrawTools
+	App.buildCurve = buildCurve
+	App.buildRoad = buildRoad
+	App.buildScanFix = buildScanFix
+	App.buildWelcome = buildWelcome
 end

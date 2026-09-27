@@ -36,9 +36,12 @@ src/
     Scan · Assets · Areas · Paths · Planning · Placement · Lines · Generate
   App/                    the plugin's panel and tools  each module: return function(App) … end
     init.lua                entry: ORDER + runner
-    Core/                   State · Kit (UI kit) · Generation (jobs, areas) · Lifecycle (undo, cleanup; runs last)
+    Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
+                            Lifecycle (undo, cleanup; runs last)
     Viewport/               Overlay · Paint · Spline
-    Panel/                  Header · AreaPage · ObjectsPage · Settings · Tour
+    Panel/                  Header (area menu) · AreaTools · ObjectTools (the controls) · Shell (tabs, search,
+                            bottom bar) · Tour
+      Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature
 tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,
                           cleans up
 tests/offline/            engine tests that need no Studio (patterns, spacing and footprints, the mask, curves), run

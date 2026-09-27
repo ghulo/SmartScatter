@@ -1,10 +1,10 @@
 --[[
-	Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches, segmented controls, sections.
+	Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches, segmented controls, chips, icons.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
-	local RunService, FAST, tween, G, saveG, P, SANS = App.RunService, App.FAST, App.tween, App.G, App.saveG, App.P, App.SANS
+	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
 
@@ -791,6 +791,9 @@ return function(App)
 		if name == "brush" then
 			ring(0.5, 0.5, 0.36)
 			ring(0.5, 0.5, 0.09, true)
+		elseif name == "search" then
+			ring(0.42, 0.42, 0.27)
+			bar(0.63, 0.63, 0.84, 0.84)
 		elseif name == "erase" then
 			ring(0.5, 0.5, 0.36)
 			bar(0.24, 0.76, 0.76, 0.24)
@@ -1003,129 +1006,6 @@ return function(App)
 		return f, refresh
 	end
 
-	-- a row that opens something: a bordered block with a title, a line under it and a chevron (like a settings
-	-- list). Used for groups that fold open and for "Add objects".
-	local function rowHead(parent, iconName, title, sub, height)
-		local b = new("TextButton", {
-			Text = "",
-			AutoButtonColor = false,
-			BackgroundColor3 = P.card,
-			Size = UDim2.new(1, 0, 0, height or (sub and 52 or 40)),
-			Parent = parent,
-		}, { corner(10), stroke(P.line) })
-		shade(b, 0.05)
-		topLight(b, 0.05)
-		local x = 12
-		local ic
-		if iconName then
-			local tile = box({
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised,
-				Size = UDim2.fromOffset(32, 32),
-				AnchorPoint = Vector2.new(0, 0.5),
-				Position = UDim2.new(0, 10, 0.5, 0),
-				Parent = b,
-			}, { corner(8) })
-			ic = icon(iconName, 15, P.dim)
-			ic.AnchorPoint = Vector2.new(0.5, 0.5)
-			ic.Position = UDim2.fromScale(0.5, 0.5)
-			ic.Parent = tile
-			x = 54
-		end
-		local t = label(title, 13, P.text, SANS_B, {
-			Position = UDim2.new(0, x, 0.5, sub and -17 or -10),
-			Size = UDim2.new(1, -x - 32, 0, 20),
-			Parent = b,
-		})
-		local subLabel = sub
-			and label(sub, 12, P.dim, SANS, {
-				Position = UDim2.new(0, x, 0.5, 1),
-				Size = UDim2.new(1, -x - 32, 0, 16),
-				Parent = b,
-			})
-		local chev = icon("right", 13, P.faint)
-		chev.AnchorPoint = Vector2.new(1, 0.5)
-		chev.Position = UDim2.new(1, -12, 0.5, 0)
-		chev.Parent = b
-		b.MouseEnter:Connect(function()
-			if b:GetAttribute("disabled") ~= true then
-				b.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
-			end
-		end)
-		b.MouseLeave:Connect(function()
-			b.BackgroundColor3 = P.card
-		end)
-		return b, t, subLabel, chev, ic
-	end
-
-	-- a row that goes somewhere (another page); disabled rows show but don't react
-	local function navRow(parent, iconName, title, sub, onClick, disabled)
-		local b, t, subLabel, chev, ic = rowHead(parent, iconName, title, sub, sub and 58 or 44)
-		b:SetAttribute("disabled", disabled == true)
-		shadow(b, 10)
-		if not disabled then
-			pressable(b, 0.985)
-		end
-		if disabled then
-			t.TextColor3 = P.faint
-			if subLabel then
-				subLabel.TextColor3 = P.faint
-			end
-			if ic then
-				setIconColor(ic, P.faint)
-			end
-			setIconColor(chev, P.line)
-		end
-		b.MouseButton1Click:Connect(function()
-			if not disabled and onClick then
-				onClick()
-			end
-		end)
-		return b, subLabel
-	end
-
-	-- one line under a group's title, so what's inside can be seen without opening it
-	local SECTION_SUB = {
-		scanfix = "Tell it what's a road, building or water",
-		line = "What it follows and which way it faces",
-		variants = "Mix several models in one object",
-		layerpaint = "Brush more or less of it by hand",
-		size = "Random sizes, smallest to largest",
-		spread = "Spacing, clumping and a limit",
-		groups = "Small piles, like rocks or crates",
-		surfaces = "Grass, sand, rock… and a height band",
-		avoid = "Distance from buildings, roads, water",
-		attract = "Grow close to walls, water or roads",
-		terrain = "Steepest ground and leaning",
-		look = "Rotation, tilt, colour, variation and sinking",
-		presets = "Save this set of objects, reuse it anywhere",
-		output = "Collision, shadows, streaming",
-	}
-
-	-- a group that folds open under its row. Remembers its open state.
-	local function section(parent, id, title, defaultOpen, build)
-		local open = G.groups[id]
-		if open == nil then
-			open = defaultOpen
-		end
-		local wrap = col({ Parent = parent }, { vlist(0) })
-		local head, _, _, chev = rowHead(wrap, nil, title, SECTION_SUB[id])
-		local body = col({ Parent = wrap }, { vlist(4), pad(2, 2, 10, 6) })
-		local function look()
-			body.Visible = open
-			chev.Rotation = open and 90 or 0
-		end
-		look()
-		build(body)
-		head.MouseButton1Click:Connect(function()
-			open = not open
-			G.groups[id] = open
-			saveG()
-			look()
-		end)
-		return wrap
-	end
-
 	-- the title of a flat step: a small number in a ring (filled once the step is done) and an uppercase name.
 	-- n nil: just the name.
 	local function stepLabel(parent, n, text, done)
@@ -1184,62 +1064,6 @@ return function(App)
 			label(k[2], 11, P.dim, SANS, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
 		end
 		return row
-	end
-
-	-- Step 1 of the page: its own card. A tinted badge with the step's icon and number, a title, a line saying what
-	-- to do (opts.desc). Returns its body, the card and the line (so it can change as the step gets done).
-	local function stepCard(parent, n, title, sub, done, id, opts)
-		opts = opts or {}
-		local card = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, Parent = parent }, { corner(14), stroke(P.line) })
-		shade(card, 0.07)
-		topLight(card, 0.12, 16)
-		shadow(card, 14)
-
-		local inner = col({ Parent = card }, { pad(14, 14, 14, 14), vlist(12) })
-		local head = col({ Parent = inner })
-		local badge = box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
-			Size = UDim2.fromOffset(32, 32),
-			Parent = head,
-		}, { corner(8), stroke(P.accent:Lerp(P.card, 0.8)) })
-		local ic = icon(opts.icon or "spline", 16, P.accent)
-		ic.AnchorPoint = Vector2.new(0.5, 0.5)
-		ic.Position = UDim2.fromScale(0.5, 0.5)
-		ic.Parent = badge
-		if n or done then -- the step's number (a tick once done); optional cards have none
-			local num = label(done and "✓" or tostring(n), 10, P.onAccent, SANS_B, {
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.accent,
-				Size = UDim2.fromOffset(16, 16),
-				Position = UDim2.fromOffset(22, -6),
-				TextXAlignment = Enum.TextXAlignment.Center,
-				ZIndex = 2,
-				Parent = badge,
-			})
-			corner(8).Parent = num
-			local ring = stroke(P.card)
-			ring.Thickness = 2
-			ring.Parent = num
-		end
-		local txt = col({ Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -44, 0, 0), Parent = head }, { vlist(2) })
-		local titleRow = box({ Size = UDim2.new(1, 0, 0, 18), Parent = txt }, { hlist(8) })
-		label(title, 14, P.text, SANS_B, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
-		if opts.tag then -- a small pill after the title ("Optional")
-			local tag = label(opts.tag, 10, P.dim, SANS_B, {
-				Size = UDim2.fromOffset(0, 18),
-				AutomaticSize = Enum.AutomaticSize.X,
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised,
-				Parent = titleRow,
-			})
-			corner(9).Parent = tag
-			pad(7, 7, 0, 0).Parent = tag
-		end
-		local hint = para(opts.desc or sub or "", { Parent = txt })
-		hint.TextColor3 = P.dim
-		local body = col({ Parent = inner }, { vlist(10) })
-		return body, card, hint
 	end
 
 	-- a square icon button (the + and settings next to the picker, a page's close)
@@ -1491,10 +1315,7 @@ return function(App)
 	App.segmented = segmented
 	App.icon = icon
 	App.setIconColor = setIconColor
-	App.section = section
-	App.stepCard = stepCard
 	App.stepLabel = stepLabel
-	App.navRow = navRow
 	App.hintBox = hintBox
 	App.keyChips = keyChips
 	App.pageHead = pageHead
