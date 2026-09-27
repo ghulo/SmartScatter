@@ -170,7 +170,14 @@ Enum = setmetatable({}, {
 		return g
 	end,
 })
-local services = {}
+local services = {
+	-- an empty ServerStorage: no live mirror of the plugin's code (the flattened engine looks there for a missing part)
+	ServerStorage = {
+		FindFirstChild = function()
+			return nil
+		end,
+	},
+}
 game = {
 	GetService = function(_, name)
 		services[name] = services[name] or studioOnly(name)

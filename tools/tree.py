@@ -5,8 +5,9 @@ the entry's ORDER table lists its modules. The tree maps paths to sources: "App"
 "Engine/Scan"…; that is exactly the ModuleScript tree the plugin gets (a path with children but no source of its own
 is a Folder).
 
-flatten() turns one entry and its modules into single scripts for loaders from before module trees (they run one
-Engine and one Main, split into Main_2, Main_3… when Studio's 200k limit on a Source set from code would be hit)."""
+legacy() turns both entries into the flattened release for loaders from before module trees (they run one Engine and
+one Main, plus parts Main_2, Main_3… for what doesn't fit under Studio's 200k limit on a Source set from code);
+flatten() makes one entry a single script of any size, for the offline tests."""
 import pathlib
 import re
 
@@ -92,50 +93,117 @@ def slim(src):
     return "\n".join(out)
 
 
-def flatten(t, entry, part_name=None):
-    """one entry + its modules as [main, part2, part3…] scripts (part_name: sibling name for part k, e.g. Main_%d)"""
+# The flattened release. Loaders from before module trees make exactly these scripts, side by side: Engine, Main and
+# the parts Main_2 … Main_16 (they keep nothing else), and require Engine, then Main. So an entry's own script holds
+# as many of its modules as fit, and what doesn't fit goes into the parts, which carry both entries' modules under
+# their full paths ("Engine/Lines", "App/Panel/Shell"); each entry's script collects its own from them.
+LEGACY_NAME = {"Engine": "Engine", "App": "Main"}
+PART = "Main_%d"
+FIRST_PART, LAST_PART = 2, 16  # the part numbers older loaders look for
+
+
+def size(s):
+    return len(s.encode())
+
+
+def _blocks(t, entry, qualified):
+    """the entry's modules, in ORDER, as (path, block) pairs: each module's source run once into MODULES[key]"""
+    out = []
+    for path in order(t[entry]):
+        key = entry + "/" + path if qualified else path
+        body = slim(t[entry + "/" + path].rstrip("\n"))
+        out.append((path, '\n-- #module %s\nMODULES["%s"] = (function()\n%s\nend)()' % (key, key, body)))
+    return out
+
+
+def _entry(t, entry, blocks, parts):
+    """the entry's own script: its modules, then (if some are in the parts) the loop that collects those, then the
+    entry's code with module() reading MODULES instead of the tree"""
     src = t[entry]
     assert MODULE_LINE.search(src), entry + ": the entry's module() function is what a flattened copy replaces"
-    blocks = []
-    for path in order(src):
-        body = slim(t[entry + "/" + path].rstrip("\n"))
-        blocks.append('\n-- #module %s\nMODULES["%s"] = (function()\n%s\nend)()' % (path, path, body))
     head = "-- GENERATED from src/%s by tools/tree.py (a flattened copy for older loaders): edit the modules, not this.\nlocal MODULES = {}\n" % entry
-    loader = ""
-    if part_name:
-        loader = (
-            "\n-- the rest of the modules are in sibling parts; an older loader that only copies Main finds them in the\n"
-            "-- live mirror instead\n"
-            "for k = 2, 16 do\n"
-            '\tlocal p = script.Parent and script.Parent:FindFirstChild("%s" .. k)\n'
+    collect = ""
+    if parts:
+        collect = (
+            "\n-- the modules that didn't fit here are in the sibling parts (keys \"%s/<path>\"); an older loader that\n"
+            "-- only copies Engine and Main finds them in the live mirror instead\n"
+            "for k = %d, %d do\n"
+            '\tlocal name = "%s" .. k\n'
+            "\tlocal p = script.Parent and script.Parent:FindFirstChild(name)\n"
             "\tif not p then\n"
             '\t\tlocal m = game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")\n'
-            '\t\tp = m and m:FindFirstChild("%s" .. k)\n'
+            "\t\tp = m and m:FindFirstChild(name)\n"
             "\tend\n"
             "\tif not p then\n"
             "\t\tbreak\n"
             "\tend\n"
-            "\tfor k2, f in require(p) do\n"
-            "\t\tMODULES[k2] = f\n"
+            "\tfor key, f in require(p) do\n"
+            '\t\tlocal path = string.match(key, "^%s/(.+)$")\n'
+            "\t\tif path then\n"
+            "\t\t\tMODULES[path] = f\n"
+            "\t\tend\n"
             "\tend\n"
             "end\n"
-        ) % (part_name.replace("%d", ""), part_name.replace("%d", ""))
+        ) % (entry, FIRST_PART, LAST_PART, PART.replace("%d", ""), entry)
     tail = MODULE_LINE.sub(lambda m: "local function module(%s)\n\treturn MODULES[%s]\nend\n" % (m.group(1), m.group(1)), src, count=1)
-    size = lambda s: len(s.encode())
-    chunks, cur = [], []
-    budget = LIMIT - size(head + loader + tail)
-    for b in blocks:
-        if cur and size("".join(cur) + b) > budget:
-            assert part_name, entry + " is too big for one script"
-            chunks.append(cur)
-            cur, budget = [], LIMIT - 400
+    return head + "".join(b for _, b in blocks) + "\n" + collect + "\n" + tail
+
+
+def flatten(t, entry):
+    """one entry and all its modules as a single script, whatever its size (what the offline tests run)"""
+    return _entry(t, entry, _blocks(t, entry, False), False)
+
+
+def legacy(t, limit=LIMIT):
+    """the flattened release: {script name: source}, in the order older loaders make them: Engine, Main, Main_2…
+    Every script stays under limit (Studio refuses a Source over 200k set from code; the offline tests pass a small
+    one so the split is always exercised)."""
+    out, spill = {}, []
+    for entry in ENTRIES_LEGACY:
+        own = _blocks(t, entry, False)
+        if size(_entry(t, entry, own, False)) <= limit:
+            out[LEGACY_NAME[entry]] = _entry(t, entry, own, False)
+            continue
+        # as many modules as fit in the entry's own script (with the loop that collects the rest), in ORDER
+        room = limit - size(_entry(t, entry, [], True))
+        keep = []
+        for path, b in own:
+            if room - size(b) < 0:
+                break
+            keep.append((path, b))
+            room -= size(b)
+        out[LEGACY_NAME[entry]] = _entry(t, entry, keep, True)
+        kept = {path for path, _ in keep}
+        spill += [b for path, b in _blocks(t, entry, True) if path not in kept]
+    # the rest, packed into as few parts as they fit in (a part is a plain table of modules)
+    parts, cur = [], []
+    frame = size("-- GENERATED part 00 of the flattened release by tools/tree.py: edit the modules, not this.\nlocal MODULES = {}\n\nreturn MODULES\n")
+    for b in spill:
+        assert frame + size(b) <= limit, "one module is bigger than a whole script: split it"
+        if cur and frame + size("".join(cur) + b) > limit:
+            parts.append(cur)
+            cur = []
         cur.append(b)
-    chunks.append(cur)
-    out = [head + "".join(chunks[0]) + "\n" + loader + "\n" + tail]
-    for k, ch in enumerate(chunks[1:], start=2):
-        out.append("-- GENERATED part %d of src/%s by tools/tree.py: edit the modules, not this.\nlocal MODULES = {}\n%s\n\nreturn MODULES\n" % (k, entry, "".join(ch)))
-    assert all(size(s) < 195_000 for s in out), [size(s) for s in out]
+    if cur:
+        parts.append(cur)
+    assert FIRST_PART + len(parts) - 1 <= LAST_PART, "more parts than older loaders look for"
+    for k, blocks in enumerate(parts, start=FIRST_PART):
+        out[PART % k] = (
+            "-- GENERATED part %d of the flattened release by tools/tree.py: edit the modules, not this.\nlocal MODULES = {}\n%s\n\nreturn MODULES\n"
+            % (k, "".join(blocks))
+        )
+    for name, src in out.items():
+        assert size(src) <= limit, (name, size(src))
+    # every module is somewhere, once
+    for entry in ENTRIES_LEGACY:
+        for path in order(t[entry]):
+            own = '\nMODULES["%s"] = ' % path in out[LEGACY_NAME[entry]]
+            elsewhere = sum('\nMODULES["%s/%s"] = ' % (entry, path) in out[PART % k] for k in range(FIRST_PART, FIRST_PART + len(parts)))
+            assert own + elsewhere == 1, (entry, path, own, elsewhere)
     return out
+
+
+ENTRIES_LEGACY = ("Engine", "App")  # (the order they're made and required in)
 
 
 def checksum(text):

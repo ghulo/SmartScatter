@@ -90,8 +90,10 @@ python3 build.py 9.45 107        # version, build number -> SmartScatter.rbxmx a
 
 1. Bump the version and **build number** (the build must be higher than the last release) and run `build.py`.
 2. Commit and push `dist/` — every installed copy picks it up on its next check. `dist/release.json` + `dist/modules/`
-   is the module tree (loaders from 9.45 on); `dist/manifest.json` + `Engine.lua` / `Main.lua` / `Main_2.lua` is the
-   same code flattened, for loaders installed before that.
+   is the module tree (loaders from 9.45 on); `dist/manifest.json` + `Engine.lua` / `Main.lua` / `Main_2.lua`… is the
+   same code flattened, for loaders installed before that. Those make only Engine, Main and parts Main_2…Main_16, and
+   Studio caps a script at 200k, so `tools/tree.py` keeps each under 180k: what doesn't fit in Engine or Main goes into
+   the parts (keyed "Engine/…" or "App/…"), and each collects its own. The offline tests run the engine split this way.
 3. Attach `SmartScatter.rbxmx` to a GitHub release, and update the Creator Store copy now and then so new installs
    start recent.
 

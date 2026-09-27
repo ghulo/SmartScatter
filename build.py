@@ -4,7 +4,7 @@ Writes
   SmartScatter.rbxmx   the plugin file: the loader Script with the App and Engine module trees inside
   dist/                the online release every installed copy updates from (push it to where update_url.txt points):
     release.json + modules/…     the module tree, for loaders from 9.45 on
-    manifest.json + *.lua        the same code flattened into Engine / Main / Main_2…, for older loaders
+    manifest.json + *.lua        the same code flattened into Engine / Main / Main_2…, for older loaders (tools/tree.py)
 The build number must be higher than the last release's, or installed copies won't take it."""
 import json
 import pathlib
@@ -69,9 +69,7 @@ for path, src in t.items():
     modules[path] = {"path": "modules/" + path + ".lua", "sum": T.checksum(src)}
 (dist / "release.json").write_bytes(json.dumps({"version": version, "build": int(build), "modules": modules}, indent=1).encode("utf-8"))
 
-legacy = {"Engine": T.flatten(t, "Engine")[0]}
-for k, s in enumerate(T.flatten(t, "App", "Main_%d"), start=1):
-    legacy["Main" if k == 1 else "Main_%d" % k] = s
+legacy = T.legacy(t)
 files = {}
 for name, src in legacy.items():
     (dist / (name + ".lua")).write_bytes(src.encode("utf-8"))

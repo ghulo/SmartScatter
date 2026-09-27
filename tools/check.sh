@@ -17,9 +17,8 @@ import tree as T
 t = T.tree()
 T.check(t)
 out = pathlib.Path(sys.argv[1])
-(out / "Engine.lua").write_text(T.flatten(t, "Engine")[0])
-for k, s in enumerate(T.flatten(t, "App", "Main_%d"), start=1):
-    (out / ("Main.lua" if k == 1 else "Main_%d.lua" % k)).write_text(s)
+for name, src in T.legacy(t).items():
+    (out / (name + ".lua")).write_text(src)
 PY
 sed -e "s/__BUILD__/1/" Loader.lua > "$T/Loader.lua"
 for f in $MODULES "$T"/*.lua tests/suite.lua; do "$S/luau-compile" --binary -O0 -g2 "$f" >/dev/null || { echo "compile: $f"; exit 1; }; done
