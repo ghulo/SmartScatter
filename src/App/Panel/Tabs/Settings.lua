@@ -49,6 +49,23 @@ return function(App)
 			App.drawSpline()
 		end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
 			b
+		switchRow(
+			"Focus when a tool is on",
+			function()
+				return G.focus
+			end,
+			function(v)
+				G.focus = v
+			end,
+			function()
+				saveG()
+				if App.refreshFocus then
+					App.refreshFocus()
+				end
+			end,
+			"While painting, drawing a path or brushing an object, the world greys and dims a little, a thin frame runs round the viewport and the corner says what the tool is doing, like Blender's edit mode."
+		).Parent =
+			b
 		switchRow("History timeline", function()
 			return G.history
 		end, function(v)
