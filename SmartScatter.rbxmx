@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 130
-local BUNDLED_VERSION = "9.66"
+local BUNDLED_BUILD = 131
+local BUNDLED_VERSION = "9.67"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -2913,7 +2913,8 @@ return function(App)
 		radius = 24,
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
-		live = true,
+		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
+		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
 		groups = {},
 		walk = true,
@@ -2941,6 +2942,9 @@ return function(App)
 					G[k] = v
 				end
 			end
+		end
+		if not G.liveAsked then
+			G.live, G.liveAsked = false, true
 		end
 	end
 	G.page = "" -- every session opens on the area's home tab
@@ -3834,9 +3838,13 @@ return function(App)
 			button("Rescan", nil, function()
 				App.analysisDirty = true
 				rebuildOverlay(true)
-				runGenerate(true)
+				if G.live then
+					runGenerate(true)
+				else
+					App.status("Ground read again. Press Generate to place with it.")
+				end
 			end, { Parent = buttonRow(parent) }),
-			"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
+			"Reads the ground again, e.g. after you moved a house or added a road. With Live on it also regenerates."
 		)
 	end
 

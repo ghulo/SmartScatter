@@ -1,6 +1,6 @@
 {
- "version": "9.66",
- "build": 130,
+ "version": "9.67",
+ "build": 131,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -28,11 +28,11 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 744815266
+   "sum": 453567308
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
-   "sum": 911444507
+   "sum": 411981459
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",

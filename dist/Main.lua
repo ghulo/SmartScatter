@@ -68,7 +68,8 @@ local G = {
 radius = 24,
 density = 1,
 textScale = 1.2,
-live = true,
+live = false,
+liveAsked = false,
 overlay = true,
 groups = {},
 walk = true,
@@ -96,6 +97,9 @@ if G[k] ~= nil and type(v) == type(G[k]) then
 G[k] = v
 end
 end
+end
+if not G.liveAsked then
+G.live, G.liveAsked = false, true
 end
 end
 G.page = ""
@@ -3825,9 +3829,13 @@ hintOn(
 button("Rescan", nil, function()
 App.analysisDirty = true
 rebuildOverlay(true)
+if G.live then
 runGenerate(true)
+else
+App.status("Ground read again. Press Generate to place with it.")
+end
 end, { Parent = buttonRow(parent) }),
-"Reads the ground again, e.g. after you moved a house or added a road, then regenerates."
+"Reads the ground again, e.g. after you moved a house or added a road. With Live on it also regenerates."
 )
 end
 local function buildRoad(parent)
