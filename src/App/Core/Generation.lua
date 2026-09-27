@@ -373,6 +373,33 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- Areas
 	--------------------------------------------------------------------------------
+	-- what's placed in the area now, counted per object from its output folder
+	function App.countPlaced()
+		App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
+		if not App.area then
+			return
+		end
+		for _, f in App.area.folder:GetChildren() do
+			local key = f:GetAttribute("SS_Key")
+			for _, l in App.area.layers do
+				if key == Engine.layerKey(l) or (not key and f.Name == l.inst.Name) then
+					local n = 0
+					for _, d in f:GetDescendants() do
+						if d:GetAttribute("SS_Type") then
+							n += 1
+						end
+						if d:IsA("BasePart") then
+							App.lastParts += 1
+						end
+					end
+					App.lastCounts[l] = n
+					App.lastTotal += n
+					break
+				end
+			end
+		end
+	end
+
 	local function switchArea(folder)
 		cancelJob()
 		App.area = folder and Engine.loadArea(folder) or nil
@@ -380,27 +407,7 @@ return function(App)
 		App.expanded = nil
 		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
 		App.paintLayer = nil
-		if App.area then -- what's already placed, counted per layer from its output folder
-			for _, f in App.area.folder:GetChildren() do
-				local key = f:GetAttribute("SS_Key")
-				for _, l in App.area.layers do
-					if key == Engine.layerKey(l) or (not key and f.Name == l.inst.Name) then
-						local n = 0
-						for _, d in f:GetDescendants() do
-							if d:GetAttribute("SS_Type") then
-								n += 1
-							end
-							if d:IsA("BasePart") then
-								App.lastParts += 1
-							end
-						end
-						App.lastCounts[l] = n
-						App.lastTotal += n
-						break
-					end
-				end
-			end
-		end
+		App.countPlaced()
 		if App.setMode and App.mode ~= "Off" and (not App.area or App.area.locked) then
 			App.setMode("Off") -- nothing to paint on, or not allowed to
 		end

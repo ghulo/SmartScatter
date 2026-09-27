@@ -405,6 +405,14 @@ return function(App)
 			App.analysisDirty = true
 			if G.live and canGenerate() then
 				runGenerate(false)
+			else -- (Shrink, Smooth: the copies on the ground taken away go now)
+				local gone = {}
+				for _, cc in changed do
+					if not Engine.hasCell(App.area, cc[1], cc[2]) then
+						gone[App.cellKey(cc[1], cc[2])] = true
+					end
+				end
+				App.dropErased(gone, {})
 			end
 		end
 		if #changed == 0 then

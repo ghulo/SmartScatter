@@ -1266,6 +1266,36 @@ local ok, err = pcall(function()
 		)
 	end
 
+	-- erasing ground takes its copies away at once (Live off: nothing regenerates); a stamp stands on its own and stays
+	do
+		local a = newArea("SS_Test_EraseNow", { E.makeLayer(rock, "Rock") })
+		paintRect(a, -30, -30, 30, 30)
+		local total, _, _, an = run(a)
+		local l = a.layers[1]
+		local p = E.stampPin(O.X - 20, O.Z + 20, 0, 1, 1, 3) -- (on the side that's erased)
+		local stamp = E.placeStamp(a, an, l, p, { walk = true, shadows = true, query = true })
+		l.pins = { p }
+		local west = function(x)
+			return x < O.X
+		end
+		local expect = 0
+		for _, m in placed(a.folder) do
+			expect += (west(m:GetAttribute("SS_X")) and not m:GetAttribute("SS_Stamp")) and 1 or 0
+		end
+		local gone = E.dropWhere(a, function(x)
+			return west(x)
+		end)
+		local left = 0
+		for _, m in placed(a.folder) do
+			left += (west(m:GetAttribute("SS_X")) and not m:GetAttribute("SS_Stamp")) and 1 or 0
+		end
+		check(
+			"erasing ground takes the copies on it away at once, and leaves stamps",
+			total > 0 and expect > 0 and gone == expect and left == 0 and stamp ~= nil and stamp.Parent ~= nil,
+			string.format("%d placed, %d on the erased side, %d taken, %d left", total, expect, gone, left)
+		)
+	end
+
 	-- map scan: copies grouped by shape (renamed, turned and scaled still match), nested copies left inside theirs,
 	-- and the snapshot putting a changed copy back
 	do
