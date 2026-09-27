@@ -783,7 +783,10 @@ if not hint then
 return
 end
 obj.MouseEnter:Connect(function()
-showTip(obj, hint)
+local text = type(hint) == "function" and hint() or hint
+if text then
+showTip(obj, text)
+end
 end)
 obj.MouseLeave:Connect(hideTip)
 obj.AncestryChanged:Connect(hideTip)
@@ -1074,6 +1077,20 @@ end
 if name == "brush" then
 ring(0.5, 0.5, 0.36)
 ring(0.5, 0.5, 0.09, true)
+elseif name == "undo" then
+bar(0.28, 0.34, 0.6, 0.34)
+bar(0.28, 0.34, 0.42, 0.2)
+bar(0.28, 0.34, 0.42, 0.48)
+local last
+for k = 0, 6 do
+local a = math.rad(-90 + k * 30)
+local pt = Vector2.new(0.6 + 0.21 * math.cos(a), 0.55 + 0.21 * math.sin(a))
+if last then
+bar(last.X, last.Y, pt.X, pt.Y)
+end
+last = pt
+end
+bar(0.6, 0.76, 0.36, 0.76)
 elseif name == "search" then
 ring(0.42, 0.42, 0.27)
 bar(0.63, 0.63, 0.84, 0.84)
@@ -5190,9 +5207,9 @@ r.kind.Text = l.s.enabled and (what .. placed .. (l.s.locked and " · locked" or
 end
 end
 if App.ui.genBtn and not App.busy() then
-local ok, why = canGenerate()
+local ok = canGenerate()
 local failed = ok and App.failure ~= nil
-App.ui.genBtn.Text = failed and "Generate failed  ·  click to try again" or ok and "Generate" or (why or "Generate")
+App.ui.genBtn.Text = failed and "Try again" or "Generate"
 tween(App.ui.genBtn, FAST, {
 BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 TextColor3 = ok and P.onAccent or P.faint,

@@ -123,12 +123,29 @@ return function(App)
 				App.status("Stopped. Nothing was changed.")
 				return
 			end
+			local ok, why = canGenerate()
+			if not ok then -- (greyed out: say what's missing)
+				App.status(why or "Nothing to generate yet.")
+				return
+			end
 			if App.worldChanged() then -- read the ground again only if something under the area changed
 				App.analysisDirty = true
 			end
 			runGenerate(true)
 		end)
-		hintOn(App.ui.genBtn, "Places everything now. With Live update on, changes do this by themselves.")
+		hintOn(App.ui.genBtn, function()
+			if App.busy() then
+				return "Click to stop. Nothing changes until it's done."
+			end
+			local ok, why = canGenerate()
+			if not ok then
+				return (why or "Nothing to generate yet.") .. " Then this places everything."
+			end
+			if App.failure then
+				return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
+			end
+			return "Places everything now. With Live on, changes do this by themselves."
+		end)
 
 		-- Live update: a pill that lights up when on
 		local live = new("TextButton", {
@@ -171,7 +188,7 @@ return function(App)
 		local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 		shuffle.LayoutOrder = 2
 		shuffle.Parent = right
-		local undo = App.iconButton("left", "Undo the last step (Ctrl+Z)", function()
+		local undo = App.iconButton("undo", "Undo the last step (Ctrl+Z)", function()
 			local chs = App.ChangeHistoryService
 			local ok, can = pcall(chs.GetCanUndo, chs)
 			if ok and can == false then
@@ -243,17 +260,29 @@ return function(App)
 	-- Messages: a toast, a small glassy pill that slides up above the bottom bar and fades after a while. One at a time;
 	-- a new message replaces the text in place. tone: nil or "error" (red dot and glow, stays longer).
 	local toastToken = 0
+	-- fades a message out; once gone it's hidden, so it never takes clicks meant for the cards under it
+	local function hideToast(t, speed)
+		toastToken += 1
+		local my = toastToken
+		tween(t.group, speed or MED, { GroupTransparency = 1 })
+		task.delay(0.3, function()
+			if my == toastToken then
+				t.group.Visible = false
+			end
+		end)
+	end
 	App.status = function(msg, tone)
 		local t = App.ui.toast
 		if not t then
 			return
 		end
-		toastToken += 1
-		local my = toastToken
 		if msg == "" then
-			tween(t.group, FAST, { GroupTransparency = 1 })
+			hideToast(t, FAST)
 			return
 		end
+		toastToken += 1
+		local my = toastToken
+		t.group.Visible = true
 		local err = tone == "error"
 		t.text.Text = msg
 		t.dot.BackgroundColor3 = err and P.danger or P.accent
@@ -262,11 +291,20 @@ return function(App)
 			t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
 			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
 		end
-		task.delay((err and 7 or 3.5) + #msg * 0.02, function()
+		-- long enough to read, no longer: a quick note goes in a couple of seconds, a problem stays a while
+		task.delay(err and 6 + #msg * 0.02 or math.min(2.2 + #msg * 0.012, 5), function()
 			if my == toastToken and App.ui.toast == t then
-				tween(t.group, MED, { GroupTransparency = 1 })
+				hideToast(t)
 			end
 		end)
+	end
+	-- a tool's how-to: shown the first couple of times it's picked this session, then left to the viewport label
+	local hinted = {}
+	App.hint = function(key, msg)
+		hinted[key] = (hinted[key] or 0) + 1
+		if hinted[key] <= 2 then
+			App.status(msg)
+		end
 	end
 	local function buildToast(parent)
 		local group = new("CanvasGroup", {
@@ -301,7 +339,15 @@ return function(App)
 		}, { corner(4) })
 		local text = para("", { ZIndex = 61, Parent = pill })
 		text.TextColor3 = P.text
-		App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
+		local t = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
+		-- a click puts it away
+		new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 62, Parent = group }).MouseButton1Click:Connect(
+			function()
+				hideToast(t, FAST)
+			end
+		)
+		group.Visible = false
+		App.ui.toast = t
 	end
 
 	--------------------------------------------------------------------------------
@@ -508,7 +554,35 @@ return function(App)
 		local any = false
 		for _, t in TABS do
 			local holder = col({ Parent = page }, { vlist(10) })
-			label(string.upper(t.name), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = holder })
+			-- the tab's name heads its results, and opens it (the search clears)
+			local head = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 20),
+				Parent = holder,
+			}, { hlist(4) })
+			local name = label(
+				string.upper(t.name),
+				11,
+				P.faint,
+				SANS_B,
+				{ Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = head }
+			)
+			local go = App.icon("right", 10, P.faint)
+			go.Parent = head
+			head.MouseEnter:Connect(function()
+				name.TextColor3 = P.accent
+				App.setIconColor(go, P.accent)
+			end)
+			head.MouseLeave:Connect(function()
+				name.TextColor3 = P.faint
+				App.setIconColor(go, P.faint)
+			end)
+			head.MouseButton1Click:Connect(function()
+				App.goPage(t.name)
+			end)
+			hintOn(head, "Open the " .. t.name .. " tab.")
 			local before = App.cardCount
 			App[t.build](holder)
 			if App.cardCount == before then

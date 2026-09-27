@@ -555,12 +555,29 @@ App.cancelJob()
 App.status("Stopped. Nothing was changed.")
 return
 end
+local ok, why = canGenerate()
+if not ok then
+App.status(why or "Nothing to generate yet.")
+return
+end
 if App.worldChanged() then
 App.analysisDirty = true
 end
 runGenerate(true)
 end)
-hintOn(App.ui.genBtn, "Places everything now. With Live update on, changes do this by themselves.")
+hintOn(App.ui.genBtn, function()
+if App.busy() then
+return "Click to stop. Nothing changes until it's done."
+end
+local ok, why = canGenerate()
+if not ok then
+return (why or "Nothing to generate yet.") .. " Then this places everything."
+end
+if App.failure then
+return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
+end
+return "Places everything now. With Live on, changes do this by themselves."
+end)
 local live = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
@@ -600,7 +617,7 @@ hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wa
 local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 shuffle.LayoutOrder = 2
 shuffle.Parent = right
-local undo = App.iconButton("left", "Undo the last step (Ctrl+Z)", function()
+local undo = App.iconButton("undo", "Undo the last step (Ctrl+Z)", function()
 local chs = App.ChangeHistoryService
 local ok, can = pcall(chs.GetCanUndo, chs)
 if ok and can == false then
@@ -664,17 +681,28 @@ end
 end)
 end
 local toastToken = 0
+local function hideToast(t, speed)
+toastToken += 1
+local my = toastToken
+tween(t.group, speed or MED, { GroupTransparency = 1 })
+task.delay(0.3, function()
+if my == toastToken then
+t.group.Visible = false
+end
+end)
+end
 App.status = function(msg, tone)
 local t = App.ui.toast
 if not t then
 return
 end
-toastToken += 1
-local my = toastToken
 if msg == "" then
-tween(t.group, FAST, { GroupTransparency = 1 })
+hideToast(t, FAST)
 return
 end
+toastToken += 1
+local my = toastToken
+t.group.Visible = true
 local err = tone == "error"
 t.text.Text = msg
 t.dot.BackgroundColor3 = err and P.danger or P.accent
@@ -683,11 +711,18 @@ if t.group.GroupTransparency > 0.5 then
 t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
 tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
 end
-task.delay((err and 7 or 3.5) + #msg * 0.02, function()
+task.delay(err and 6 + #msg * 0.02 or math.min(2.2 + #msg * 0.012, 5), function()
 if my == toastToken and App.ui.toast == t then
-tween(t.group, MED, { GroupTransparency = 1 })
+hideToast(t)
 end
 end)
+end
+local hinted = {}
+App.hint = function(key, msg)
+hinted[key] = (hinted[key] or 0) + 1
+if hinted[key] <= 2 then
+App.status(msg)
+end
 end
 local function buildToast(parent)
 local group = new("CanvasGroup", {
@@ -722,7 +757,14 @@ Parent = pill,
 }, { corner(4) })
 local text = para("", { ZIndex = 61, Parent = pill })
 text.TextColor3 = P.text
-App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
+local t = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
+new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 62, Parent = group }).MouseButton1Click:Connect(
+function()
+hideToast(t, FAST)
+end
+)
+group.Visible = false
+App.ui.toast = t
 end
 local TABS = {
 { name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
@@ -909,7 +951,34 @@ local function buildResults(page)
 local any = false
 for _, t in TABS do
 local holder = col({ Parent = page }, { vlist(10) })
-label(string.upper(t.name), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = holder })
+local head = new("TextButton", {
+Text = "",
+AutoButtonColor = false,
+BackgroundTransparency = 1,
+Size = UDim2.new(1, 0, 0, 20),
+Parent = holder,
+}, { hlist(4) })
+local name = label(
+string.upper(t.name),
+11,
+P.faint,
+SANS_B,
+{ Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = head }
+)
+local go = App.icon("right", 10, P.faint)
+go.Parent = head
+head.MouseEnter:Connect(function()
+name.TextColor3 = P.accent
+App.setIconColor(go, P.accent)
+end)
+head.MouseLeave:Connect(function()
+name.TextColor3 = P.faint
+App.setIconColor(go, P.faint)
+end)
+head.MouseButton1Click:Connect(function()
+App.goPage(t.name)
+end)
+hintOn(head, "Open the " .. t.name .. " tab.")
 local before = App.cardCount
 App[t.build](holder)
 if App.cardCount == before then
@@ -1933,7 +2002,7 @@ plugin:Activate(true)
 refreshParams()
 gizmoFolder()
 local t = modeText(MODE_TEXT[App.mode] and App.mode or G.tool)
-App.status((App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
+App.hint(App.mode .. G.tool, (App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
 updateGizmo(mouseHit())
 else
 removeGizmo()
@@ -1952,7 +2021,7 @@ end
 if App.mode ~= "Paint" and App.mode ~= "Erase" then
 App.setMode("Paint")
 else
-App.status(modeText(t))
+App.hint("Paint" .. t, modeText(t))
 updateGizmo(mouseHit())
 end
 end
