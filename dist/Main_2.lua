@@ -1,8 +1,8 @@
--- GENERATED part 2 of src/App by tools/tree.py: edit the modules, not this.
+-- GENERATED part 2 of the flattened release by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
--- #module Panel/MapTools
-MODULES["Panel/MapTools"] = (function()
+-- #module App/Panel/MapTools
+MODULES["App/Panel/MapTools"] = (function()
 --[[
 Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 (every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
@@ -1014,8 +1014,8 @@ end
 end
 end
 end)()
--- #module Panel/Tabs/Scatter
-MODULES["Panel/Tabs/Scatter"] = (function()
+-- #module App/Panel/Tabs/Scatter
+MODULES["App/Panel/Tabs/Scatter"] = (function()
 --[[
 Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
 when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
@@ -1141,8 +1141,8 @@ end
 end
 end
 end)()
--- #module Panel/Tabs/Brush
-MODULES["Panel/Tabs/Brush"] = (function()
+-- #module App/Panel/Tabs/Brush
+MODULES["App/Panel/Tabs/Brush"] = (function()
 --[[
 Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
 less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
@@ -1299,8 +1299,8 @@ end
 end
 end
 end)()
--- #module Panel/Tabs/Map
-MODULES["Panel/Tabs/Map"] = (function()
+-- #module App/Panel/Tabs/Map
+MODULES["App/Panel/Tabs/Map"] = (function()
 --[[
 Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
 for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
@@ -1394,8 +1394,8 @@ end
 end
 end
 end)()
--- #module Panel/Tabs/Settings
-MODULES["Panel/Tabs/Settings"] = (function()
+-- #module App/Panel/Tabs/Settings
+MODULES["App/Panel/Tabs/Settings"] = (function()
 --[[
 Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
 viewport overlay, game-ready output and the tour; shortcuts under More options.
@@ -1621,8 +1621,8 @@ build = buildShortcuts,
 end
 end
 end)()
--- #module Panel/Shell
-MODULES["Panel/Shell"] = (function()
+-- #module App/Panel/Shell
+MODULES["App/Panel/Shell"] = (function()
 --[[
 Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
 Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
@@ -2389,8 +2389,8 @@ App.applyTheme = applyTheme
 track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
 end)()
--- #module Viewport/Paint
-MODULES["Viewport/Paint"] = (function()
+-- #module App/Viewport/Paint
+MODULES["App/Viewport/Paint"] = (function()
 --[[
 Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -3387,8 +3387,8 @@ App.setLabel = setLabel
 App.mouseHit = mouseHit
 end
 end)()
--- #module Viewport/Grid
-MODULES["Viewport/Grid"] = (function()
+-- #module App/Viewport/Grid
+MODULES["App/Viewport/Grid"] = (function()
 --[[
 Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
 ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
@@ -3512,8 +3512,8 @@ end
 end
 end
 end)()
--- #module Viewport/Spline
-MODULES["Viewport/Spline"] = (function()
+-- #module App/Viewport/Spline
+MODULES["App/Viewport/Spline"] = (function()
 --[[
 Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -4495,8 +4495,8 @@ App.selectSplinePoint = selectPt
 App.removeSplineViz = removeSplineViz
 end
 end)()
--- #module Viewport/Shapes
-MODULES["Viewport/Shapes"] = (function()
+-- #module App/Viewport/Shapes
+MODULES["App/Viewport/Shapes"] = (function()
 --[[
 Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
 round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
@@ -4671,8 +4671,8 @@ end
 end
 end
 end)()
--- #module Viewport/Stamp
-MODULES["Viewport/Stamp"] = (function()
+-- #module App/Viewport/Stamp
+MODULES["App/Viewport/Stamp"] = (function()
 --[[
 Smart Scatter — Stamp: puts one copy of an object down exactly where and how you want it. The real model floats
 under the mouse, see-through, standing just as it will (it's posed by the same placement code, on the same ground);
@@ -4931,8 +4931,8 @@ clearGhost()
 end
 end
 end)()
--- #module Viewport/Focus
-MODULES["Viewport/Focus"] = (function()
+-- #module App/Viewport/Focus
+MODULES["App/Viewport/Focus"] = (function()
 --[[
 Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
@@ -5148,8 +5148,8 @@ end
 end)
 end
 end)()
--- #module Panel/Tour
-MODULES["Panel/Tour"] = (function()
+-- #module App/Panel/Tour
+MODULES["App/Panel/Tour"] = (function()
 --[[
 Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
@@ -5597,8 +5597,8 @@ end)
 end
 end
 end)()
--- #module Core/Lifecycle
-MODULES["Core/Lifecycle"] = (function()
+-- #module App/Core/Lifecycle
+MODULES["App/Core/Lifecycle"] = (function()
 --[[
 Smart Scatter — Lifecycle: undo/redo reload, wiring and cleanup.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.

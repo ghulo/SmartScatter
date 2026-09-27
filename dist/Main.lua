@@ -5668,19 +5668,23 @@ end
 end
 end)()
 
--- the rest of the modules are in sibling parts; an older loader that only copies Main finds them in the
--- live mirror instead
+-- the modules that didn't fit here are in the sibling parts (keys "App/<path>"); an older loader that
+-- only copies Engine and Main finds them in the live mirror instead
 for k = 2, 16 do
-	local p = script.Parent and script.Parent:FindFirstChild("Main_" .. k)
+	local name = "Main_" .. k
+	local p = script.Parent and script.Parent:FindFirstChild(name)
 	if not p then
 		local m = game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")
-		p = m and m:FindFirstChild("Main_" .. k)
+		p = m and m:FindFirstChild(name)
 	end
 	if not p then
 		break
 	end
-	for k2, f in require(p) do
-		MODULES[k2] = f
+	for key, f in require(p) do
+		local path = string.match(key, "^App/(.+)$")
+		if path then
+			MODULES[path] = f
+		end
 	end
 end
 
