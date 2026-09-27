@@ -316,6 +316,141 @@ do
 	)
 end
 
+-- ── improving a layout ─────────────────────────────────────────────────────────────
+do
+	-- a 10 x 10 grid of trees 10 studs apart, with a hole of 3 x 3 missing in it
+	local function grid(opts)
+		local pts = {}
+		for gx = 0, 9 do
+			for gz = 0, 9 do
+				local hole = opts.hole and gx >= 4 and gx <= 6 and gz >= 4 and gz <= 6
+				if not hole then
+					local jx = opts.jitter and math.noise(gx * 0.7, gz * 0.7, 1) * opts.jitter or 0
+					local jz = opts.jitter and math.noise(gx * 0.7, gz * 0.7, 9) * opts.jitter or 0
+					table.insert(pts, { x = gx * 10 + jx, z = gz * 10 + jz, r = 2 })
+				end
+			end
+		end
+		return pts
+	end
+	local function spotsOver(step)
+		local sp = {}
+		for x = -5, 95, step do
+			for z = -5, 95, step do
+				table.insert(sp, { x = x, z = z })
+			end
+		end
+		return sp
+	end
+	local function inHole(x, z)
+		return x > 30 and x < 70 and z > 30 and z < 70
+	end
+	check("typical spacing of a grid is its step", near(E.typicalSpacing(grid({})), 10))
+	local even = E.evenness(grid({}))
+	local clumped = grid({})
+	for i = 1, 20 do
+		clumped[i].x += 7
+	end
+	check(
+		"evenness: a grid is even, a clumped one less so",
+		even > 0.95 and E.evenness(clumped) < even,
+		string.format("%.2f vs %.2f", even, E.evenness(clumped))
+	)
+
+	local pts = grid({ hole = true })
+	local n0 = #pts
+	table.insert(pts, { x = 21, z = 20, r = 2 }) -- crowding the tree at 20, 20
+	table.insert(pts, { x = 80, z = 81, r = 2, fixed = true }) -- crowding too, but placed by hand
+	table.insert(pts, { x = 90, z = 5, r = 2, bad = true }) -- on a road, say
+	local spots = spotsOver(2)
+	local opts = { spacing = 10, crowd = 0.5, gap = 1.7, step = 2, seed = 3 }
+	local plan = E.relayout(pts, spots, opts)
+	local movedIn, fixedTouched = 0, false
+	for _, mv in plan.moves do
+		movedIn += inHole(mv.x, mv.z) and 1 or 0
+		fixedTouched = fixedTouched or pts[mv.i].fixed == true
+	end
+	check(
+		"a hole is found; the crowded and the rule-breaking copies move into it",
+		plan.holes == 1 and plan.crowded >= 1 and plan.bad == 1 and #plan.moves == 3 and movedIn == 3,
+		string.format("%d holes, %d crowded, %d bad, %d moves (%d into the hole)", plan.holes, plan.crowded, plan.bad, #plan.moves, movedIn)
+	)
+	local who = {}
+	for _, mv in plan.moves do
+		who[mv.i] = true
+	end
+	check(
+		"the copy with the most room keeps its place; the hand-placed one never moves",
+		who[n0 + 1] and not fixedTouched and not who[n0 + 2] and who[n0 + 3]
+	)
+	check("moving only: nothing added or taken out", #plan.adds == 0 and #plan.removes == 0)
+	local again = E.relayout(pts, spots, opts)
+	local same = #again.moves == #plan.moves
+	for k, mv in plan.moves do
+		same = same and again.moves[k].i == mv.i and again.moves[k].x == mv.x and again.moves[k].z == mv.z
+	end
+	check("the same plan every time", same)
+
+	opts.fill = true
+	local filled = E.relayout(pts, spots, opts)
+	local total, farApart = #filled.moves + #filled.adds, true
+	local placed = {}
+	for _, mv in filled.moves do
+		table.insert(placed, mv)
+	end
+	for _, ad in filled.adds do
+		table.insert(placed, ad)
+		farApart = farApart and inHole(ad.x, ad.z)
+	end
+	for a = 1, #placed do
+		for b = a + 1, #placed do
+			farApart = farApart and math.sqrt((placed[a].x - placed[b].x) ^ 2 + (placed[a].z - placed[b].z) ^ 2) >= 7.7
+		end
+	end
+	check(
+		"filling: the hole gets about as many copies as it lost, well apart",
+		total >= 6 and total <= 12 and farApart,
+		string.format("%d moved or added", total)
+	)
+	-- the result is more even than before
+	local after = {}
+	local gone = {}
+	for _, mv in filled.moves do
+		gone[mv.i] = true
+		table.insert(after, { x = mv.x, z = mv.z })
+	end
+	for i, p in pts do
+		if not gone[i] then
+			table.insert(after, p)
+		end
+	end
+	for _, ad in filled.adds do
+		table.insert(after, ad)
+	end
+	check(
+		"the layout is more even afterwards",
+		E.evenness(after) > E.evenness(pts),
+		string.format("%.2f -> %.2f", E.evenness(pts), E.evenness(after))
+	)
+
+	-- no hole: crowded copies have nowhere to go; they stay, or go when asked
+	local full = grid({})
+	table.insert(full, { x = 51, z = 50, r = 2 })
+	local stay = E.relayout(full, spots, { spacing = 10, step = 2, seed = 3 })
+	local go = E.relayout(full, spots, { spacing = 10, step = 2, seed = 3, remove = true })
+	check("no hole: extras stay unless asked to go", #stay.moves == 0 and #stay.removes == 0 and #go.removes == 1)
+	-- a natural, uneven forest has no holes: nothing to add
+	local natural = E.relayout(grid({ jitter = 6 }), spots, { spacing = E.typicalSpacing(grid({ jitter = 6 })), step = 2, fill = true, seed = 3 })
+	check(
+		"an uneven but full forest is left alone",
+		#natural.adds == 0 and #natural.moves == 0,
+		string.format("%d adds, %d moves", #natural.adds, #natural.moves)
+	)
+	-- no spots (the rules allow nowhere): nothing moves anywhere
+	local nowhere = E.relayout(pts, {}, { spacing = 10, step = 2, fill = true })
+	check("where the rules allow nothing, nothing moves", #nowhere.moves == 0 and #nowhere.adds == 0)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

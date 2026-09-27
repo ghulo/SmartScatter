@@ -59,6 +59,14 @@ return function(App)
 			build = App.buildSwap,
 		})
 		cs.add({
+			id = "layout",
+			title = "Improve layout",
+			icon = "layers",
+			sub = "Re-space crowded and empty spots, by the placement rules",
+			keys = "layout spacing crowded empty holes gaps respace even tidy hand placed",
+			build = App.buildImproveLayout,
+		})
+		cs.add({
 			id = "seasons",
 			title = "Seasons",
 			sub = "Snowy, autumn or dry, fully or in patches",

@@ -1497,6 +1497,114 @@ local ok, err = pcall(function()
 		)
 		map:Destroy()
 	end
+
+	-- improving a layout: a forest with a hole, a crowded pair, a tree on a road and a hand-placed one
+	do
+		local map = Instance.new("Folder")
+		map.Name = "LayoutMap"
+		map.Parent = world
+		local X0, Z0 = -280, 170
+		-- a bit of road in the forest's corner (its own part, on the ground)
+		part({
+			Name = "Lane",
+			Size = Vector3.new(8, 0.4, 8),
+			CFrame = CFrame.new(O + Vector3.new(X0 + 78, 0.2, Z0 + 4)),
+			Material = Enum.Material.Asphalt,
+			Parent = map,
+		})
+		local function plant(x, z)
+			local t = tree:Clone()
+			t.Name = "Pine"
+			t:PivotTo(CFrame.new(O + Vector3.new(X0 + x, 4, Z0 + z)) * CFrame.Angles(0, math.rad((x * 7 + z * 13) % 360), 0))
+			t.Parent = map
+			return t
+		end
+		local count = 0
+		for gx = 0, 7 do
+			for gz = 0, 7 do
+				if not (gx >= 3 and gx <= 5 and gz >= 3 and gz <= 5) and not (gx == 7 and gz == 0) then
+					plant(gx * 12, gz * 12)
+					count += 1
+				end
+			end
+		end
+		local crowd = plant(1.5, 36) -- right next to the tree at 0, 36
+		local onRoad = plant(78, 4) -- on the lane
+		local byHand = plant(84, 85.5) -- crowding the tree at 84, 84, but placed by hand
+		E.setHandPlaced({ byHand }, true)
+		count += 3
+		local kinds = E.scanKinds({ roots = { map } })
+		local kind = kinds[1]
+		local plan = kind and E.layoutPlan(kind, { fill = true, seed = 5 })
+		local who, handMoved, inHole = {}, false, 0
+		for _, mv in plan and plan.moves or {} do
+			who[mv.inst] = true
+			handMoved = handMoved or mv.inst == byHand
+		end
+		for _, ad in plan and plan.adds or {} do
+			local x, z = ad.to.X - O.X - X0, ad.to.Z - O.Z - Z0
+			inHole += (x > 24 and x < 72 and z > 24 and z < 72) and 1 or 0
+		end
+		check(
+			"a layout plan finds the hole, moves the crowded tree and the one on the road, leaves the hand-placed one",
+			plan ~= nil
+				and kind.count == count
+				and plan.holes >= 1
+				and who[crowd]
+				and who[onRoad]
+				and not handMoved
+				and plan.evenAfter > plan.evenBefore,
+			plan
+					and string.format(
+						"%d copies, %d holes, %d moves, %d adds (%d in the hole), evenness %.2f -> %.2f",
+						kind.count,
+						plan.holes,
+						#plan.moves,
+						#plan.adds,
+						inHole,
+						plan.evenBefore,
+						plan.evenAfter
+					)
+				or "no plan"
+		)
+		check(
+			"the hole gets filled",
+			plan ~= nil and #plan.moves + inHole >= 6,
+			plan and string.format("%d moved, %d added in the hole", #plan.moves, inHole) or "no plan"
+		)
+		E.clearSnapshot()
+		local added = plan and E.layoutApply(plan) or {}
+		local worst, n = 0, 0
+		for _, m in map:GetChildren() do
+			if m.Name == "Pine" then
+				n += 1
+				local cf, size = m:GetBoundingBox()
+				worst = math.max(worst, math.abs(cf.Position.Y - size.Y / 2 - O.Y))
+			end
+		end
+		local roadX, roadZ = onRoad:GetPivot().Position.X - O.X - X0, onRoad:GetPivot().Position.Z - O.Z - Z0
+		check(
+			"after applying: every tree stands on the ground, none on the road, the count as planned",
+			n == count + #added and worst < 0.1 and not (math.abs(roadX - 78) < 4 and math.abs(roadZ - 4) < 4),
+			string.format("%d trees (%d + %d added), lowest off the ground by %.3f", n, count, #added, worst)
+		)
+		local back = E.restoreSnapshot()
+		local n2, roadBack = 0, false
+		for _, m in map:GetChildren() do
+			if m.Name == "Pine" then
+				n2 += 1
+				local p = m:GetPivot().Position - O - Vector3.new(X0, 0, Z0)
+				roadBack = roadBack or (math.abs(p.X - 78) < 0.01 and math.abs(p.Z - 4) < 0.01)
+			end
+		end
+		check(
+			"Restore original undoes a layout: moved ones back, added ones gone",
+			n2 == count and roadBack and back > 0,
+			string.format("%d trees, road tree back %s", n2, tostring(roadBack))
+		)
+		E.clearSnapshot()
+		map:Destroy()
+	end
 end)
 if not ok then
 	check("suite ran without errors", false, tostring(err))

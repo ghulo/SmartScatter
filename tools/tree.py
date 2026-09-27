@@ -55,10 +55,41 @@ def check(t):
         assert not missing and not extra, "%s: missing %s, not in ORDER %s" % (entry, missing, extra)
 
 
+def code_part(line):
+    """a line without its trailing comment: the `--` that starts one outside any string. A line whose comment opens a
+    block comment (--[[) is kept whole, since the comment goes on past it; so is one that closes a block comment (]]),
+    which may be inside one, where quotes mean nothing."""
+    if "]]" in line:
+        return line
+    quote = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif line.startswith("--", i):
+            if line.startswith("--[", i):
+                return line
+            return line[:i].rstrip()
+        i += 1
+    return line
+
+
 def slim(src):
-    """drops whole-line comments (not block openers) and indentation: a flattened copy is only run, never read, and
-    must fit (the source has no multi-line strings, whose insides indentation would belong to; check() makes sure)"""
-    return "\n".join(l.lstrip("\t") for l in src.split("\n") if not (l.lstrip().startswith("--") and not l.lstrip().startswith("--[")))
+    """drops comments (not block comments) and indentation: a flattened copy is only run, never read, and must fit
+    (the source has no multi-line strings, whose insides indentation would belong to; check() makes sure)"""
+    out = []
+    for l in src.split("\n"):
+        l = code_part(l.lstrip("\t"))
+        if l.strip():
+            out.append(l)
+    return "\n".join(out)
 
 
 def flatten(t, entry, part_name=None):
