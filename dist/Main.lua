@@ -5347,6 +5347,7 @@ App.rebuildAll()
 end)
 end
 local swap = { key = nil, with = {}, size = 1, match = false, turn = 0, scripts = false, tags = true, attributes = true }
+local selectedModels
 local function swapKind()
 for _, k in App.kinds or {} do
 if k.key == swap.key then
@@ -5388,11 +5389,20 @@ local picked = swap.key == k.key
 hintOn(
 button("Swap", picked and "accent" or nil, function()
 if swap.key ~= k.key then
-swap.key, swap.preview, swap.ref = k.key, nil, nil
+swap.key, swap.preview, swap.ref, swap.with = k.key, nil, nil, {}
 end
+for _, inst in selectedModels(k) do
+table.insert(swap.with, { inst = inst, w = 1 })
+break
+end
+swap.jump = true
+App.status(
+#swap.with > 0 and string.format("Swapping %s for %s: Try on 5 to check it, or Swap all.", k.name, swap.with[1].inst.Name)
+or string.format("Now select the model to swap in for %s, and press Use selected models.", k.name)
+)
 App.rebuildAll()
 end, { LayoutOrder = 2, Parent = acts }),
-"Swap every copy of this kind for another model, or a mix (the Swap models card below)."
+"Swap every copy of this kind for another model, or a mix. Tip: select the new model first, then press Swap."
 )
 end
 App.buildMapScan = function(b)
@@ -5446,7 +5456,7 @@ App.rebuildAll()
 end, { Parent = buttonRow(b) })
 end
 end
-local function selectedModels(k)
+function selectedModels(k)
 local out, own = {}, {}
 for _, c in k and k.copies or {} do
 own[c.inst] = true
@@ -5498,6 +5508,10 @@ or "Scan the map first, then press Swap on a kind."
 )
 return
 end
+if swap.jump then
+swap.jump = false
+App.scrollIntoView(b.Parent)
+end
 local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
 local th = App.thumbnail(k.copies[1].inst, 32)
 th.Position = UDim2.fromOffset(0, 2)
@@ -5508,6 +5522,9 @@ Position = UDim2.fromOffset(40, 18),
 Size = UDim2.new(1, -40, 0, 16),
 Parent = head,
 })
+if #swap.with == 0 then
+App.hintBox(b, "Select the model to swap in (or several to mix) in the Explorer, then press Use selected models.")
+end
 label("For", 13, P.text, SANS, { Parent = b })
 for i, w in swap.with do
 local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })

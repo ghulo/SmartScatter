@@ -1,6 +1,6 @@
 {
- "version": "9.54",
- "build": 118,
+ "version": "9.55",
+ "build": 119,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -36,7 +36,7 @@
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
-   "sum": 788761619
+   "sum": 896065250
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
@@ -44,7 +44,7 @@
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 523835192
+   "sum": 587949950
   },
   "App/Panel/Tabs/Brush": {
    "path": "modules/App/Panel/Tabs/Brush.lua",

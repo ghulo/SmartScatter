@@ -1020,6 +1020,18 @@ end
 App.refreshScan()
 App.refreshObjects()
 end
+App.scrollIntoView = function(obj)
+task.defer(function()
+task.defer(function()
+local sc = App.scroll
+if not (sc and obj.Parent and obj:IsDescendantOf(sc)) then
+return
+end
+local top = obj.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
+tween(sc, MED, { CanvasPosition = Vector2.new(0, math.max(top - 10, 0)) })
+end)
+end)
+end
 local builtPage
 App.rebuildAll = function()
 if not TAB[G.page] then

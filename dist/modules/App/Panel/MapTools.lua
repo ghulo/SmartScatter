@@ -88,6 +88,7 @@ return function(App)
 
 	-- swapping: the kind being swapped (its key), the models it's swapped for, how, and the copies tried so far
 	local swap = { key = nil, with = {}, size = 1, match = false, turn = 0, scripts = false, tags = true, attributes = true }
+	local selectedModels -- (below)
 	local function swapKind()
 		for _, k in App.kinds or {} do
 			if k.key == swap.key then
@@ -131,11 +132,21 @@ return function(App)
 		hintOn(
 			button("Swap", picked and "accent" or nil, function()
 				if swap.key ~= k.key then
-					swap.key, swap.preview, swap.ref = k.key, nil, nil
+					swap.key, swap.preview, swap.ref, swap.with = k.key, nil, nil, {}
 				end
+				-- a model picked beforehand (not one of these copies) is the one to swap in
+				for _, inst in selectedModels(k) do
+					table.insert(swap.with, { inst = inst, w = 1 })
+					break
+				end
+				swap.jump = true -- the Swap models card comes into view
+				App.status(
+					#swap.with > 0 and string.format("Swapping %s for %s: Try on 5 to check it, or Swap all.", k.name, swap.with[1].inst.Name)
+						or string.format("Now select the model to swap in for %s, and press Use selected models.", k.name)
+				)
 				App.rebuildAll()
 			end, { LayoutOrder = 2, Parent = acts }),
-			"Swap every copy of this kind for another model, or a mix (the Swap models card below)."
+			"Swap every copy of this kind for another model, or a mix. Tip: select the new model first, then press Swap."
 		)
 	end
 
@@ -192,7 +203,7 @@ return function(App)
 	end
 
 	-- the models in the current selection that can stand in for a kind
-	local function selectedModels(k)
+	function selectedModels(k)
 		local out, own = {}, {}
 		for _, c in k and k.copies or {} do
 			own[c.inst] = true
@@ -248,6 +259,10 @@ return function(App)
 			)
 			return
 		end
+		if swap.jump then -- just picked: bring this card into view
+			swap.jump = false
+			App.scrollIntoView(b.Parent)
+		end
 		-- the kind
 		local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
 		local th = App.thumbnail(k.copies[1].inst, 32) -- (not 30: that one is in the kind's row in the scan list)
@@ -260,6 +275,9 @@ return function(App)
 			Parent = head,
 		})
 		-- what it's swapped for
+		if #swap.with == 0 then
+			App.hintBox(b, "Select the model to swap in (or several to mix) in the Explorer, then press Use selected models.")
+		end
 		label("For", 13, P.text, SANS, { Parent = b })
 		for i, w in swap.with do
 			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
