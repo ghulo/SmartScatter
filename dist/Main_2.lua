@@ -2571,7 +2571,15 @@ return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 end
 local sizing
 local function updateGizmo(hit)
-if App.mode == "Spline" or App.mode == "Remove" then
+if App.mode == "Stamp" then
+gizmoFolder()
+for _, k in { "ring", "disc", "halo", "sq", "dot" } do
+if App.gz[k] then
+App.gz[k].Visible = false
+end
+end
+end
+if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" then
 if App.clearGrid then
 App.clearGrid()
 end
@@ -2976,6 +2984,10 @@ if App.mode == "Remove" then
 markCopy(copyUnderMouse())
 return
 end
+if App.mode == "Stamp" then
+App.stampMove()
+return
+end
 if sizing then
 sizeTo()
 return
@@ -3021,6 +3033,12 @@ end
 if App.mode == "Remove" then
 if App.area and not App.area.locked then
 removeUnderMouse()
+end
+return
+end
+if App.mode == "Stamp" then
+if App.area and not App.area.locked then
+App.stampDown()
 end
 return
 end
@@ -3078,6 +3096,10 @@ finishGesture()
 end
 end)
 mouse.Button1Up:Connect(function()
+if App.mode == "Stamp" then
+App.stampUp()
+return
+end
 if not down then
 return
 end
@@ -3108,6 +3130,9 @@ if os.clock() - (lastKeyAt[name] or 0) < 0.08 then
 return
 end
 lastKeyAt[name] = os.clock()
+if App.mode == "Stamp" and App.stampKey(name) then
+return
+end
 if name == "shuffle" then
 if App.area and not App.area.locked and App.shuffle then
 App.shuffle()
@@ -3153,7 +3178,11 @@ drawPath(App.polyPts, false, toolColor())
 end
 end
 elseif name == "cancel" then
+if App.polyPts or down then
 cancelShape()
+else
+App.setMode("Off")
+end
 end
 end
 local ALIASES = { KeypadEnter = "close" }
@@ -3249,6 +3278,7 @@ Polygon = "Click points. Click the first point, double-click, right-click or pre
 Fill = "Click the ground to fill everything connected of that surface.",
 Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -3279,6 +3309,9 @@ App.polyPts = nil
 clearPath()
 if App.resetSplineDrag then
 App.resetSplineDrag()
+end
+if App.clearStamp then
+App.clearStamp()
 end
 end
 App.setMode = function(m, layer)
@@ -4635,6 +4668,266 @@ if App.shapeTool then
 App.shapeTool = nil
 refresh()
 end
+end
+end
+end)()
+-- #module Viewport/Stamp
+MODULES["Viewport/Stamp"] = (function()
+--[[
+Smart Scatter — Stamp: puts one copy of an object down exactly where and how you want it. The real model floats
+under the mouse, see-through, standing just as it will (it's posed by the same placement code, on the same ground);
+a click puts it down, a drag from where you pressed turns it to face the mouse (15° steps; Shift turns freely).
+Keys turn it, size it, pick the model or roll a random one; the panel has the same as sliders. Each stamp is a pin
+that keeps its turn, size and model (Engine/Pins), so it comes back exactly so every time the area is generated,
+and no rule moves or refuses it. One undo step each.
+Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
+local STEP = math.rad(15)
+local DRAG_PX = 6
+local stamp = { yaw = 0, k = 1, vi = 1 }
+App.stamp = stamp
+local ghost
+local press
+local function layer()
+local l = App.mode == "Stamp" and App.paintLayer or nil
+if l and stamp.layer ~= l then
+stamp.layer, stamp.vi = l, 1
+stamp.k = (l.s.scaleMin + l.s.scaleMax) / 2 * (App.area and App.area.size or 1)
+end
+return l
+end
+local function clearGhost()
+if ghost then
+ghost.clone:Destroy()
+ghost = nil
+end
+end
+local function ghostFor(v, sc)
+if ghost and ghost.v == v and math.abs(ghost.sc - sc) < 1e-4 and ghost.clone.Parent then
+return ghost
+end
+clearGhost()
+local c = (v.src or v.inst):Clone()
+c.Archivable = false
+local all = c:GetDescendants()
+table.insert(all, c)
+for _, d in all do
+if d:IsA("BasePart") then
+d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow, d.Locked = true, false, false, false, false, true
+d.Transparency = 1 - (1 - d.Transparency) * 0.5
+elseif d:IsA("Decal") then
+d.Transparency = 1 - (1 - d.Transparency) * 0.5
+elseif d:IsA("Script") or d:IsA("LocalScript") then
+d:Destroy()
+end
+end
+ghost = { clone = c, v = v, sc = sc }
+return ghost
+end
+local function aim(l, x, z, seed)
+if not App.area or (App.area.count or 0) == 0 then
+return nil, nil, "paint the area first: stamps go on its ground"
+end
+App.readGround(App.area)
+local an = App.lastAnalysis
+if not an then
+return nil, nil, "the ground couldn't be read"
+end
+stamp.vi = math.clamp(stamp.vi, 1, #l.variants)
+local p = Engine.stampPin(x, z, stamp.yaw, stamp.k, stamp.vi, seed or 1)
+local pose = Engine.stampPose(App.area, an, l, p)
+return p, pose, not pose and "outside the area, or no ground here" or nil
+end
+local function describe(l, extra)
+local v = l.variants[stamp.vi] or l.variants[1]
+return string.format(
+"Stamp · %s · %d° · %.2f×%s",
+v.inst.Name,
+math.floor(math.deg(stamp.yaw) + 0.5) % 360,
+stamp.k,
+extra and ("  ·  " .. extra) or ""
+)
+end
+local function label(at, text)
+App.gizmoFolder()
+App.gz.anchor.CFrame = CFrame.new(at)
+App.setLabel(text)
+end
+local function show(l, x, z, y)
+local _, pose, why = aim(l, x, z)
+if not pose then
+clearGhost()
+label(Vector3.new(x, y, z), describe(l, "can't go here: " .. why))
+return
+end
+local gh = ghostFor(pose.v, pose.sc)
+if not gh.offset then
+Engine.poseCopy(gh.clone, l, pose.v, pose.sc, pose.cf, pose.sink)
+gh.offset = pose.cf:Inverse() * gh.clone:GetPivot()
+gh.clone.Parent = App.gizmoFolder()
+else
+gh.clone:PivotTo(pose.cf * gh.offset)
+end
+label(pose.cf.Position, describe(l, press and press.turning and "release to put it down" or "click to put it down, drag to turn"))
+end
+local function onPlane(y)
+local ray = rawMouse.UnitRay
+if math.abs(ray.Direction.Y) > 1e-3 then
+local t = (y - ray.Origin.Y) / ray.Direction.Y
+if t > 0 then
+return ray.Origin + ray.Direction * t
+end
+end
+return nil
+end
+App.stampMove = function()
+local l = layer()
+if not l then
+return
+end
+if press then
+local m = Vector2.new(rawMouse.X, rawMouse.Y)
+press.turning = press.turning or (m - press.at).Magnitude > DRAG_PX
+if press.turning then
+local to = onPlane(press.y)
+if to and (Vector3.new(to.X - press.x, 0, to.Z - press.z)).Magnitude > 0.5 then
+local yaw = math.atan2(-(to.X - press.x), -(to.Z - press.z))
+stamp.yaw = App.shiftHeld() and yaw or math.floor(yaw / STEP + 0.5) * STEP
+end
+end
+show(l, press.x, press.z, press.y)
+return
+end
+local hit = App.mouseHit()
+if not hit then
+clearGhost()
+App.setLabel("")
+return
+end
+show(l, hit.Position.X, hit.Position.Z, hit.Position.Y)
+end
+local function roll(l)
+local s = l.s
+stamp.yaw = s.yawMode == "Fixed" and math.rad(s.yaw) or s.yawMode == "Snap" and math.random(0, 3) * math.pi / 2 or math.random() * math.pi * 2
+local size = App.area and App.area.size or 1
+stamp.k = (s.scaleMin + (s.scaleMax - s.scaleMin) * math.random()) * size
+local sum = 0
+for _, v in l.variants do
+sum += math.max(v.w, 0)
+end
+local r = math.random() * sum
+for i, v in l.variants do
+r -= math.max(v.w, 0)
+if r <= 0 and v.w > 0 then
+stamp.vi = i
+break
+end
+end
+end
+local function refresh()
+if App.ui.refreshStamp then
+App.ui.refreshStamp()
+end
+App.stampMove()
+end
+local function put(l, x, z)
+local p, pose, why = aim(l, x, z, math.random(1, 2 ^ 30))
+if not pose then
+App.status("Can't stamp there: " .. why .. ".", "error")
+return
+end
+local rec = beginRec("Smart Scatter: Stamp " .. l.inst.Name)
+local made = Engine.placeStamp(
+App.area,
+App.lastAnalysis,
+l,
+p,
+{ walk = G.walk, shadows = G.shadows, query = G.query, chunks = false, ghost = false }
+)
+if not made then
+endRec(rec, true)
+App.status("Can't stamp there: it's a keep-clear zone.", "error")
+return
+end
+l.pins = l.pins or {}
+table.insert(l.pins, p)
+App.saveArea()
+endRec(rec)
+App.lastCounts[l] = (App.lastCounts[l] or 0) + 1
+App.lastTotal = (App.lastTotal or 0) + 1
+App.refreshCounts()
+App.status(describe(l, "put down. Ctrl+Z takes it back."))
+if G.stampRandom then
+roll(l)
+if App.ui.refreshStamp then
+App.ui.refreshStamp()
+end
+end
+end
+App.stampDown = function()
+local hit = App.mouseHit()
+if not (layer() and hit) then
+return
+end
+press = { x = hit.Position.X, z = hit.Position.Z, y = hit.Position.Y, at = Vector2.new(rawMouse.X, rawMouse.Y) }
+end
+App.stampUp = function()
+local l, pr = layer(), press
+press = nil
+if l and pr then
+put(l, pr.x, pr.z)
+if pr.turning and App.ui.refreshStamp then
+App.ui.refreshStamp()
+end
+App.stampMove()
+end
+end
+App.stampKey = function(name)
+local l = layer()
+if not l then
+return false
+end
+if name == "turn" then
+stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + (App.shiftHeld() and -1 or 1)) * STEP % (math.pi * 2)
+elseif name == "grow" or name == "shrink" then
+stamp.k = math.clamp(stamp.k * (name == "grow" and 1.1 or 1 / 1.1), 0.05, 20)
+elseif name == "model" then
+stamp.vi = stamp.vi % #l.variants + 1
+elseif name == "shuffle" then
+roll(l)
+elseif name == "size" then
+return true
+elseif name == "cancel" and press then
+press = nil
+elseif name == "cancel" then
+return false
+else
+return false
+end
+refresh()
+return true
+end
+App.setStamp = function(yaw, k, vi)
+stamp.yaw = yaw and math.rad(yaw) % (math.pi * 2) or stamp.yaw
+stamp.k = k or stamp.k
+stamp.vi = vi or stamp.vi
+if App.mode == "Stamp" then
+App.stampMove()
+end
+end
+App.rollStamp = function()
+local l = layer() or App.paintLayer
+if l then
+roll(l)
+refresh()
+end
+end
+App.clearStamp = function()
+press = nil
+clearGhost()
 end
 end
 end)()

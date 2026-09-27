@@ -3413,6 +3413,28 @@ p.Transparency, p.CastShadow, p.CanCollide, p.CanTouch, p.CanQuery = 0.55, false
 p.Material, p.Color = Enum.Material.SmoothPlastic, Color3.fromRGB(143, 186, 151)
 return p
 end
+local function poseCopy(clone, l, v, sc, cf, sink, stretch)
+local m = v.m
+if clone:IsA("Model") then
+if math.abs(sc - 1) > 1e-3 then
+clone:ScaleTo(clone:GetScale() * sc)
+end
+else
+clone.Size *= sc
+end
+if stretch and math.abs(stretch - 1) > 0.005 then
+squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(l.s, m))
+end
+local cx, cz = m.cx, m.cz
+if isLine(l) then
+overhangYaw(v)
+if v._foot then
+cx, cz = v._foot.X, v._foot.Y
+end
+end
+clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+end
+E.poseCopy = poseCopy
 local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stretch, only, uprightPosts)
 if E.isCleared(ctx.clear, x, z) then
 return nil
@@ -3432,24 +3454,7 @@ p:Destroy()
 end
 end
 end
-if clone:IsA("Model") then
-if math.abs(sc - 1) > 1e-3 then
-clone:ScaleTo(clone:GetScale() * sc)
-end
-else
-clone.Size *= sc
-end
-if stretch and math.abs(stretch - 1) > 0.005 then
-squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m))
-end
-local cx, cz = m.cx, m.cz
-if isLine(l) then
-overhangYaw(v)
-if v._foot then
-cx, cz = v._foot.X, v._foot.Y
-end
-end
-clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+poseCopy(clone, l, v, sc, cf, sink, stretch)
 if uprightPosts and math.abs(cf.RightVector.Y) + math.abs(cf.LookVector.Y) > 0.02 then
 local A = alongXOf(s, m) and cf.RightVector or cf.LookVector
 local L = lengthOf(s, m) * sc
@@ -3679,15 +3684,16 @@ local function placeAt(ctx, l, i, x, z, rng, g)
 g = g or {}
 local v = g.v or pickVariant(l, rng)
 local an, s, m = ctx.an, l.s, v.m
+local exact = g.exact
 i = i or E.indexAt(an, x, z)
-if not i or (not an.inM[i] and not g.line) then
+if not i or (not an.inM[i] and not g.line and not exact) then
 return nil
 end
 if g.line and E.isCleared(ctx.clear, x, z) then
 return nil
 end
 local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-if (g.member or g.pin) and not g.stackOn then
+if (g.member or g.pin) and not g.stackOn and not exact then
 if score(l, an, i) <= 0 then
 return nil
 end
@@ -3748,10 +3754,10 @@ local hit, y
 if base then
 y = base.top
 else
-if not g.post and ctx.hash:conflicts(item) then
+if not g.post and not exact and ctx.hash:conflicts(item) then
 return nil
 end
-if not g.line then
+if not g.line and not exact then
 local cr = l._core or 0
 if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then
 return nil
@@ -3767,10 +3773,10 @@ hit = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
 if not hit or hit.Material == Enum.Material.Water then
 return nil
 end
-if not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
+if not exact and not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
 return nil
 end
-if math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
+if not exact and math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
 return nil
 end
 y = hit.Position.Y
@@ -3785,7 +3791,7 @@ return rng:NextInteger(0, 3) * math.pi / 2
 end
 return rng:NextNumber(0, math.pi * 2)
 end
-if l.type == "Building" and not base then
+if l.type == "Building" and not base and not exact then
 if g.yaw then
 yaw = g.yaw
 elseif s.faceRoad and an.dist.Roads[i] < 90 then
@@ -3851,21 +3857,21 @@ end
 end
 if item.hx then
 item.yaw = yaw
-if not base and not g.post and ctx.hash:conflicts(item) then
+if not base and not g.post and not exact and ctx.hash:conflicts(item) then
 return nil
 end
 end
 local up = (s.align > 0 and hit) and Vector3.yAxis:Lerp(hit.Normal, s.align).Unit or Vector3.yAxis
 local cf = CFrame.new(x, y, z) * rotateUp(up) * CFrame.Angles(0, yaw, 0)
-if s.tilt > 0 and not base and not (g.line and s.fit) then
+if s.tilt > 0 and not base and not exact and not (g.line and s.fit) then
 cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 end
-if s.lean > 0 and not base and not (g.line and s.fit) then
+if s.lean > 0 and not base and not exact and not (g.line and s.fit) then
 local wd = math.rad(ctx.area.windDir or 0)
 local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd)))
 cf = CFrame.new(cf.Position) * CFrame.fromAxisAngle(axis, math.rad(s.lean) * rng:NextNumber(0.7, 1.3)) * cf.Rotation
 end
-if l.type ~= "Flower" and not base then
+if l.type ~= "Flower" and not base and not exact then
 local h = math.max(m.size.Y * sc - 1, 1)
 local real = l.type == "Building" or g.line
 local w = real and m.size.X * sc or math.max(1, item.r * CORE[l.type] * 2)
@@ -3885,10 +3891,14 @@ end
 end
 end
 local sink = base and 0 or s.sink * m.size.Y * sc
-if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+if g.dry then
+return { cf = cf, sc = sc, sink = sink, v = v }
+end
+local made = emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+if not made then
 return nil
 end
-return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
+return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil, clone = made }
 end
 local function place(ctx, l, i, rng, gid)
 local an = ctx.an
@@ -4970,9 +4980,12 @@ Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Ea
 (l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
 A pin's seed picks its model, size and turn, so it looks the same every time.
+A stamp is a pin that also says its turn, size and model ({ x, z, seed, yaw, size, model }): the stamp tool puts it
+exactly as shown, and no rule moves or refuses it; only the ground under it sets its height.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
 return function(E, I)
+local Hash = I.Hash
 local placeAt = I.placeAt
 local scaleRange = I.scaleRange
 local function pinSpacing(l)
@@ -5038,16 +5051,63 @@ function E.readPins(list)
 local out = {}
 for _, p in type(list) == "table" and list or {} do
 if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
-table.insert(out, { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) })
+local pin = { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) }
+if tonumber(p[4]) and tonumber(p[5]) and tonumber(p[6]) then
+pin[4], pin[5], pin[6] = tonumber(p[4]), tonumber(p[5]), tonumber(p[6])
+end
+table.insert(out, pin)
 end
 end
 return #out > 0 and out or nil
+end
+function E.stampPin(x, z, yaw, k, vi, seed)
+local r = function(n, q)
+return math.floor(n * q + 0.5) / q
+end
+return { r(x, 100), r(z, 100), seed, r(yaw % (math.pi * 2), 1000), r(math.clamp(k, 0.05, 20), 1000), vi }
+end
+local function pinG(l, p)
+if not p[4] then
+return { pin = true }
+end
+local v = l.variants[p[6]] or l.variants[1]
+return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
+end
+local function stampCtx(a, an)
+return { an = an, area = a, seed = a.seed, hash = Hash.new(), parts = 0, clear = E.clearZones(a.folder) }
+end
+function E.stampPose(a, an, l, p)
+local g = pinG(l, p)
+g.dry = true
+return placeAt(stampCtx(a, an), l, nil, p[1], p[2], Random.new(p[3]), g)
+end
+function E.placeStamp(a, an, l, p, output)
+E.ensureFolder(a)
+local key, folder = E.layerKey(l), nil
+for _, f in a.folder:GetChildren() do
+if f:GetAttribute("SS_Key") == key then
+folder = f
+end
+end
+if not folder then
+folder = Instance.new("Folder")
+folder.Name = l.inst.Name
+folder:SetAttribute("SS_Key", key)
+folder.Parent = a.folder
+end
+local ctx = stampCtx(a, an)
+ctx.output = output
+ctx.parentFor = function()
+return folder
+end
+local out = placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p))
+return out and out.clone
 end
 function I.placePins(ctx, l, wanted)
 local n = 0
 for _, p in l.pins or {} do
 if not wanted or wanted(p[1], p[2]) then
-if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), { pin = true }) then
+if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p)) then
 n += 1
 end
 end

@@ -145,6 +145,25 @@ return function(App)
 		end
 		return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
 	end
+	-- reads the ground under the area again if it's out of date (tick: the job's time slicing, or nil to do it at once).
+	-- Returns true when it was read now, false when it was up to date, nil when cancelled.
+	local function readGround(area, tick)
+		if not (App.analysisDirty or not App.lastAnalysis) then
+			return false
+		end
+		local an, aborted = Engine.analyze(area, templates(), tick)
+		if aborted then
+			return nil
+		end
+		App.lastAnalysis = an
+		App.analysisDirty = false
+		lastPrint, worldEdited = worldPrint(), false
+		App.refreshScan()
+		recolorOverlay()
+		return true
+	end
+	App.readGround = readGround
+
 	-- real: this run places the real models (the Generate button). Any other run while Live is on is a preview: a
 	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
 	local function runGenerate(recorded, from, region, real)
@@ -193,17 +212,11 @@ return function(App)
 		end
 		local trace
 		local success, err = xpcall(function()
-			if App.analysisDirty or not App.lastAnalysis then
-				local an, aborted = Engine.analyze(area, templates(), tick)
-				if aborted then
-					return
-				end
-				App.lastAnalysis = an
-				App.analysisDirty = false
-				lastPrint, worldEdited = worldPrint(), false
+			local read = readGround(area, tick)
+			if read == nil then
+				return
+			elseif read then -- everything depends on the ground: every layer is rebuilt
 				from = nil
-				App.refreshScan()
-				recolorOverlay()
 			end
 			if from and not table.find(area.layers, from) then
 				from = nil

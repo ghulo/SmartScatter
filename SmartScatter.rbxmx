@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX41"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX42"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 133
-local BUNDLED_VERSION = "9.69"
+local BUNDLED_BUILD = 134
+local BUNDLED_VERSION = "9.70"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -404,6 +404,7 @@ local ORDER = {
 	"Viewport/Grid",
 	"Viewport/Spline",
 	"Viewport/Shapes",
+	"Viewport/Stamp",
 	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",
@@ -777,6 +778,25 @@ return function(App)
 		end
 		return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
 	end
+	-- reads the ground under the area again if it's out of date (tick: the job's time slicing, or nil to do it at once).
+	-- Returns true when it was read now, false when it was up to date, nil when cancelled.
+	local function readGround(area, tick)
+		if not (App.analysisDirty or not App.lastAnalysis) then
+			return false
+		end
+		local an, aborted = Engine.analyze(area, templates(), tick)
+		if aborted then
+			return nil
+		end
+		App.lastAnalysis = an
+		App.analysisDirty = false
+		lastPrint, worldEdited = worldPrint(), false
+		App.refreshScan()
+		recolorOverlay()
+		return true
+	end
+	App.readGround = readGround
+
 	-- real: this run places the real models (the Generate button). Any other run while Live is on is a preview: a
 	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
 	local function runGenerate(recorded, from, region, real)
@@ -825,17 +845,11 @@ return function(App)
 		end
 		local trace
 		local success, err = xpcall(function()
-			if App.analysisDirty or not App.lastAnalysis then
-				local an, aborted = Engine.analyze(area, templates(), tick)
-				if aborted then
-					return
-				end
-				App.lastAnalysis = an
-				App.analysisDirty = false
-				lastPrint, worldEdited = worldPrint(), false
+			local read = readGround(area, tick)
+			if read == nil then
+				return
+			elseif read then -- everything depends on the ground: every layer is rebuilt
 				from = nil
-				App.refreshScan()
-				recolorOverlay()
 			end
 			if from and not table.find(area.layers, from) then
 				from = nil
@@ -2930,6 +2944,7 @@ return function(App)
 		accent = "Sage", -- the accent theme (ACCENTS below)
 		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
 		liveBoxes = true, -- Live previews as see-through boxes (one per copy) until Generate places the real models
+		stampRandom = false, -- the stamp rolls a new random turn, size and model after each one
 		tool = "Brush",
 		shape = "Circle",
 		fillReach = 120,
@@ -2994,7 +3009,9 @@ return function(App)
 		{ id = "cancel", group = "Shapes and paths", label = "Stop", key = "Escape" },
 		{ id = "corner", group = "Shapes and paths", label = "Sharp corner", key = "C" },
 		{ id = "delete", group = "Shapes and paths", label = "Delete point", key = "X" },
-		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout", key = "R" },
+		{ id = "turn", group = "Stamp", label = "Turn the stamp (Shift: back)", key = "T" },
+		{ id = "model", group = "Stamp", label = "Next model", key = "V" },
+		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
 		{ id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 	}
 	-- how a key is written on a chip
@@ -3091,13 +3108,15 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
-	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
-	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
-	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
-	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
-	App.LAYER_LABEL = { Place = "Place", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
-	App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" | "Stamp" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
+	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand,
+	-- "stamp" puts one copy down exactly as shown (Viewport/Stamp)
+	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
+	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground; a
+	-- stamp's Shift turns it freely instead)
+	App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
+	App.LAYER_LABEL = { Place = "Place", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+	App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)
@@ -6128,6 +6147,7 @@ return function(App)
 	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
 	local LAYER_HINT = {
 		Place = "Puts copies down exactly where you brush, at the object's spacing.",
+		Stamp = "One copy exactly where you click: the model shows under the mouse. Drag to turn it.",
 		More = "More of it where you brush (up to three times as much).",
 		Less = "Less of it where you brush; twice clears it.",
 		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
@@ -6137,7 +6157,7 @@ return function(App)
 		parent.add({
 			id = "layerpaint",
 			title = "Paint or place this object",
-			keys = "brush more less erase reset place pins",
+			keys = "brush more less erase reset place pins stamp single one copy add rotate turn size",
 			more = more,
 			build = function(b)
 				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
@@ -6172,14 +6192,100 @@ return function(App)
 				what.TextColor3 = P.dim
 				local function say()
 					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
-					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]]) .. ".")
-						or "Pick one, then brush over the area in the viewport."
+					local shift = App.mode == "Stamp" and "turns it freely" or string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]] or "")
+					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. shift .. ".") or "Pick one, then brush over the area in the viewport."
 				end
 				say()
+				-- while stamping: the stamp's turn, size and model (the keys in the viewport do the same)
+				local stampBox = col({ Parent = b }, { vlist(6) })
+				local function buildStamp()
+					for _, c in stampBox:GetChildren() do
+						if c:IsA("GuiObject") then
+							c:Destroy()
+						end
+					end
+					if not (App.mode == "Stamp" and App.paintLayer == l) then
+						return
+					end
+					local st, key = App.stamp, App.keyText
+					slider(
+						"Turn",
+						0,
+						359,
+						function()
+							return math.floor(math.deg(st.yaw) + 0.5) % 360
+						end,
+						function(v)
+							App.setStamp(v)
+						end,
+						"%d°",
+						1,
+						nil,
+						nil,
+						"Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.",
+						0
+					).Parent =
+						stampBox
+					slider(
+						"Size",
+						0.1,
+						5,
+						function()
+							return st.k
+						end,
+						function(v)
+							App.setStamp(nil, v)
+						end,
+						"%.2f×",
+						0.05,
+						nil,
+						nil,
+						"1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.",
+						1
+					).Parent =
+						stampBox
+					if #l.variants > 1 then
+						local grid = chipGrid(stampBox, 3, 28)
+						for i, v in l.variants do
+							chip(grid, v.inst.Name, function()
+								return st.vi == i
+							end, function()
+								App.setStamp(nil, nil, i)
+								buildStamp()
+							end)
+						end
+					end
+					switchRow(
+						"A random one after each stamp",
+						function()
+							return G.stampRandom
+						end,
+						function(v)
+							G.stampRandom = v
+						end,
+						saveG,
+						"After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety."
+					).Parent =
+						stampBox
+					hintOn(
+						button("Random now", nil, App.rollStamp, { Parent = buttonRow(stampBox) }),
+						"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+					)
+					App.keyChips(stampBox, {
+						{ key("turn"), "turn" },
+						{ "Shift", "turn freely" },
+						{ key("shrink") .. " " .. key("grow"), "size" },
+						{ key("model"), "model" },
+						{ key("shuffle"), "random" },
+					})
+				end
+				buildStamp()
+				App.ui.refreshStamp = buildStamp
 				App.ui.refreshLayerBrush = function()
 					refresh()
 					eraseLook()
 					say()
+					buildStamp()
 				end
 				slider("Brush size", 4, 200, function()
 					return G.radius
@@ -9145,7 +9251,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX26"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX27"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
 	edit mode and local view feel: the scene fades toward grey and dims (a colour correction on the camera, never
@@ -10022,7 +10128,15 @@ return function(App)
 	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local function updateGizmo(hit)
-		if App.mode == "Spline" or App.mode == "Remove" then
+		if App.mode == "Stamp" then -- the stamp shows the model itself (Viewport/Stamp), not a brush
+			gizmoFolder()
+			for _, k in { "ring", "disc", "halo", "sq", "dot" } do
+				if App.gz[k] then
+					App.gz[k].Visible = false
+				end
+			end
+		end
+		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" then
 			if App.clearGrid then -- (no grid for these tools)
 				App.clearGrid()
 			end
@@ -10451,6 +10565,10 @@ return function(App)
 			markCopy(copyUnderMouse())
 			return
 		end
+		if App.mode == "Stamp" then
+			App.stampMove()
+			return
+		end
 		if sizing then
 			sizeTo()
 			return
@@ -10497,6 +10615,12 @@ return function(App)
 		if App.mode == "Remove" then
 			if App.area and not App.area.locked then
 				removeUnderMouse()
+			end
+			return
+		end
+		if App.mode == "Stamp" then
+			if App.area and not App.area.locked then
+				App.stampDown()
 			end
 			return
 		end
@@ -10555,6 +10679,10 @@ return function(App)
 	end)
 
 	mouse.Button1Up:Connect(function()
+		if App.mode == "Stamp" then
+			App.stampUp()
+			return
+		end
 		if not down then
 			return
 		end
@@ -10589,6 +10717,9 @@ return function(App)
 			return
 		end
 		lastKeyAt[name] = os.clock()
+		if App.mode == "Stamp" and App.stampKey(name) then -- the stamp's own keys (turn, size, model, a random one)
+			return
+		end
 		-- anywhere while working (painting, erasing, drawing a path)
 		if name == "shuffle" then
 			if App.area and not App.area.locked and App.shuffle then
@@ -10634,8 +10765,12 @@ return function(App)
 					drawPath(App.polyPts, false, toolColor())
 				end
 			end
-		elseif name == "cancel" then
-			cancelShape()
+		elseif name == "cancel" then -- what's half done goes; with nothing half done, the tool stops
+			if App.polyPts or down then
+				cancelShape()
+			else
+				App.setMode("Off")
+			end
 		end
 	end
 	-- keys that always do the same as a bound one (the keypad's Enter, Delete), whatever the keymap says
@@ -10737,6 +10872,7 @@ return function(App)
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -10770,6 +10906,9 @@ return function(App)
 		clearPath()
 		if App.resetSplineDrag then
 			App.resetSplineDrag()
+		end
+		if App.clearStamp then
+			App.clearStamp()
 		end
 	end
 	App.setMode = function(m, layer)
@@ -12068,7 +12207,290 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Stamp: puts one copy of an object down exactly where and how you want it. The real model floats
+	under the mouse, see-through, standing just as it will (it's posed by the same placement code, on the same ground);
+	a click puts it down, a drag from where you pressed turns it to face the mouse (15° steps; Shift turns freely).
+	Keys turn it, size it, pick the model or roll a random one; the panel has the same as sliders. Each stamp is a pin
+	that keeps its turn, size and model (Engine/Pins), so it comes back exactly so every time the area is generated,
+	and no rule moves or refuses it. One undo step each.
+	Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
+	local STEP = math.rad(15) -- the turn's steps (keys, and dragging without Shift)
+	local DRAG_PX = 6 -- a press that moves further than this turns the stamp instead of just placing it
+
+	-- the stamp being aimed: its turn (radians), size (1 = the model's own size in the mix) and model (index)
+	local stamp = { yaw = 0, k = 1, vi = 1 }
+	App.stamp = stamp
+	local ghost -- the see-through model under the mouse: { clone, v, sc, offset (pivot relative to its stand) }
+	local press -- a press in progress: { x, z, y, at = screen position, turning }
+
+	local function layer()
+		local l = App.mode == "Stamp" and App.paintLayer or nil
+		if l and stamp.layer ~= l then -- a new object: its first model, at the size its copies grow on average
+			stamp.layer, stamp.vi = l, 1
+			stamp.k = (l.s.scaleMin + l.s.scaleMax) / 2 * (App.area and App.area.size or 1)
+		end
+		return l
+	end
+
+	local function clearGhost()
+		if ghost then
+			ghost.clone:Destroy()
+			ghost = nil
+		end
+	end
+	-- the model, see-through and out of the way of clicks, rays and physics (made again when the model or size changes)
+	local function ghostFor(v, sc)
+		if ghost and ghost.v == v and math.abs(ghost.sc - sc) < 1e-4 and ghost.clone.Parent then
+			return ghost
+		end
+		clearGhost()
+		local c = (v.src or v.inst):Clone()
+		c.Archivable = false
+		local all = c:GetDescendants()
+		table.insert(all, c)
+		for _, d in all do
+			if d:IsA("BasePart") then
+				d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow, d.Locked = true, false, false, false, false, true
+				d.Transparency = 1 - (1 - d.Transparency) * 0.5
+			elseif d:IsA("Decal") then
+				d.Transparency = 1 - (1 - d.Transparency) * 0.5
+			elseif d:IsA("Script") or d:IsA("LocalScript") then
+				d:Destroy()
+			end
+		end
+		ghost = { clone = c, v = v, sc = sc }
+		return ghost
+	end
+
+	-- the stamp as a pin at (x, z), and where it would stand there (nil: it can't go there, and why)
+	local function aim(l, x, z, seed)
+		if not App.area or (App.area.count or 0) == 0 then
+			return nil, nil, "paint the area first: stamps go on its ground"
+		end
+		App.readGround(App.area) -- (only when the ground is out of date)
+		local an = App.lastAnalysis
+		if not an then
+			return nil, nil, "the ground couldn't be read"
+		end
+		stamp.vi = math.clamp(stamp.vi, 1, #l.variants)
+		local p = Engine.stampPin(x, z, stamp.yaw, stamp.k, stamp.vi, seed or 1)
+		local pose = Engine.stampPose(App.area, an, l, p)
+		return p, pose, not pose and "outside the area, or no ground here" or nil
+	end
+
+	local function describe(l, extra)
+		local v = l.variants[stamp.vi] or l.variants[1]
+		return string.format(
+			"Stamp · %s · %d° · %.2f×%s",
+			v.inst.Name,
+			math.floor(math.deg(stamp.yaw) + 0.5) % 360,
+			stamp.k,
+			extra and ("  ·  " .. extra) or ""
+		)
+	end
+	local function label(at, text)
+		App.gizmoFolder()
+		App.gz.anchor.CFrame = CFrame.new(at)
+		App.setLabel(text)
+	end
+
+	-- shows the stamp at (x, z): the model where it will stand, and what it is
+	local function show(l, x, z, y)
+		local _, pose, why = aim(l, x, z)
+		if not pose then
+			clearGhost()
+			label(Vector3.new(x, y, z), describe(l, "can't go here: " .. why))
+			return
+		end
+		local gh = ghostFor(pose.v, pose.sc)
+		if not gh.offset then -- posed once (that scales it); after that only moved
+			Engine.poseCopy(gh.clone, l, pose.v, pose.sc, pose.cf, pose.sink)
+			gh.offset = pose.cf:Inverse() * gh.clone:GetPivot()
+			gh.clone.Parent = App.gizmoFolder()
+		else
+			gh.clone:PivotTo(pose.cf * gh.offset)
+		end
+		label(pose.cf.Position, describe(l, press and press.turning and "release to put it down" or "click to put it down, drag to turn"))
+	end
+
+	-- where the mouse points on the flat plane at height y (steady while turning, whatever is under the mouse)
+	local function onPlane(y)
+		local ray = rawMouse.UnitRay
+		if math.abs(ray.Direction.Y) > 1e-3 then
+			local t = (y - ray.Origin.Y) / ray.Direction.Y
+			if t > 0 then
+				return ray.Origin + ray.Direction * t
+			end
+		end
+		return nil
+	end
+
+	App.stampMove = function()
+		local l = layer()
+		if not l then
+			return
+		end
+		if press then
+			local m = Vector2.new(rawMouse.X, rawMouse.Y)
+			press.turning = press.turning or (m - press.at).Magnitude > DRAG_PX
+			if press.turning then -- the front (the model's -Z) turns toward the mouse
+				local to = onPlane(press.y)
+				if to and (Vector3.new(to.X - press.x, 0, to.Z - press.z)).Magnitude > 0.5 then
+					local yaw = math.atan2(-(to.X - press.x), -(to.Z - press.z))
+					stamp.yaw = App.shiftHeld() and yaw or math.floor(yaw / STEP + 0.5) * STEP
+				end
+			end
+			show(l, press.x, press.z, press.y)
+			return
+		end
+		local hit = App.mouseHit()
+		if not hit then
+			clearGhost()
+			App.setLabel("")
+			return
+		end
+		show(l, hit.Position.X, hit.Position.Z, hit.Position.Y)
+	end
+
+	-- a random turn, size (within the object's size range) and model (by its share of the mix)
+	local function roll(l)
+		local s = l.s
+		stamp.yaw = s.yawMode == "Fixed" and math.rad(s.yaw) or s.yawMode == "Snap" and math.random(0, 3) * math.pi / 2 or math.random() * math.pi * 2
+		local size = App.area and App.area.size or 1
+		stamp.k = (s.scaleMin + (s.scaleMax - s.scaleMin) * math.random()) * size
+		local sum = 0
+		for _, v in l.variants do
+			sum += math.max(v.w, 0)
+		end
+		local r = math.random() * sum
+		for i, v in l.variants do
+			r -= math.max(v.w, 0)
+			if r <= 0 and v.w > 0 then
+				stamp.vi = i
+				break
+			end
+		end
+	end
+
+	local function refresh()
+		if App.ui.refreshStamp then
+			App.ui.refreshStamp()
+		end
+		App.stampMove()
+	end
+
+	-- puts the stamp down at (x, z): the copy now (the real model, Live or not), and its pin so it stays
+	local function put(l, x, z)
+		local p, pose, why = aim(l, x, z, math.random(1, 2 ^ 30))
+		if not pose then
+			App.status("Can't stamp there: " .. why .. ".", "error")
+			return
+		end
+		local rec = beginRec("Smart Scatter: Stamp " .. l.inst.Name)
+		local made = Engine.placeStamp(
+			App.area,
+			App.lastAnalysis,
+			l,
+			p,
+			{ walk = G.walk, shadows = G.shadows, query = G.query, chunks = false, ghost = false }
+		)
+		if not made then
+			endRec(rec, true)
+			App.status("Can't stamp there: it's a keep-clear zone.", "error")
+			return
+		end
+		l.pins = l.pins or {}
+		table.insert(l.pins, p)
+		App.saveArea()
+		endRec(rec)
+		App.lastCounts[l] = (App.lastCounts[l] or 0) + 1
+		App.lastTotal = (App.lastTotal or 0) + 1
+		App.refreshCounts()
+		App.status(describe(l, "put down. Ctrl+Z takes it back."))
+		if G.stampRandom then
+			roll(l)
+			if App.ui.refreshStamp then
+				App.ui.refreshStamp()
+			end
+		end
+	end
+
+	App.stampDown = function()
+		local hit = App.mouseHit()
+		if not (layer() and hit) then
+			return
+		end
+		press = { x = hit.Position.X, z = hit.Position.Z, y = hit.Position.Y, at = Vector2.new(rawMouse.X, rawMouse.Y) }
+	end
+	App.stampUp = function()
+		local l, pr = layer(), press
+		press = nil
+		if l and pr then
+			put(l, pr.x, pr.z)
+			if pr.turning and App.ui.refreshStamp then
+				App.ui.refreshStamp()
+			end
+			App.stampMove()
+		end
+	end
+
+	-- the stamp's keys; true when the key was one of them
+	App.stampKey = function(name)
+		local l = layer()
+		if not l then
+			return false
+		end
+		if name == "turn" then
+			stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + (App.shiftHeld() and -1 or 1)) * STEP % (math.pi * 2)
+		elseif name == "grow" or name == "shrink" then
+			stamp.k = math.clamp(stamp.k * (name == "grow" and 1.1 or 1 / 1.1), 0.05, 20)
+		elseif name == "model" then
+			stamp.vi = stamp.vi % #l.variants + 1
+		elseif name == "shuffle" then
+			roll(l)
+		elseif name == "size" then -- (there's no brush to size)
+			return true
+		elseif name == "cancel" and press then -- a press being dragged is dropped; the next Esc stops stamping
+			press = nil
+		elseif name == "cancel" then
+			return false
+		else
+			return false
+		end
+		refresh()
+		return true
+	end
+
+	-- the panel's controls change the stamp through these
+	App.setStamp = function(yaw, k, vi)
+		stamp.yaw = yaw and math.rad(yaw) % (math.pi * 2) or stamp.yaw
+		stamp.k = k or stamp.k
+		stamp.vi = vi or stamp.vi
+		if App.mode == "Stamp" then
+			App.stampMove()
+		end
+	end
+	App.rollStamp = function()
+		local l = layer() or App.paintLayer
+		if l then
+			roll(l)
+			refresh()
+		end
+	end
+
+	-- leaving the stamp (another mode, Esc, the plugin closing): the model under the mouse goes
+	App.clearStamp = function()
+		press = nil
+		clearGhost()
+	end
+end
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -12098,7 +12520,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13065,7 +13487,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13865,7 +14287,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14316,7 +14738,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -14831,7 +15253,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -15466,7 +15888,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16544,7 +16966,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17318,15 +17740,18 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
 	A pin's seed picks its model, size and turn, so it looks the same every time.
+	A stamp is a pin that also says its turn, size and model ({ x, z, seed, yaw, size, model }): the stamp tool puts it
+	exactly as shown, and no rule moves or refuses it; only the ground under it sets its height.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
 
 return function(E, I)
+	local Hash = I.Hash
 	local placeAt = I.placeAt
 	local scaleRange = I.scaleRange
 
@@ -17400,15 +17825,70 @@ return function(E, I)
 		return false
 	end
 
-	-- pins as saved: plain lists of three numbers (anything else is dropped)
+	-- pins as saved: plain lists of three numbers, or six for a stamp (anything else is dropped)
 	function E.readPins(list)
 		local out = {}
 		for _, p in type(list) == "table" and list or {} do
 			if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
-				table.insert(out, { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) })
+				local pin = { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) }
+				if tonumber(p[4]) and tonumber(p[5]) and tonumber(p[6]) then
+					pin[4], pin[5], pin[6] = tonumber(p[4]), tonumber(p[5]), tonumber(p[6])
+				end
+				table.insert(out, pin)
 			end
 		end
 		return #out > 0 and out or nil
+	end
+
+	-- a stamp's pin: at (x, z), turned yaw (radians), size k (1 = the model's own size, times its size in the mix),
+	-- model index vi of the object's models; seed: its colour variation
+	function E.stampPin(x, z, yaw, k, vi, seed)
+		local r = function(n, q)
+			return math.floor(n * q + 0.5) / q
+		end
+		return { r(x, 100), r(z, 100), seed, r(yaw % (math.pi * 2), 1000), r(math.clamp(k, 0.05, 20), 1000), vi }
+	end
+	-- how placing treats a pin: a stamp exactly as given
+	local function pinG(l, p)
+		if not p[4] then
+			return { pin = true }
+		end
+		local v = l.variants[p[6]] or l.variants[1]
+		return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
+	end
+	-- where the stamp would stand, without making it (the preview): { cf, sc, sink, v }, or nil where it can't (off
+	-- the area's scan, or no ground)
+	local function stampCtx(a, an)
+		return { an = an, area = a, seed = a.seed, hash = Hash.new(), parts = 0, clear = E.clearZones(a.folder) }
+	end
+	function E.stampPose(a, an, l, p)
+		local g = pinG(l, p)
+		g.dry = true
+		return placeAt(stampCtx(a, an), l, nil, p[1], p[2], Random.new(p[3]), g)
+	end
+	-- makes the stamp's copy now, into its object's folder (real models, whatever else is still a preview). Returns
+	-- the copy, or nil (in a keep-clear zone, or no ground)
+	function E.placeStamp(a, an, l, p, output)
+		E.ensureFolder(a)
+		local key, folder = E.layerKey(l), nil
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Key") == key then
+				folder = f
+			end
+		end
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = l.inst.Name
+			folder:SetAttribute("SS_Key", key)
+			folder.Parent = a.folder
+		end
+		local ctx = stampCtx(a, an)
+		ctx.output = output
+		ctx.parentFor = function()
+			return folder
+		end
+		local out = placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p))
+		return out and out.clone
 	end
 
 	-- Places the object's pins (those `wanted(x, z)` accepts: all of them, or the ones in a rebuilt patch). Each
@@ -17418,7 +17898,7 @@ return function(E, I)
 		local n = 0
 		for _, p in l.pins or {} do
 			if not wanted or wanted(p[1], p[2]) then
-				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), { pin = true }) then
+				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p)) then
 					n += 1
 				end
 			end
@@ -17426,7 +17906,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17818,6 +18298,32 @@ return function(E, I)
 		return p
 	end
 
+	-- a copy made from its model: scaled by sc and stood at cf (its footprint's middle, or a lamp's pole, on the spot;
+	-- sunk by sink). Shared by emit and the stamp's preview, so the preview stands exactly where the copy will.
+	local function poseCopy(clone, l, v, sc, cf, sink, stretch)
+		local m = v.m
+		if clone:IsA("Model") then
+			if math.abs(sc - 1) > 1e-3 then
+				clone:ScaleTo(clone:GetScale() * sc)
+			end
+		else
+			clone.Size *= sc
+		end
+		if stretch and math.abs(stretch - 1) > 0.005 then
+			squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(l.s, m))
+		end
+		-- a line stands a lamp by its pole (the footprint's middle would be out along its arm)
+		local cx, cz = m.cx, m.cz
+		if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
+			overhangYaw(v)
+			if v._foot then
+				cx, cz = v._foot.X, v._foot.Y
+			end
+		end
+		clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+	end
+	E.poseCopy = poseCopy
+
 	-- makes one copy: clone, scale, place, tint, game-ready flags, tags; registers it for spacing. Nothing is made in a
 	-- keep-clear zone (returns nil). stretch (optional, < 1): squeeze the piece along its length to fit a bend
 	local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stretch, only, uprightPosts)
@@ -17839,25 +18345,7 @@ return function(E, I)
 				end
 			end
 		end
-		if clone:IsA("Model") then
-			if math.abs(sc - 1) > 1e-3 then
-				clone:ScaleTo(clone:GetScale() * sc)
-			end
-		else
-			clone.Size *= sc
-		end
-		if stretch and math.abs(stretch - 1) > 0.005 then
-			squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m))
-		end
-		-- a line stands a lamp by its pole (the footprint's middle would be out along its arm)
-		local cx, cz = m.cx, m.cz
-		if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
-			overhangYaw(v)
-			if v._foot then
-				cx, cz = v._foot.X, v._foot.Y
-			end
-		end
-		clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+		poseCopy(clone, l, v, sc, cf, sink, stretch)
 		if uprightPosts and math.abs(cf.RightVector.Y) + math.abs(cf.LookVector.Y) > 0.02 then
 			-- a piece tilted to follow a slope: its posts stand straight again (rails slope, posts don't lean)
 			local A = alongXOf(s, m) and cf.RightVector or cf.LookVector
@@ -18110,20 +18598,23 @@ return function(E, I)
 	end
 
 	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below,
-	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules) }
+	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules),
+	--   exact = true for a stamp (Engine/Pins: its spot, turn, size and model are given, and no rule moves or refuses
+	--   it; only the ground sets its height), dry = true to only work out where it would stand (the stamp's preview) }
 	local function placeAt(ctx, l, i, x, z, rng, g)
 		g = g or {}
 		local v = g.v or pickVariant(l, rng)
 		local an, s, m = ctx.an, l.s, v.m
+		local exact = g.exact
 		i = i or E.indexAt(an, x, z)
-		if not i or (not an.inM[i] and not g.line) then
+		if not i or (not an.inM[i] and not g.line and not exact) then
 			return nil
 		end -- lines come from the area's own edge
 		if g.line and E.isCleared(ctx.clear, x, z) then
 			return nil
 		end -- (the area's own cells already leave zones out)
 		local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-		if (g.member or g.pin) and not g.stackOn then
+		if (g.member or g.pin) and not g.stackOn and not exact then
 			-- a group member (or a copy pinned by hand) must still obey the layer's rules at its own spot
 			if score(l, an, i) <= 0 then
 				return nil
@@ -18191,10 +18682,10 @@ return function(E, I)
 			-- stacking: sits on top of the piece below, no ground checks
 			y = base.top
 		else
-			if not g.post and ctx.hash:conflicts(item) then
+			if not g.post and not exact and ctx.hash:conflicts(item) then
 				return nil
 			end -- posts sit on the joints of their own panels
-			if not g.line then
+			if not g.line and not exact then
 				local cr = l._core or 0
 				if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then
 					return nil
@@ -18211,10 +18702,10 @@ return function(E, I)
 				return nil
 			end
 			-- (parts the area was filled from take anything, whatever they're made of: see the scan)
-			if not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
+			if not exact and not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
 				return nil
 			end
-			if math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
+			if not exact and math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end
 			y = hit.Position.Y
@@ -18230,7 +18721,7 @@ return function(E, I)
 			return rng:NextNumber(0, math.pi * 2)
 		end
 
-		if l.type == "Building" and not base then
+		if l.type == "Building" and not base and not exact then -- (a stamped house settles like anything else, below)
 			if g.yaw then
 				yaw = g.yaw
 			elseif s.faceRoad and an.dist.Roads[i] < 90 then -- turn the front (-Z / LookVector) toward the nearest road
@@ -18299,23 +18790,23 @@ return function(E, I)
 
 		if item.hx then -- now it's turned: its real outline must fit where only its narrow side was tried
 			item.yaw = yaw
-			if not base and not g.post and ctx.hash:conflicts(item) then
+			if not base and not g.post and not exact and ctx.hash:conflicts(item) then
 				return nil
 			end
 		end
 
 		local up = (s.align > 0 and hit) and Vector3.yAxis:Lerp(hit.Normal, s.align).Unit or Vector3.yAxis
 		local cf = CFrame.new(x, y, z) * rotateUp(up) * CFrame.Angles(0, yaw, 0)
-		if s.tilt > 0 and not base and not (g.line and s.fit) then
+		if s.tilt > 0 and not base and not exact and not (g.line and s.fit) then
 			cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 		end
-		if s.lean > 0 and not base and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
+		if s.lean > 0 and not base and not exact and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
 			local wd = math.rad(ctx.area.windDir or 0)
 			local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd))) -- turns "up" toward the wind
 			cf = CFrame.new(cf.Position) * CFrame.fromAxisAngle(axis, math.rad(s.lean) * rng:NextNumber(0.7, 1.3)) * cf.Rotation
 		end
 
-		if l.type ~= "Flower" and not base then -- don't clip into the user's own geometry
+		if l.type ~= "Flower" and not base and not exact then -- don't clip into the user's own geometry
 			local h = math.max(m.size.Y * sc - 1, 1)
 			local real = l.type == "Building" or g.line
 			local w = real and m.size.X * sc or math.max(1, item.r * CORE[l.type] * 2)
@@ -18336,10 +18827,14 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+		if g.dry then
+			return { cf = cf, sc = sc, sink = sink, v = v }
+		end
+		local made = emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+		if not made then
 			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
 		end
-		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
+		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil, clone = made }
 	end
 
 	local function place(ctx, l, i, rng, gid)
@@ -18411,7 +18906,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18736,7 +19231,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -19248,7 +19743,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or

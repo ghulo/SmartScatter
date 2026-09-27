@@ -79,6 +79,7 @@ chunks = false,
 accent = "Sage",
 keys = {},
 liveBoxes = true,
+stampRandom = false,
 tool = "Brush",
 shape = "Circle",
 fillReach = 120,
@@ -133,7 +134,9 @@ local KEYMAP = {
 { id = "cancel", group = "Shapes and paths", label = "Stop", key = "Escape" },
 { id = "corner", group = "Shapes and paths", label = "Sharp corner", key = "C" },
 { id = "delete", group = "Shapes and paths", label = "Delete point", key = "X" },
-{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout", key = "R" },
+{ id = "turn", group = "Stamp", label = "Turn the stamp (Shift: back)", key = "T" },
+{ id = "model", group = "Stamp", label = "Next model", key = "V" },
+{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
 { id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 }
 local KEY_TEXT = {
@@ -224,10 +227,10 @@ end
 App.analysisDirty = true
 App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.mode = "Off"
-local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
-App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
-App.LAYER_LABEL = { Place = "Place", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
-App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
+local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins", Stamp = "stamp" }
+App.LAYER_ORDER = { "Place", "Stamp", "More", "Less", "None", "Clear" }
+App.LAYER_LABEL = { Place = "Place", Stamp = "Stamp", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+App.LAYER_OPPOSITE = { Place = "None", Stamp = "Stamp", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 local function num(n)
 local str = tostring(math.floor(n + 0.5))
 return (str:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
@@ -2301,6 +2304,22 @@ return a or b
 end
 return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
 end
+local function readGround(area, tick)
+if not (App.analysisDirty or not App.lastAnalysis) then
+return false
+end
+local an, aborted = Engine.analyze(area, templates(), tick)
+if aborted then
+return nil
+end
+App.lastAnalysis = an
+App.analysisDirty = false
+lastPrint, worldEdited = worldPrint(), false
+App.refreshScan()
+recolorOverlay()
+return true
+end
+App.readGround = readGround
 local function runGenerate(recorded, from, region, real)
 if not canGenerate() then
 return
@@ -2346,17 +2365,11 @@ return true
 end
 local trace
 local success, err = xpcall(function()
-if App.analysisDirty or not App.lastAnalysis then
-local an, aborted = Engine.analyze(area, templates(), tick)
-if aborted then
+local read = readGround(area, tick)
+if read == nil then
 return
-end
-App.lastAnalysis = an
-App.analysisDirty = false
-lastPrint, worldEdited = worldPrint(), false
+elseif read then
 from = nil
-App.refreshScan()
-recolorOverlay()
 end
 if from and not table.find(area.layers, from) then
 from = nil
@@ -4513,6 +4526,7 @@ end,
 end
 local LAYER_HINT = {
 Place = "Puts copies down exactly where you brush, at the object's spacing.",
+Stamp = "One copy exactly where you click: the model shows under the mouse. Drag to turn it.",
 More = "More of it where you brush (up to three times as much).",
 Less = "Less of it where you brush; twice clears it.",
 Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
@@ -4522,7 +4536,7 @@ local function buildLayerPaint(l, parent, more)
 parent.add({
 id = "layerpaint",
 title = "Paint or place this object",
-keys = "brush more less erase reset place pins",
+keys = "brush more less erase reset place pins stamp single one copy add rotate turn size",
 more = more,
 build = function(b)
 local labels, modeOf = {}, {}
@@ -4556,14 +4570,99 @@ local what = App.para("", { Parent = b })
 what.TextColor3 = P.dim
 local function say()
 local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
-what.Text = label and (LAYER_HINT[label] .. " Shift: " .. string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]]) .. ".")
-or "Pick one, then brush over the area in the viewport."
+local shift = App.mode == "Stamp" and "turns it freely" or string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]] or "")
+what.Text = label and (LAYER_HINT[label] .. " Shift: " .. shift .. ".") or "Pick one, then brush over the area in the viewport."
 end
 say()
+local stampBox = col({ Parent = b }, { vlist(6) })
+local function buildStamp()
+for _, c in stampBox:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+if not (App.mode == "Stamp" and App.paintLayer == l) then
+return
+end
+local st, key = App.stamp, App.keyText
+slider(
+"Turn",
+0,
+359,
+function()
+return math.floor(math.deg(st.yaw) + 0.5) % 360
+end,
+function(v)
+App.setStamp(v)
+end,
+"%d°",
+1,
+nil,
+nil,
+"Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.",
+0
+).Parent =
+stampBox
+slider(
+"Size",
+0.1,
+5,
+function()
+return st.k
+end,
+function(v)
+App.setStamp(nil, v)
+end,
+"%.2f×",
+0.05,
+nil,
+nil,
+"1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.",
+1
+).Parent =
+stampBox
+if #l.variants > 1 then
+local grid = chipGrid(stampBox, 3, 28)
+for i, v in l.variants do
+chip(grid, v.inst.Name, function()
+return st.vi == i
+end, function()
+App.setStamp(nil, nil, i)
+buildStamp()
+end)
+end
+end
+switchRow(
+"A random one after each stamp",
+function()
+return G.stampRandom
+end,
+function(v)
+G.stampRandom = v
+end,
+saveG,
+"After each stamp the next gets a random turn, size and model, within the object's own ranges: quick natural variety."
+).Parent =
+stampBox
+hintOn(
+button("Random now", nil, App.rollStamp, { Parent = buttonRow(stampBox) }),
+"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+)
+App.keyChips(stampBox, {
+{ key("turn"), "turn" },
+{ "Shift", "turn freely" },
+{ key("shrink") .. " " .. key("grow"), "size" },
+{ key("model"), "model" },
+{ key("shuffle"), "random" },
+})
+end
+buildStamp()
+App.ui.refreshStamp = buildStamp
 App.ui.refreshLayerBrush = function()
 refresh()
 eraseLook()
 say()
+buildStamp()
 end
 slider("Brush size", 4, 200, function()
 return G.radius
@@ -5618,6 +5717,7 @@ local ORDER = {
 	"Viewport/Grid",
 	"Viewport/Spline",
 	"Viewport/Shapes",
+	"Viewport/Stamp",
 	"Viewport/Focus",
 	"Panel/Tour",
 	"Core/Lifecycle",

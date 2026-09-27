@@ -195,7 +195,15 @@ return function(App)
 	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local function updateGizmo(hit)
-		if App.mode == "Spline" or App.mode == "Remove" then
+		if App.mode == "Stamp" then -- the stamp shows the model itself (Viewport/Stamp), not a brush
+			gizmoFolder()
+			for _, k in { "ring", "disc", "halo", "sq", "dot" } do
+				if App.gz[k] then
+					App.gz[k].Visible = false
+				end
+			end
+		end
+		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" then
 			if App.clearGrid then -- (no grid for these tools)
 				App.clearGrid()
 			end
@@ -624,6 +632,10 @@ return function(App)
 			markCopy(copyUnderMouse())
 			return
 		end
+		if App.mode == "Stamp" then
+			App.stampMove()
+			return
+		end
 		if sizing then
 			sizeTo()
 			return
@@ -670,6 +682,12 @@ return function(App)
 		if App.mode == "Remove" then
 			if App.area and not App.area.locked then
 				removeUnderMouse()
+			end
+			return
+		end
+		if App.mode == "Stamp" then
+			if App.area and not App.area.locked then
+				App.stampDown()
 			end
 			return
 		end
@@ -728,6 +746,10 @@ return function(App)
 	end)
 
 	mouse.Button1Up:Connect(function()
+		if App.mode == "Stamp" then
+			App.stampUp()
+			return
+		end
 		if not down then
 			return
 		end
@@ -762,6 +784,9 @@ return function(App)
 			return
 		end
 		lastKeyAt[name] = os.clock()
+		if App.mode == "Stamp" and App.stampKey(name) then -- the stamp's own keys (turn, size, model, a random one)
+			return
+		end
 		-- anywhere while working (painting, erasing, drawing a path)
 		if name == "shuffle" then
 			if App.area and not App.area.locked and App.shuffle then
@@ -807,8 +832,12 @@ return function(App)
 					drawPath(App.polyPts, false, toolColor())
 				end
 			end
-		elseif name == "cancel" then
-			cancelShape()
+		elseif name == "cancel" then -- what's half done goes; with nothing half done, the tool stops
+			if App.polyPts or down then
+				cancelShape()
+			else
+				App.setMode("Off")
+			end
 		end
 	end
 	-- keys that always do the same as a bound one (the keypad's Enter, Delete), whatever the keymap says
@@ -910,6 +939,7 @@ return function(App)
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -943,6 +973,9 @@ return function(App)
 		clearPath()
 		if App.resetSplineDrag then
 			App.resetSplineDrag()
+		end
+		if App.clearStamp then
+			App.clearStamp()
 		end
 	end
 	App.setMode = function(m, layer)
