@@ -40,6 +40,9 @@ return function(App)
 		elseif not cancel then
 			pcall(ChangeHistoryService.SetWaypoint, ChangeHistoryService, h.name)
 		end
+		if not cancel and App.historyPush then -- on the history timeline (Core/History)
+			App.historyPush(h.name)
+		end
 	end
 
 	local plugin = ctx.plugin
@@ -85,6 +88,7 @@ return function(App)
 		fillReach = 120,
 		paintOn = {},
 		scanSelection = false, -- the map scan looks only inside the selection
+		history = true, -- the history timeline over the bottom bar
 		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do

@@ -49,6 +49,15 @@ return function(App)
 			App.drawSpline()
 		end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
 			b
+		switchRow("History timeline", function()
+			return G.history
+		end, function(v)
+			G.history = v
+		end, function()
+			saveG()
+			task.defer(App.rebuildAll)
+		end, "A tick for every step Smart Scatter takes, over the bottom bar: click one to go back (or forward) to it.").Parent =
+			b
 	end
 
 	local function buildOutput(b)

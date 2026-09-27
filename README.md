@@ -20,7 +20,8 @@ round bends, and everything updates live as you tweak it.
   own copies), previewed in the viewport first; hand-placed copies never move
 - **Biomes and presets** — start from a Forest/Meadow/Desert/Town mix made from your own models, or save your own sets
 - **Game-ready output** — optional streaming chunks, no-collision plants, shadow and click settings; a heaviness warning
-- **Undo everything** — every edit is one Ctrl+Z step
+- **Undo everything** — every edit is one Ctrl+Z step, and a history timeline (a tick per step) jumps back or
+  forward to any of them
 
 ## Install
 
