@@ -378,6 +378,13 @@ return function(App)
 					end,
 				},
 				{
+					"toolbar",
+					"Tools in the viewport",
+					function()
+						App.refreshToolbar()
+					end,
+				},
+				{
 					"grid",
 					"Brush grid",
 					function()

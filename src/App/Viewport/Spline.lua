@@ -627,7 +627,7 @@ return function(App)
 		splineLabel(hit, text)
 	end)
 	mouse.Button1Down:Connect(function()
-		if App.mode ~= "Spline" then
+		if App.mode ~= "Spline" or (App.overViewportUI and App.overViewportUI()) then
 			return
 		end
 		if App.shapeTool then

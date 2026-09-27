@@ -50,7 +50,7 @@ src/
     init.lua                entry: ORDER + runner
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
                             Lifecycle (undo, cleanup; runs last)
-    Viewport/               Overlay · Paint · Grid · Spline · Shapes · Stamp · Focus
+    Viewport/               Overlay · Paint · Grid · Spline · Shapes · Stamp · Focus · Toolbar
     Panel/                  Header (area menu) · AreaTools · ObjectTools · HandTools · MapTools (the controls) · Palette (the search menu) · Shell (tabs, search,
                             bottom bar) · Tour
       Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature

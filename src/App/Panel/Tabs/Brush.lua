@@ -33,6 +33,7 @@ return function(App)
 		if not table.find(list, picked) then
 			picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 		end
+		App.handLayer = picked -- (the viewport's tool strip stamps and sprays this one too)
 		-- the objects as rows: a small view of the model, its name, how many are placed; the picked one lit
 		for _, l in list do
 			local on = picked == l
@@ -77,6 +78,7 @@ return function(App)
 						App.setMode(App.mode, l)
 					end
 					picked = l
+					App.handLayer = l
 					App.rebuildAll()
 				end
 			end)

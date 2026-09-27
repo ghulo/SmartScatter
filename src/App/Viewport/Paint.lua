@@ -716,8 +716,8 @@ return function(App)
 	end)
 
 	mouse.Button1Down:Connect(function()
-		if App.mode == "Off" or App.mode == "Spline" then
-			return
+		if App.mode == "Off" or App.mode == "Spline" or (App.overViewportUI and App.overViewportUI()) then
+			return -- (a click on the viewport's tool strip or bar is theirs, not the ground's)
 		end
 		if sizing then -- the click that ends F-resizing doesn't paint
 			endSizing(true)
