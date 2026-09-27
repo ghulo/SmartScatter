@@ -63,7 +63,7 @@ return function(App)
 					App.refreshFocus()
 				end
 			end,
-			"While painting, drawing a path or brushing an object, the world greys and dims a little, a thin frame runs round the viewport and the corner says what the tool is doing, like Blender's edit mode."
+			"While a tool is on, the world loses a little colour so the tool stands out, and the viewport's top left says what the tool is doing and on what, like Blender's."
 		).Parent =
 			b
 		switchRow("Brush grid", function()

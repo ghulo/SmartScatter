@@ -1,6 +1,6 @@
 {
- "version": "9.73",
- "build": 137,
+ "version": "9.74",
+ "build": 138,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -68,7 +68,7 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 340070019
+   "sum": 191878439
   },
   "App/Panel/Tour": {
    "path": "modules/App/Panel/Tour.lua",
@@ -76,7 +76,7 @@
   },
   "App/Viewport/Focus": {
    "path": "modules/App/Viewport/Focus.lua",
-   "sum": 543924570
+   "sum": 492153757
   },
   "App/Viewport/Grid": {
    "path": "modules/App/Viewport/Grid.lua",

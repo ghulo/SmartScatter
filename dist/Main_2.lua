@@ -1459,7 +1459,7 @@ if App.refreshFocus then
 App.refreshFocus()
 end
 end,
-"While painting, drawing a path or brushing an object, the world greys and dims a little, a thin frame runs round the viewport and the corner says what the tool is doing, like Blender's edit mode."
+"While a tool is on, the world loses a little colour so the tool stands out, and the viewport's top left says what the tool is doing and on what, like Blender's."
 ).Parent =
 b
 switchRow("Brush grid", function()
@@ -4976,21 +4976,21 @@ end)()
 MODULES["App/Viewport/Focus"] = (function()
 --[[
 Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
-brushing one object, removing copies), the world steps back a little, so the tool stands out, the way Blender's
-edit mode and local view feel: the scene fades toward grey and dims (a colour correction on the camera, never
-saved with the place), a faint frame in the accent runs round the viewport, and quiet text in its top-left corner
-says the mode and what it's working on, Blender style. Red while it takes things away. Settings › Viewport can
-turn it off.
+brushing one object, removing copies), the world steps back a touch so the tool stands out, and the viewport's top
+left says what's going on, the way Blender's does: the tool, then what it works on, then how to stop. Small, plain
+text; no frame, no badges. The world only loses a little colour (a colour correction on the camera, never saved
+with the place). The tool's name turns red while it takes things away. Settings › Viewport can turn it off.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
 local G, P, tween, MED, FAST = App.G, App.P, App.tween, App.MED, App.FAST
-local new, box, corner, label = App.new, App.box, App.corner, App.label
-local SANS_M, SANS_B = App.SANS_M, App.SANS_B
+local new, box, label = App.new, App.box, App.label
+local SANS, SANS_M = App.SANS, App.SANS_M
 local LAYER_MODES = App.LAYER_MODES
-local LOOK = { Saturation = -0.35, Brightness = -0.05, Contrast = -0.06 }
+local LOOK = { Saturation = -0.18, Brightness = -0.03, Contrast = 0 }
+local WHITE = Color3.fromRGB(235, 235, 235)
 local cc
-local gui, group, frame, glowLine, dot, title, detail, keyRow
+local gui, group, tick, title, detail, stop
 local function describe()
 local m = App.mode
 local shift = App.shiftHeld and App.shiftHeld()
@@ -5006,19 +5006,17 @@ return table.concat(bits, "  ·  ")
 end
 if m == "Paint" or m == "Erase" then
 local erase = (m == "Erase") ~= (shift == true)
-return erase and "Erasing ground" or "Painting ground", on(G.tool, area), erase
+return erase and "Erase" or "Paint", on(area, G.tool), erase
 elseif m == "Spline" and App.shapeTool then
-return "Placing a " .. string.lower(App.shapeTool),
-on(App.shapeTool == "Rectangle" and "corner to corner" or "drag from the centre", area),
-false
+return App.shapeTool, on(area, App.shapeTool == "Rectangle" and "drag corner to corner" or "drag from the centre"), false
 elseif m == "Spline" then
-return "Drawing the path", on(area), false
+return "Draw path", on(area), false
 elseif m == "Remove" then
-return "Removing copies", on("click one to take it out", area), true
+return "Remove copies", on(area, "click one"), true
 elseif LAYER_MODES[m] then
 local act = shift and App.LAYER_OPPOSITE[m] or m
-local name = App.paintLayer and App.paintLayer.inst.Name or "object"
-return App.LAYER_LABEL[act] .. " · one object", on(name, area), act == "None" or act == "Less"
+local name = App.paintLayer and App.paintLayer.inst.Name or nil
+return App.LAYER_LABEL[act], (area and name) and (area .. "  ›  " .. name) or on(area, name), act == "None" or act == "Less"
 end
 return nil, nil, false
 end
@@ -5032,55 +5030,37 @@ ResetOnSpawn = false,
 ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 })
 group = new("CanvasGroup", { BackgroundTransparency = 1, GroupTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
-frame = box({ Size = UDim2.fromScale(1, 1), Parent = group })
-local line = App.stroke(P.accent)
-line.Thickness, line.Transparency = 2, 0.55
-line.Parent = frame
-local inner = box({ Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), Parent = group })
-glowLine = App.stroke(P.accent)
-glowLine.Thickness, glowLine.Transparency = 6, 0.9
-glowLine.Parent = inner
-local cornerText =
-box({ Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = group })
-dot = box({
+local corner =
+box({ Position = UDim2.fromOffset(14, 12), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = group })
+tick = box({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.accent,
-Position = UDim2.fromOffset(0, 6),
-Size = UDim2.fromOffset(7, 7),
-Parent = cornerText,
-}, { corner(4) })
+Position = UDim2.fromOffset(0, 3),
+Size = UDim2.fromOffset(2, 13),
+Parent = corner,
+})
 local lines = box(
-{ Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = cornerText },
+{ Position = UDim2.fromOffset(9, 0), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = corner },
 {
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }),
 }
 )
-title = label(
-"",
-14,
-Color3.new(1, 1, 1),
-SANS_B,
-{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 1, Parent = lines }
-)
-detail = label(
-"",
-12,
-Color3.fromRGB(215, 215, 215),
-SANS_M,
-{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2, Parent = lines }
-)
-keyRow = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 3, Parent = lines }, {
-new("UIListLayout", {
-FillDirection = Enum.FillDirection.Horizontal,
-VerticalAlignment = Enum.VerticalAlignment.Center,
-Padding = UDim.new(0, 10),
-SortOrder = Enum.SortOrder.LayoutOrder,
-}),
+local function line(size, font, order)
+local t = label("", size, WHITE, font, {
+Size = UDim2.fromOffset(0, size + 5),
+AutomaticSize = Enum.AutomaticSize.X,
+LayoutOrder = order,
+Parent = lines,
 })
-for _, t in { title, detail } do
-t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
 t.TextTruncate = Enum.TextTruncate.None
+t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.8
+return t
 end
+title = line(14, SANS_M, 1)
+detail = line(12, SANS, 2)
+detail.TextTransparency = 0.3
+stop = line(11, SANS, 3)
+stop.TextTransparency = 0.5
 pcall(function()
 gui.Parent = game:GetService("CoreGui")
 end)
@@ -5093,46 +5073,13 @@ if on then
 if not (gui and gui.Parent) then
 build()
 end
-local col = erase and P.danger or P.accent
-frame:FindFirstChildOfClass("UIStroke").Color = col
-glowLine.Color = col
-dot.BackgroundColor3 = col
+local col = erase and P.danger:Lerp(WHITE, 0.25) or WHITE
+tick.BackgroundColor3 = erase and P.danger or P.accent
 title.Text = what
-keyRow:ClearAllChildren()
-new("UIListLayout", {
-FillDirection = Enum.FillDirection.Horizontal,
-VerticalAlignment = Enum.VerticalAlignment.Center,
-Padding = UDim.new(0, 10),
-SortOrder = Enum.SortOrder.LayoutOrder,
-Parent = keyRow,
-})
-local painting = App.mode == "Paint" or App.mode == "Erase" or LAYER_MODES[App.mode] ~= nil
-keyRow.Visible = painting and App.overlayLegend ~= nil
-if keyRow.Visible then
-for i, e in App.overlayLegend() do
-local item = box({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, Parent = keyRow }, {
-new("UIListLayout", {
-FillDirection = Enum.FillDirection.Horizontal,
-VerticalAlignment = Enum.VerticalAlignment.Center,
-Padding = UDim.new(0, 4),
-}),
-})
-local sw = box(
-{ BackgroundTransparency = 0, BackgroundColor3 = e[1], Size = UDim2.fromOffset(9, 9), Parent = item },
-{ corner(2) }
-)
-App.stroke(Color3.new(0, 0, 0)).Parent = sw
-local t = label(
-e[2],
-11,
-Color3.fromRGB(225, 225, 225),
-SANS_M,
-{ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = item }
-)
-t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.55
-end
-end
-detail.Text = (where ~= "" and (where .. "  ·  ") or "") .. App.keyText("cancel") .. " to stop"
+title.TextColor3 = col
+detail.Text = where or ""
+detail.Visible = where ~= nil and where ~= ""
+stop.Text = App.keyText("cancel") .. " to stop"
 local cam = workspace.CurrentCamera
 if cam and not (cc and cc.Parent == cam) then
 cc = new(
@@ -5145,9 +5092,6 @@ tween(group, MED, { GroupTransparency = 0 })
 if cc then
 tween(cc, MED, LOOK)
 end
-end
-if cc then
-cc.TintColor = Color3.new(1, 1, 1):Lerp(col, 0.05)
 end
 shown = true
 elseif shown then
