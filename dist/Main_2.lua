@@ -1,6 +1,259 @@
 -- GENERATED part 2 of src/App by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
+-- #module Panel/Tabs/Brush
+MODULES["Panel/Tabs/Brush"] = (function()
+--[[
+Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
+less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
+the painted edge under More options.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine, P, SANS = App.Engine, App.P, App.SANS
+local label, hintOn = App.label, App.hintOn
+local picked
+local function paintable(l)
+return not (Engine.isLine(l) and l.s.follow == "Spline")
+end
+local function buildObjectBrush(b)
+local list = {}
+for _, l in App.area.layers do
+if paintable(l) then
+table.insert(list, l)
+end
+end
+if #list == 0 then
+App.goNote(
+b,
+#App.area.layers == 0 and "Add objects on the Scatter tab first." or "Objects along a path can't be brushed.",
+#App.area.layers == 0 and "Add objects" or nil,
+"Scatter"
+)
+return
+end
+if not table.find(list, picked) then
+picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
+end
+for _, l in list do
+local on = picked == l
+local row = App.new("TextButton", {
+Text = "",
+AutoButtonColor = false,
+BackgroundColor3 = on and P.accentSoft or P.raised,
+Size = UDim2.new(1, 0, 0, 48),
+Parent = b,
+}, { App.corner(10) })
+local st = App.stroke(on and P.accentLine or P.line)
+st.Parent = row
+local th = App.thumbnail(l.inst, 38)
+th.Position = UDim2.fromOffset(5, 5)
+th.Parent = row
+label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, on and P.accent or P.text, App.SANS_B, {
+Position = UDim2.fromOffset(52, 7),
+Size = UDim2.new(1, -60, 0, 18),
+Parent = row,
+})
+local n = App.lastCounts[l]
+local bits = { n and (App.num(n) .. " placed") or l.type }
+if l.pins then
+table.insert(bits, #l.pins .. " by hand")
+end
+if l.paint then
+table.insert(bits, "painted")
+end
+label(table.concat(bits, " · "), 11, P.dim, SANS, { Position = UDim2.fromOffset(52, 25), Size = UDim2.new(1, -60, 0, 16), Parent = row })
+if not on then
+row.MouseEnter:Connect(function()
+row.BackgroundColor3 = P.hover
+end)
+row.MouseLeave:Connect(function()
+row.BackgroundColor3 = P.raised
+end)
+end
+App.pressable(row, 0.985)
+row.MouseButton1Click:Connect(function()
+if picked ~= l then
+if App.LAYER_MODES[App.mode] then
+App.setMode(App.mode, l)
+end
+picked = l
+App.rebuildAll()
+end
+end)
+hintOn(row, "Brush " .. l.inst.Name .. ".")
+end
+App.buildLayerPaint(picked, {
+add = function(spec)
+spec.build(b)
+end,
+})
+end
+App.buildBrushTab = function(page)
+local a = App.area
+local cs = App.cards(page, "brush")
+local kind = a and App.kindOf(a)
+if kind == "Path" then
+cs.add({
+id = "pathbrush",
+title = "Draw the path",
+icon = "spline",
+sub = "Paths are drawn, not painted",
+keys = "draw path spline points",
+build = function(b)
+App.goNote(b, "Draw and shape the path on the Map tab.", "Go to Map", "Map")
+end,
+})
+else
+local painted = a and (a.count or 0) > 0
+local card = cs.add({
+id = "paint",
+title = kind == "Clear" and "Paint the zone" or "Paint the area",
+icon = kind == "Clear" and "clear" or "brush",
+sub = kind == "Clear" and "Where nothing from any area may go"
+or painted and string.format("%s studs² painted. Keep painting, or tune what fills it.", App.num(a.count * a.cell * a.cell))
+or "Pick a tool, then paint the ground in the viewport",
+keys = "paint ground brush lasso box polygon fill erase all delete size shape reach selected parts",
+build = App.buildPaintTools,
+})
+App.ui.step1Card = card
+end
+if a and kind ~= "Clear" then
+if kind ~= "Path" then
+cs.add({
+id = "objectbrush",
+title = "Paint one object",
+sub = "More, less or none of it where you brush; or place copies exactly",
+keys = "more less erase reset place pins object brush by hand",
+build = buildObjectBrush,
+})
+end
+cs.add({
+id = "removecopies",
+title = "Remove single copies",
+sub = "Click a copy that looks wrong to take it out; it stays out",
+keys = "remove delete copy copies bring back",
+build = App.removeCopiesBox,
+})
+end
+if kind ~= "Path" then
+cs.add({
+id = "paintfilter",
+title = "Paint only on",
+sub = "Painting and erasing stick to these surfaces",
+keys = "filter surfaces grass road rock sand snow",
+more = true,
+build = App.buildPaintFilter,
+})
+if a then
+cs.add({
+id = "tidy",
+title = "Tidy the edge",
+sub = "Fill holes, smooth, grow or shrink what's painted",
+keys = "fill holes smooth grow shrink cleanup",
+more = true,
+build = App.buildTidy,
+})
+end
+end
+end
+end
+end)()
+-- #module Panel/Tabs/Map
+MODULES["Panel/Tabs/Map"] = (function()
+--[[
+Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
+for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+App.buildMapTab = function(page)
+local a = App.area
+local cs = App.cards(page, "map")
+local kind = a and App.kindOf(a)
+local drawn = App.hasPath()
+if a and kind ~= "Clear" then
+local isPath = kind == "Path"
+local card = cs.add({
+id = "path",
+title = isPath and "Draw the path" or "Path through this area",
+icon = "spline",
+tag = not isPath and "Optional" or nil,
+sub = drawn and (isPath and "Click to add more points, or drag one to move it" or "Objects set to follow it line it")
+or (isPath and "Click in the viewport to place points" or "A road, fence or row of lamps along a curve you draw"),
+keys = "draw path spline points corner branch loop clear",
+build = App.buildDrawTools,
+})
+if isPath then
+App.ui.step1Card = card
+end
+if drawn then
+cs.add({
+id = "curve",
+title = "Curve",
+sub = "The strip beside it, and what it sticks to",
+keys = "strip width snap surfaces walls closed loop",
+build = App.buildCurve,
+})
+cs.add({
+id = "road",
+title = "Road",
+sub = "A solid road or path down the middle",
+keys = "road asphalt dirt style width thickness",
+build = App.buildRoad,
+})
+end
+end
+cs.add({
+id = "mapscan",
+title = "Map scan",
+icon = "search",
+sub = "Every repeated model in a finished map, grouped by shape",
+keys = "scan kinds copies find repeated models select duplicates",
+build = App.buildMapScan,
+})
+cs.add({
+id = "swap",
+title = "Swap models",
+icon = "refresh",
+sub = "Replace every copy of a kind with another model or a mix",
+keys = "swap replace model mix kind copies preview try",
+build = App.buildSwap,
+})
+cs.add({
+id = "layout",
+title = "Improve layout",
+icon = "layers",
+sub = "Re-space crowded and empty spots, by the placement rules",
+keys = "layout spacing crowded empty holes gaps respace even tidy hand placed",
+build = App.buildImproveLayout,
+})
+cs.add({
+id = "seasons",
+title = "Seasons",
+sub = "Snowy, autumn or dry, fully or in patches",
+keys = "season snow winter autumn fall dry summer colour color terrain",
+build = App.buildSeasons,
+})
+cs.add({
+id = "snapshot",
+title = "Snapshot",
+sub = "Keep the originals, and put them back with one click",
+keys = "save keep originals restore backup revert",
+build = App.buildSnapshot,
+})
+if a then
+cs.add({
+id = "scanfix",
+title = "Fix what the scan sees",
+keys = "mark road path building water rescan",
+more = kind ~= "Clear",
+build = App.buildScanFix,
+})
+end
+end
+end
+end)()
 -- #module Panel/Tabs/Settings
 MODULES["Panel/Tabs/Settings"] = (function()
 --[[
@@ -8,12 +261,10 @@ Smart Scatter — Settings tab: the plugin's own settings, the same in every are
 viewport overlay, game-ready output and the tour; shortcuts under More options.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
 local box, label, para, hlist = App.box, App.label, App.para, App.hlist
 local hintOn, switchRow, button, buttonRow, commit = App.hintOn, App.switchRow, App.button, App.buttonRow, App.commit
-
 local function buildLook(b)
 local swatches = App.chipGrid(b, 5, 32)
 for _, a in App.ACCENTS do
@@ -23,7 +274,7 @@ end, function()
 if G.accent ~= a.name then
 G.accent = a.name
 saveG()
-task.defer(App.applyTheme) -- after this click finishes (the tab it's on is rebuilt)
+task.defer(App.applyTheme)
 end
 end, Color3.fromHex(a.dark))
 end
@@ -38,11 +289,10 @@ G.textScale = scale
 end
 end
 saveG()
-task.defer(App.rebuildAll) -- after this click finishes (the tab it's on is rebuilt)
+task.defer(App.rebuildAll)
 end).Parent =
 b
 end
-
 local function buildViewport(b)
 switchRow("Show overlay", function()
 return G.overlay
@@ -55,7 +305,6 @@ App.drawSpline()
 end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
 b
 end
-
 local function buildOutput(b)
 local function outSwitch(text, key, hint)
 switchRow(text, function()
@@ -85,7 +334,6 @@ box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 App.ui.perf = para("", { Parent = b })
 App.refreshPerf()
 end
-
 local function buildShortcuts(b)
 App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
 local group
@@ -124,7 +372,7 @@ App.status(
 moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
 or string.format("%s is now %s.", a.label, App.keyText(a.id))
 )
-App.rebuildAll() -- every hint that names a key shows the new one
+App.rebuildAll()
 end)
 end)
 end
@@ -143,7 +391,6 @@ App.status("Shortcuts are back to their defaults.")
 App.rebuildAll()
 end, { Parent = buttonRow(b) })
 end
-
 local function buildAbout(b)
 hintOn(
 button("Replay the tour", nil, function()
@@ -158,7 +405,6 @@ Size = UDim2.new(1, -42, 1, 0),
 Parent = about,
 })
 end
-
 App.buildSettingsTab = function(page)
 local cs = App.cards(page, "settings")
 cs.add({
@@ -201,14 +447,12 @@ Settings), the search box, the page that scrolls under them, the bar pinned to t
 update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local FAST, MED, tween, beginRec, endRec, track = App.FAST, App.MED, App.tween, App.beginRec, App.endRec, App.track
 local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 local runGenerate, commit, thumbCache, eachThumb, buildHeader = App.runGenerate, App.commit, App.thumbCache, App.eachThumb, App.buildHeader
-
 App.perfNote = function()
 if G.ghost then
 return "Boxes only: turn off Preview as boxes to place the real models.", false
@@ -224,7 +468,6 @@ local note, heavy = App.perfNote()
 App.ui.perf.Text = string.format("This area: %s objects, %s parts.  %s", num(App.lastTotal), num(App.lastParts), note)
 App.ui.perf.TextColor3 = heavy and P.danger or P.dim
 end
-
 App.shuffle = function()
 if not App.area then
 return
@@ -235,7 +478,6 @@ saveArea()
 endRec(rec)
 runGenerate(true)
 end
-
 local BAR_H = 60
 local function buildBar(parent)
 local foot = box({
@@ -268,7 +510,6 @@ Size = UDim2.fromOffset(0, 38),
 AutomaticSize = Enum.AutomaticSize.X,
 Parent = inner,
 }, { hlist(6) })
-
 App.ui.genBtn = new("TextButton", {
 Text = "Generate",
 Font = SANS_B,
@@ -309,18 +550,17 @@ App.ui.genBtn.MouseButton1Up:Connect(function()
 tween(press, MED, { Scale = 1 })
 end)
 App.ui.genBtn.MouseButton1Click:Connect(function()
-if App.busy() then -- while generating the button stops it
+if App.busy() then
 App.cancelJob()
 App.status("Stopped. Nothing was changed.")
 return
 end
-if App.worldChanged() then -- read the ground again only if something under the area changed
+if App.worldChanged() then
 App.analysisDirty = true
 end
 runGenerate(true)
 end)
 hintOn(App.ui.genBtn, "Places everything now. With Live update on, changes do this by themselves.")
-
 local live = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
@@ -338,7 +578,7 @@ Size = UDim2.fromOffset(8, 8),
 Parent = live,
 }, { corner(4) })
 local liveText = label("Live", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -30, 1, 0), Parent = live })
-App.ui.liveGlow = App.glow(live, 10, 0.6) -- breathes while a job runs
+App.ui.liveGlow = App.glow(live, 10, 0.6)
 App.pressable(live, 0.95)
 local function liveLook()
 live.BackgroundColor3 = G.live and P.accentSoft or P.raised
@@ -357,7 +597,6 @@ end
 App.status(G.live and "Live update on: every change rebuilds as you make it." or "Live update off: changes wait for Generate.")
 end)
 hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
-
 local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 shuffle.LayoutOrder = 2
 shuffle.Parent = right
@@ -373,12 +612,11 @@ end, false, 38)
 undo.LayoutOrder = 3
 undo.Parent = right
 end
-
 local running = false
 App.showProgress = function(phase, progress)
 local bar, btn = App.ui.progress, App.ui.genBtn
 local on = phase ~= nil
-if on ~= running then -- start or end: light effects switch once, not every tick
+if on ~= running then
 running = on
 if bar then
 bar.Visible = on
@@ -410,7 +648,6 @@ btn.BackgroundColor3 = P.accent
 btn.TextColor3 = P.onAccent
 end
 end
-
 local flashToken = 0
 App.flashDone = function(text)
 local btn = App.ui.genBtn
@@ -426,7 +663,6 @@ App.refreshCounts()
 end
 end)
 end
-
 local toastToken = 0
 App.status = function(msg, tone)
 local t = App.ui.toast
@@ -443,7 +679,7 @@ local err = tone == "error"
 t.text.Text = msg
 t.dot.BackgroundColor3 = err and P.danger or P.accent
 t.glow:set(err)
-if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
+if t.group.GroupTransparency > 0.5 then
 t.group.Position = UDim2.new(0.5, 0, 1, -BAR_H - 2)
 tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -BAR_H - 10) })
 end
@@ -488,7 +724,6 @@ local text = para("", { ZIndex = 61, Parent = pill })
 text.TextColor3 = P.text
 App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
 end
-
 local TABS = {
 { name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
 { name = "Brush", icon = "brush", hint = "Work by hand: paint the ground, brush one object, remove copies.", build = "buildBrushTab" },
@@ -506,7 +741,6 @@ TAB[t.name] = t
 end
 local OWNER =
 { Paint = "Brush", Erase = "Brush", More = "Brush", Less = "Brush", Clear = "Brush", Place = "Brush", Remove = "Brush", Spline = "Map" }
-
 local function homeTab()
 local a = App.area
 if not a then
@@ -521,13 +755,11 @@ return "Brush"
 end
 return "Scatter"
 end
-
-local searchText = "" -- the search box's text (kept while the panel is rebuilt)
+local searchText = ""
 local function clearSearch()
 searchText = ""
 App.setSearch("")
 end
-
 App.goPage = function(name)
 if G.page == name and not App.searching() then
 return
@@ -541,7 +773,6 @@ App.setMode("Off")
 end
 App.rebuildAll()
 end
-
 local function buildTabs(parent)
 local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Size = UDim2.new(1, 0, 0, 36), Parent = parent }, {
 corner(10),
@@ -553,7 +784,7 @@ SortOrder = Enum.SortOrder.LayoutOrder,
 }),
 })
 App.ui.tabs = {}
-local fits = {} -- [icon] = the label beside it: icons hide when the panel is too narrow for both
+local fits = {}
 for i, t in TABS do
 local on = G.page == t.name and not App.searching()
 local b = new("TextButton", {
@@ -603,10 +834,9 @@ ic.Visible = cell >= text.TextBounds.X + 13 + 5 + 12
 end
 end
 bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-task.defer(fit) -- once the labels have measured their text
+task.defer(fit)
 end
-
-local buildPage -- (below)
+local buildPage
 local function buildSearch(parent)
 local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
 local st = App.stroke(P.line)
@@ -659,7 +889,6 @@ buildPage()
 end)
 end)
 end
-
 local SHELL = {
 "areaPick",
 "areaName",
@@ -676,7 +905,6 @@ local SHELL = {
 "toast",
 "popup",
 }
-
 local function buildResults(page)
 local any = false
 for _, t in TABS do
@@ -694,7 +922,6 @@ if not any then
 App.emptyState(page, "Nothing found", "Try another word, like road, colour, spacing or shortcut.")
 end
 end
-
 function buildPage()
 local sc = App.scroll
 if not sc then
@@ -727,14 +954,13 @@ end
 App.refreshScan()
 App.refreshObjects()
 end
-
 local builtPage
 App.rebuildAll = function()
 if not TAB[G.page] then
 G.page = homeTab()
 end
 local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
-local turned = builtPage ~= nil and builtPage ~= G.page -- another tab: it slides in
+local turned = builtPage ~= nil and builtPage ~= G.page
 builtPage = G.page
 if App.root then
 App.root:Destroy()
@@ -795,7 +1021,6 @@ end
 end)
 end
 end
-
 local function applyTheme()
 makePalette()
 App.rebuildAll()
@@ -815,18 +1040,16 @@ MODULES["Viewport/Paint"] = (function()
 Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local beginRec, endRec, plugin, Engine, track, G, saveG = App.beginRec, App.endRec, App.plugin, App.Engine, App.track, App.G, App.saveG
 local LAYER_MODES, P, SANS_M, new, corner, stroke, pad = App.LAYER_MODES, App.P, App.SANS_M, App.new, App.corner, App.stroke, App.pad
 local refreshSliders, VIEW, refreshParams, probe = App.refreshSliders, App.VIEW, App.refreshParams, App.probe
 local flushRows, rebuildOverlay, saveArea = App.flushRows, App.rebuildOverlay, App.saveArea
 local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
-
 local UIS = game:GetService("UserInputService")
 local rawMouse = plugin:GetMouse()
 local mouse = setmetatable({}, {
-__index = function(_, k) -- auto-track mouse connections
+__index = function(_, k)
 local v = rawMouse[k]
 if typeof(v) == "RBXScriptSignal" then
 return {
@@ -840,17 +1063,17 @@ end,
 })
 local down, lastPos, strokeRec, strokeChanged = false, nil, nil, false
 local strokeTouched = {}
-local strokeBox -- { x0, z0, x1, z1 } in studs: the patch this gesture changed, so only it is rebuilt
+local strokeBox
 local function touched(cx, cz)
 local c = App.area.cell
 local x0, z0, x1, z1 = cx * c, cz * c, (cx + 1) * c, (cz + 1) * c
 local b = strokeBox
 strokeBox = b and { math.min(b[1], x0), math.min(b[2], z0), math.max(b[3], x1), math.max(b[4], z1) } or { x0, z0, x1, z1 }
 end
-local gestureOn = true -- paint (true) or erase (false), fixed when a gesture starts
-local shapePts, boxStart -- lasso points · box corner
+local gestureOn = true
+local gestureAction
+local shapePts, boxStart
 local lastClick = 0
-
 local function shiftHeld()
 local ok, v = pcall(function()
 return UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
@@ -860,10 +1083,12 @@ end
 local function erasing()
 return (App.mode == "Erase") ~= (shiftHeld() == true)
 end
+local function layerAction()
+return shiftHeld() and App.LAYER_OPPOSITE[App.mode] or App.mode
+end
 local function activeTool()
 return LAYER_MODES[App.mode] and "Brush" or G.tool
 end
-
 App.gz = {}
 local function gizmoFolder()
 if App.gz.folder and App.gz.folder.Parent then
@@ -935,14 +1160,9 @@ end
 App.gz = {}
 end
 local function toolColor()
-if App.mode == "Clear" then
-return VIEW.muted
-end
-if App.mode == "Less" or (App.mode == "Place" and erasing()) then
-return P.danger
-end
 if LAYER_MODES[App.mode] then
-return VIEW.accent
+local act = layerAction()
+return (act == "None" or act == "Less") and P.danger or act == "Clear" and VIEW.muted or VIEW.accent
 end
 return erasing() and VIEW.blocked or VIEW.accent
 end
@@ -980,7 +1200,6 @@ s.Visible = false
 end
 end
 end
-
 local NICE_SURF = { Dirt = "Path", Generic = "Other", None = "Nothing" }
 local function setLabel(t)
 if App.gz.text then
@@ -988,7 +1207,6 @@ App.gz.text.Text = t
 App.gz.bb.Enabled = t ~= ""
 end
 end
-
 local function mouseHit()
 if not App.probeParams then
 refreshParams()
@@ -996,8 +1214,7 @@ end
 local ray = mouse.UnitRay
 return workspace:Raycast(ray.Origin, ray.Direction * 5000, App.probeParams)
 end
-
-local sizing -- { hit = the ground under the ring, from = the size before }
+local sizing
 local function updateGizmo(hit)
 if App.mode == "Spline" or App.mode == "Remove" then
 return
@@ -1031,14 +1248,14 @@ local glowW = math.max(0.5, R * 0.05)
 App.gz.halo.Radius, App.gz.halo.InnerRadius = R + glowW, R
 App.gz.halo.CFrame = App.gz.ring.CFrame
 App.gz.sq.Size = Vector3.new(R * 2, 0.08, R * 2)
-App.gz.sq.CFrame = CFrame.new(p) -- the square brush is aligned to the world grid, like the cells it paints
+App.gz.sq.CFrame = CFrame.new(p)
 for _, a in { App.gz.ring, App.gz.disc, App.gz.halo, App.gz.sq, App.gz.dot } do
 a.Color3 = col
 end
 App.gz.dot.CFrame = CFrame.new(p)
 App.gz.anchor.CFrame = CFrame.new(p)
 local surf = Engine.surfaceOf(hit.Instance, hit.Material)
-local what = LAYER_MODES[App.mode] and (App.mode .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
+local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
 if tool == "Polygon" and App.polyPts then
 what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
@@ -1051,20 +1268,18 @@ what ..= "  ·  click to fill connected " .. string.lower(NICE_SURF[surf] or sur
 end
 setLabel(sizing and string.format("Brush size %d  ·  click to keep, Esc to cancel", R) or what)
 end
-
 local function allow(cx, cz)
 if not App.paintFilterOn then
 return true
 end
 return G.paintOn[probe(cx, cz).cls] == true
 end
-
 local function applyCell(cx, cz, on, yHint)
 if Engine.hasCell(App.area, cx, cz) == on then
 return false
 end
 local info = probe(cx, cz, yHint)
-if on and not allow(cx, cz) then -- the filter limits where paint goes, never what can be erased
+if on and not allow(cx, cz) then
 return false
 end
 Engine.setCell(App.area, cx, cz, on)
@@ -1076,18 +1291,17 @@ App.dirtyRows[cz] = true
 strokeChanged = true
 return true
 end
-
 local pinRng = Random.new(os.time())
-local function placeStamp(pos)
+local function placeStamp(pos, erase)
 local l, R = App.paintLayer, G.radius
 if not l then
 return
 end
 local changed
-if gestureOn then
-changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
-else
+if erase then
 changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
+else
+changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
 end
 if changed then
 local c = App.area.cell
@@ -1096,11 +1310,13 @@ touched(math.floor((pos.X + R) / c), math.floor((pos.Z + R) / c))
 strokeChanged = true
 end
 end
-
 local function stamp(pos)
-if App.mode == "Place" then
+local act = LAYER_MODES[App.mode] and gestureAction
+if act == "Place" then
 placeStamp(pos)
 return
+elseif act == "None" then
+placeStamp(pos, true)
 end
 local c, R = App.area.cell, G.radius
 local sq = G.shape == "Square"
@@ -1117,13 +1333,15 @@ if inside then
 if LAYER_MODES[App.mode] then
 local key = cx * 1000003 + cz
 if App.paintLayer and Engine.hasCell(App.area, cx, cz) and not strokeTouched[key] then
-strokeTouched[key] = true -- each stroke changes a cell once
+strokeTouched[key] = true
 local v = Engine.paintValue(App.paintLayer, cx, cz)
 local nv = 1
-if App.mode == "More" then
+if act == "More" then
 nv = v + 0.5
-elseif App.mode == "Less" then
+elseif act == "Less" then
 nv = v - 0.5
+elseif act == "None" then
+nv = 0
 end
 if nv ~= v then
 Engine.setPaint(App.paintLayer, cx, cz, nv)
@@ -1157,7 +1375,6 @@ stamp(lastPos:Lerp(pos, i / n))
 end
 lastPos = pos
 end
-
 local function fillShape(pts)
 if #pts < 3 then
 return
@@ -1185,7 +1402,6 @@ if #changed > 0 then
 strokeChanged = true
 end
 end
-
 local function smartFill(hit)
 local c = App.area.cell
 local sx, sz = math.floor(hit.Position.X / c), math.floor(hit.Position.Z / c)
@@ -1202,7 +1418,7 @@ if gestureOn then
 info = probe(cx, cz, py)
 ok = info.cls == start.cls and math.abs(info.y - py) < 2.5
 else
-ok = Engine.hasCell(App.area, cx, cz) -- erase: the connected painted patch
+ok = Engine.hasCell(App.area, cx, cz)
 info = ok and probe(cx, cz, py)
 end
 if ok then
@@ -1222,7 +1438,6 @@ end
 end
 end
 end
-
 local function beginGesture(name)
 strokeChanged = false
 table.clear(strokeTouched)
@@ -1261,7 +1476,6 @@ App.refreshCounts()
 App.status(select(2, canGenerate()) or "Area updated. Press Generate.")
 end
 end
-
 local function fillSelection()
 if not App.area or App.area.locked then
 return
@@ -1283,10 +1497,9 @@ beginGesture("Smart Scatter: Fill Selected Parts")
 for _, cc in Engine.fillFromParts(App.area, parts) do
 App.dirtyRows[cc[2]] = true
 end
-strokeChanged = true -- the parts are remembered even when their cells were already painted
+strokeChanged = true
 finishGesture()
 end
-
 local function closePolygon()
 if App.polyPts and #App.polyPts >= 3 then
 gestureOn = not erasing()
@@ -1306,13 +1519,12 @@ finishGesture()
 end
 clearPath()
 end
-
 local function sizeTo()
 local ray, y = mouse.UnitRay, sizing.hit.Position.Y
 if math.abs(ray.Direction.Y) < 1e-3 then
 return
 end
-local t = (y - ray.Origin.Y) / ray.Direction.Y -- where the mouse ray meets the ring's level
+local t = (y - ray.Origin.Y) / ray.Direction.Y
 if t <= 0 then
 return
 end
@@ -1340,7 +1552,6 @@ saveG()
 refreshSliders()
 updateGizmo(mouseHit())
 end
-
 local removeParams = RaycastParams.new()
 removeParams.FilterType = Enum.RaycastFilterType.Include
 local function copyUnderMouse()
@@ -1390,7 +1601,6 @@ markCopy(nil)
 App.refreshCounts()
 App.status(string.format("Removed. %d removed in this area.", Engine.removedCount(App.area)))
 end
-
 mouse.Move:Connect(function()
 if App.mode == "Off" or App.mode == "Spline" then
 return
@@ -1433,12 +1643,11 @@ table.insert(pts, hit.Position)
 drawPath(pts, false, toolColor())
 end
 end)
-
 mouse.Button1Down:Connect(function()
 if App.mode == "Off" or App.mode == "Spline" then
 return
 end
-if sizing then -- the click that ends F-resizing doesn't paint
+if sizing then
 endSizing(true)
 return
 end
@@ -1448,7 +1657,7 @@ removeUnderMouse()
 end
 return
 end
-if App.clickSplinePoint and App.clickSplinePoint() then -- clicked a spline point: edit it instead of painting
+if App.clickSplinePoint and App.clickSplinePoint() then
 return
 end
 if not App.area then
@@ -1484,6 +1693,7 @@ return
 end
 down = true
 gestureOn = not erasing()
+gestureAction = LAYER_MODES[App.mode] and layerAction() or nil
 if tool == "Brush" then
 beginGesture(LAYER_MODES[App.mode] and "Smart Scatter: Paint Layer" or "Smart Scatter: Paint Area")
 lastPos = nil
@@ -1500,7 +1710,6 @@ smartFill(hit)
 finishGesture()
 end
 end)
-
 mouse.Button1Up:Connect(function()
 if not down then
 return
@@ -1522,7 +1731,6 @@ if down then
 finishGesture()
 end
 end
-
 local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 local lastKeyAt = {}
 local function onKey(name)
@@ -1593,12 +1801,15 @@ local function ctrlHeld()
 return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
 end
 local function actionFor(key)
-if App.capturingKey then -- Settings is listening for a new key: it isn't an action
+if App.capturingKey then
 return nil
 end
 for _, a in App.KEYMAP do
 if App.keyOf(a.id) == key then
-return (#(charOf(key) or "") == 1 and ctrlHeld()) and nil or a.id
+if #(charOf(key) or "") == 1 and ctrlHeld() then
+return nil
+end
+return a.id
 end
 end
 return ALIASES[key]
@@ -1612,6 +1823,14 @@ if name then
 onKey(name)
 end
 end))
+local function shiftChanged(input)
+local k = input.KeyCode
+if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" and App.gz.folder then
+updateGizmo(mouseHit())
+end
+end
+track(UIS.InputBegan:Connect(shiftChanged))
+track(UIS.InputEnded:Connect(shiftChanged))
 mouse.KeyDown:Connect(function(k)
 for _, a in App.KEYMAP do
 local key = App.keyOf(a.id)
@@ -1650,7 +1869,6 @@ elseif App.polyPts and App.mode ~= "Spline" then
 closePolygon()
 end
 end)
-
 local MODE_TEXT = {
 Brush = "Drag to paint. Hold Shift to erase. {size} (or {shrink} {grow}) resizes.",
 Lasso = "Drag an outline. It fills when you let go.",
@@ -1658,10 +1876,11 @@ Box = "Drag a rectangle. It fills when you let go.",
 Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 Fill = "Click the ground to fill everything connected of that surface.",
 Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
-More = "Brush where you want more of this layer.",
-Less = "Brush where you want less. Twice removes it there.",
-Clear = "Brush to undo your painting for this layer.",
-Place = "Drag to put copies down where you brush. Hold Shift to take them away. {size} resizes.",
+Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+More = "Brush where you want more of it. Shift brushes less.",
+Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
+None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
+Clear = "Brush to bring it back to normal there. Shift erases it.",
 Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 }
 local function modeText(k)
@@ -1700,7 +1919,7 @@ App.status("Generate an area first, then remove single copies from it.")
 m = "Off"
 end
 stopGestures()
-if m ~= "Off" and not App.area then -- painting needs an area, drawing a path needs a path
+if m ~= "Off" and not App.area then
 if m == "Spline" then
 App.newSplineFn({ keepMode = true })
 else
@@ -1737,7 +1956,6 @@ App.status(modeText(t))
 updateGizmo(mouseHit())
 end
 end
-
 track(plugin.Deactivation:Connect(function()
 if App.mode ~= "Off" then
 stopGestures()
@@ -1749,7 +1967,6 @@ end
 end))
 App.stopGestures = stopGestures
 App.fillSelection = fillSelection
-
 App.rawMouse = rawMouse
 App.mouse = mouse
 App.shiftHeld = shiftHeld
@@ -1765,23 +1982,20 @@ MODULES["Viewport/Spline"] = (function()
 Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
 local new, refreshParams = App.new, App.refreshParams
 local rebuildOverlay, saveArea, canGenerate, runGenerate = App.rebuildOverlay, App.saveArea, App.canGenerate, App.runGenerate
 local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
 local gizmoFolder, setLabel, mouseHit = App.gizmoFolder, App.setLabel, App.mouseHit
-
-local sv = {} -- viewport preview: curves, strip edges, point handles, insert ghost
-local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt -- points are { cv = curve, i = index }
+local sv = {}
+local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt
 local welded = {}
 local HANDLE_PX, CURVE_PX, WELD = 14, 10, 0.05
-local VIEW = App.VIEW -- the viewport palette (Base; follows the accent theme)
-local hoverHandle, dragHandle -- "in" / "out": the selected point's curve handles
-local drawing -- hold-and-drag stroke: { cv, prepend, anchor, spacing, pts }
+local VIEW = App.VIEW
+local hoverHandle, dragHandle
+local drawing
 local joinSnap
-
 local function ensureSpline()
 if not App.area then
 newArea()
@@ -1838,14 +2052,13 @@ return nil
 end
 return q.p + h, q.p - h, q
 end
-
 local function splineVisible()
 return App.area ~= nil
 and App.area.spline ~= nil
 and #App.area.spline.pts > 0
 and App.widget.Enabled
 and (G.overlay or App.mode ~= "Off")
-and not (App.overlayHidden and App.mode ~= "Spline") -- hidden with the overlay, except while drawing it
+and not (App.overlayHidden and App.mode ~= "Spline")
 end
 local function removeSplineViz()
 if sv.folder then
@@ -1853,7 +2066,7 @@ sv.folder:Destroy()
 end
 sv = {}
 end
-local dot -- (below) a two-tone handle
+local dot
 local function svFolder()
 if sv.folder and sv.folder.Parent then
 return
@@ -1861,7 +2074,7 @@ end
 sv = { handles = {}, segs = {}, curves = {} }
 sv.folder = new("Folder", { Name = "SmartScatterSpline", Archivable = false, Parent = workspace.CurrentCamera })
 local T = workspace.Terrain
-local ok, w = pcall(function() -- one adornment draws every curve; falls back to pooled boxes on older Studio builds
+local ok, w = pcall(function()
 return new(
 "WireframeHandleAdornment",
 { Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
@@ -1987,7 +2200,7 @@ for i = 2, #cv.pts do
 approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 end
 end
-local step = math.max(1, approx / 500) -- display resolution: ~500 segments for the whole network
+local step = math.max(1, approx / 500)
 sv.curves = {}
 local lines = {}
 for _, cv in editCurves() do
@@ -2037,7 +2250,7 @@ for k = n + 1, #sv.segs do
 sv.segs[k].Visible = false
 end
 end
-if sv.edge and (sp.width or 0) > 0 then -- the strip that gets filled
+if sv.edge and (sp.width or 0) > 0 then
 local R = sp.width / 2
 for ci, c in sv.curves do
 local P, L = c.P, lines[ci]
@@ -2059,10 +2272,9 @@ end
 track(workspace.CurrentCamera:GetPropertyChangedSignal("CFrame"):Connect(function()
 if App.mode == "Spline" and sv.folder then
 updateHandles()
-end -- keep handles the same size on screen
+end
 end))
-
-local mouseAt -- screen position to test instead of the plugin mouse (clicks while the editor is off)
+local mouseAt
 local function screenDist(p)
 local v, on = workspace.CurrentCamera:WorldToViewportPoint(p)
 if not on or v.Z <= 0 then
@@ -2077,7 +2289,7 @@ for _, cv in editCurves() do
 for i, q in cv.pts do
 if not (skip and skip(cv, i, q)) then
 local d = screenDist(q.p + q.n * 0.3)
-if d < bd - 0.5 then -- ties (welded points) keep the earlier curve, so the main curve wins
+if d < bd - 0.5 then
 best, bd = { cv = cv, i = i }, d
 end
 end
@@ -2116,7 +2328,7 @@ local function mine(cv, i, o)
 return (cv == ref.cv and i == ref.i) or (o.p - q.p).Magnitude < WELD or (extra and extra[o])
 end
 local hitPt = pickPoint(function(cv, i, o)
-return mine(cv, i, o) or (cv == ref.cv and math.abs(i - ref.i) == 1) -- a neighbour would fold the curve
+return mine(cv, i, o) or (cv == ref.cv and math.abs(i - ref.i) == 1)
 end)
 if hitPt then
 return { kind = "point", ref = hitPt }
@@ -2147,7 +2359,6 @@ return "prepend"
 end
 return "branch"
 end
-
 App.refreshSplineInfo = function()
 if not App.ui.splineInfo then
 return
@@ -2175,7 +2386,6 @@ nb > 0 and string.format(" · %d branch%s", nb, nb == 1 and "" or "es") or "",
 (sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
 )
 end
-
 local function commitSpline(rec)
 local sp = App.area.spline
 if sp and (sp.width or 0) > 0 then
@@ -2184,7 +2394,7 @@ Engine.maskFromSpline(App.area, App.probeParams)
 rebuildOverlay(true)
 end
 saveArea()
-endRec(rec) -- the undo step holds the curve; the objects are rebuilt after it, and again on undo
+endRec(rec)
 App.analysisDirty = true
 if G.live and canGenerate() then
 runGenerate(false)
@@ -2214,7 +2424,6 @@ end
 end
 return hit
 end
-
 local function splineLabel(hit, text)
 gizmoFolder()
 App.gz.ring.Visible, App.gz.disc.Visible, App.gz.sq.Visible = false, false, false
@@ -2226,13 +2435,12 @@ App.gz.anchor.CFrame = CFrame.new(hit.Position)
 end
 setLabel(hit and text or "")
 end
-
 mouse.Move:Connect(function()
 if App.mode ~= "Spline" then
 return
 end
 local sp = App.area and App.area.spline
-if dragHandle and validPt(selPt) then -- bend: the handle follows the mouse on the point's level (Shift: height)
+if dragHandle and validPt(selPt) then
 local q = selPt.cv.pts[selPt.i]
 local ray = rawMouse.UnitRay
 local nrm = Vector3.yAxis
@@ -2245,8 +2453,8 @@ local denom = ray.Direction:Dot(nrm)
 if math.abs(denom) > 1e-4 then
 local t = (q.p - ray.Origin):Dot(nrm) / denom
 if t > 0 then
-local off = ray.Origin + ray.Direction * t - q.p -- where the dragged handle should sit
-if shiftHeld() then -- keep its flat position, only change the height
+local off = ray.Origin + ray.Direction * t - q.p
+if shiftHeld() then
 local cur = q.h or Engine.autoHandle(curveOf(selPt.cv), selPt.i)
 local was = dragHandle == "out" and cur or -cur
 off = Vector3.new(was.X, off.Y, was.Z)
@@ -2280,7 +2488,7 @@ end
 if dragPt and validPt(dragPt) then
 local q = dragPt.cv.pts[dragPt.i]
 local before = q.p
-if shiftHeld() then -- vertical move on a camera-facing plane through the point
+if shiftHeld() then
 local ray = rawMouse.UnitRay
 local look = workspace.CurrentCamera.CFrame.LookVector
 local nrm = Vector3.new(look.X, 0, look.Z)
@@ -2302,10 +2510,10 @@ local hit = pointHit()
 if hit then
 q.p = hit.Position
 q.n = hit.Normal
-q.raised = nil -- back on a surface
+q.raised = nil
 end
 snapTo = findSnap(dragPt)
-if snapTo then -- magnet: sit exactly on the point or curve it would join
+if snapTo then
 local target = snapTo.kind == "point" and snapTo.ref.cv.pts[snapTo.ref.i] or snapTo.at
 q.p, q.n = target.p, target.n
 end
@@ -2316,7 +2524,7 @@ snapTo and (snapTo.kind == "point" and "Release to join these points" or "Releas
 end
 if q.p ~= before then
 dragMoved = true
-for _, w in welded do -- joined points travel together
+for _, w in welded do
 local o = w.cv.pts[w.i]
 if o then
 o.p, o.n, o.raised = q.p, q.n, q.raised
@@ -2431,7 +2639,6 @@ local at = snap.at
 Engine.joinToCurve(ref, at.cv, at.seg, at.p, at.n)
 return "Joined into the curve (a junction point was added)."
 end
-
 local function finishDrawing()
 local d = drawing
 drawing = nil
@@ -2458,17 +2665,17 @@ local q = cv.pts[endRef.i]
 q.p, q.n = target.p, target.n
 end
 local anchor = snap and (snap.kind == "point" and snap.ref.cv.pts[snap.ref.i] or snap.at.cv.pts[snap.at.seg])
-local drop = Engine.thinStroke(d.pts, d.spacing) -- smooth the hand jitter, keep the points that shape it
+local drop = Engine.thinStroke(d.pts, d.spacing)
 for i = #cv.pts, 1, -1 do
 if drop[cv.pts[i]] then
 table.remove(cv.pts, i)
 end
 end
-if snap then -- find it again by what it is, not where it was
+if snap then
 local list = snap.kind == "point" and snap.ref.cv.pts or snap.at.cv.pts
 local i = anchor and table.find(list, anchor)
 if not i then
-snap = nil -- the point it would join was thinned away: the stroke just ends there
+snap = nil
 elseif snap.kind == "point" then
 snap.ref = { cv = snap.ref.cv, i = i }
 else
@@ -2519,7 +2726,7 @@ commitSpline(rec)
 if joined then
 App.status(joined)
 end
-else -- a plain click only selects: no undo step, no regeneration
+else
 endRec(rec, true)
 updateHandles()
 end
@@ -2546,14 +2753,14 @@ return
 end
 splineEdit("Spline", function()
 table.remove(ref.cv.pts, ref.i)
-if ref.cv ~= sp and #ref.cv.pts < 2 then -- a branch needs its root and one more point
+if ref.cv ~= sp and #ref.cv.pts < 2 then
 table.remove(sp.branches, table.find(sp.branches, ref.cv))
-elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then -- main curve gone: the first branch takes over
+elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then
 sp.pts = table.remove(sp.branches, 1).pts
 end
 end)
 hoverPt = nil
-if validPt(ref) and ref.i > 1 then -- keep working from the neighbour
+if validPt(ref) and ref.i > 1 then
 selectPt({ cv = ref.cv, i = ref.i - 1 })
 elseif validPt(ref) then
 selectPt(ref)
@@ -2581,7 +2788,6 @@ if App.ui.refreshPoint then
 App.ui.refreshPoint()
 end
 end
-
 App.selectedPoint = function()
 return App.mode == "Spline" and validPt(selPt) and selPt.cv.pts[selPt.i] or nil
 end
@@ -2603,7 +2809,6 @@ elseif what == "delete" then
 deletePoint(selPt)
 end
 end
-
 App.onRightClick(function()
 if App.mode == "Spline" and hoverPt then
 deletePoint(hoverPt)
@@ -2633,26 +2838,25 @@ if input.UserInputType ~= Enum.UserInputType.MouseButton1 or App.mode ~= "Off" o
 return
 end
 if App.clickSplinePoint(Vector2.new(input.Position.X, input.Position.Y)) then
-task.defer(function() -- Studio's own click selected whatever was under the point
+task.defer(function()
 App.Selection:Set({})
 end)
 end
 end))
-
 App.splineKey = function(name)
 if name == "back" then
 local sp = App.area and App.area.spline
 if sp and #sp.pts > 0 then
 deletePoint(hoverPt or (validPt(selPt) and selPt) or { cv = sp, i = #sp.pts })
 end
-elseif name == "delete" then -- X: the point under the mouse, or the selected one
+elseif name == "delete" then
 local ref = hoverPt or (validPt(selPt) and selPt)
 if ref then
 deletePoint(ref)
 else
 App.status("Hover or select a point, then press X to delete it.")
 end
-elseif name == "corner" then -- C: toggle a sharp corner on the selected point
+elseif name == "corner" then
 local ref = hoverPt or (validPt(selPt) and selPt)
 if not ref then
 App.status("Select a point first, then press C for a sharp corner.")
@@ -2678,7 +2882,6 @@ App.area.rows, App.area.count = {}, 0
 end
 commitSpline(rec)
 end
-
 App.newSplineFn = function(opts)
 local n = 1
 while Engine.getOut():FindFirstChild("Path " .. n) do
@@ -2688,7 +2891,7 @@ local rec = beginRec("Smart Scatter: New Spline")
 local a = Engine.createArea("Path " .. n, nil)
 a.folder:SetAttribute("SS_Kind", "Path")
 endRec(rec)
-G.page = "" -- its home tab: where its first step is
+G.page = ""
 saveG()
 switchArea(a.folder)
 ensureSpline()
@@ -2698,7 +2901,6 @@ end
 end
 App.commitSplineFn = commitSpline
 App.ensureSplineFn = ensureSpline
-
 App.removeSplineViz = removeSplineViz
 end
 end)()
@@ -2710,16 +2912,13 @@ Dims the panel except the part being explained, with a card next to it. Seen-sta
 person who installs the plugin gets it once on their own machine.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local plugin, P, G, RunService = App.plugin, App.P, App.G, App.RunService
 local SANS, SANS_M, SANS_B = App.SANS, App.SANS_M, App.SANS_B
 local new, corner, stroke, pad, vlist, hlist, box, col, label, para =
 App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
-
 local TOUR_KEY = "SmartScatter_tour"
-local TOUR_V = 3 -- raise when the tour changes enough that everyone should see it again
-
+local TOUR_V = 3
 local function ui(name)
 local o = App.ui[name]
 return o and o.Parent and o or nil
@@ -2727,11 +2926,9 @@ end
 local function inArea()
 return App.area ~= nil
 end
-
 local function shapeTab()
 return inArea() and App.kindOf(App.area) == "Path" and "Map" or "Brush"
 end
-
 local STEPS = {
 {
 chapter = "Welcome",
@@ -2775,7 +2972,7 @@ chapter = "Areas",
 title = "Four tabs",
 text = "Scatter: what fills the area, its objects and their rules.\n"
 .. "Brush: work by hand, painting ground or one object, removing copies.\n"
-.. "Map: the path and its road; scanning a finished map, swapping its models, seasons.\n"
+.. "Map: the path and its road; scanning a finished map to swap, re-space or re-season it.\n"
 .. "Settings: the plugin itself.\n\n"
 .. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
 .. "below the tabs, like road or spacing.",
@@ -2878,9 +3075,7 @@ title = "Have fun building",
 text = "Smart Scatter is made by Ghulo.\n\n" .. "Replay this tour any time from Settings.",
 },
 }
-
-local layer -- the tour's overlay frame (rebuilt with the panel)
-
+local layer
 local function finish()
 App.tour = nil
 pcall(function()
@@ -2891,7 +3086,6 @@ layer:Destroy()
 layer = nil
 end
 end
-
 local function scrollTo(target)
 local sc = App.scroll
 if not (sc and target:IsDescendantOf(sc)) then
@@ -2900,7 +3094,6 @@ end
 local top = target.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
 sc.CanvasPosition = Vector2.new(0, math.max(top - 12, 0))
 end
-
 local render
 local function go(i)
 if not App.tour then
@@ -2909,7 +3102,6 @@ end
 App.tour.i = math.clamp(i, 1, #STEPS)
 render()
 end
-
 render = function()
 if layer then
 layer:Destroy()
@@ -2924,14 +3116,14 @@ local i = App.tour.i
 local step = STEPS[i]
 local tab = step.tab and inArea() and step.tab()
 if tab and G.page ~= tab then
-App.goPage(tab) -- rebuilds the panel, which shows this step again
+App.goPage(tab)
 return
 end
 local target = step.target and step.target()
 if target then
 scrollTo(target)
 end
-if App.tour.root ~= root then -- follow the panel being resized
+if App.tour.root ~= root then
 App.tour.root = root
 root:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 if App.tour and App.root == root then
@@ -2941,13 +3133,12 @@ end)
 end
 layer = box({ Size = UDim2.fromScale(1, 1), ZIndex = 300, Parent = root })
 local my = layer
-RunService.Heartbeat:Wait() -- let the scroll and layout settle before measuring
+RunService.Heartbeat:Wait()
 if layer ~= my or not root.Parent then
 return
 end
 local rw, rh = root.AbsoluteSize.X, root.AbsoluteSize.Y
 local ox, oy = root.AbsolutePosition.X, root.AbsolutePosition.Y
-
 local function shade(x, y, w, h)
 if w <= 0 or h <= 0 then
 return
@@ -2986,7 +3177,6 @@ st.Parent = ring
 else
 shade(0, 0, rw, rh)
 end
-
 local w = math.min(rw - 24, 300)
 local card = col({
 BackgroundTransparency = 0,
@@ -3016,7 +3206,7 @@ end
 z(label(string.upper(step.chapter) .. "  ·  " .. i .. " of " .. #STEPS, 10, P.faint, SANS_B, { Parent = card }))
 if step.image == "mark" then
 z(new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(56, 56), Parent = card }))
-elseif step.image == "card" then -- the logo card (1064×1296), centred
+elseif step.image == "card" then
 local holder = z(box({ Size = UDim2.new(1, 0, 0, 160), Parent = card }))
 z(new("ImageLabel", {
 Image = App.LOGO.card,
@@ -3101,7 +3291,6 @@ go(i + 1)
 end
 end).Parent =
 right
-
 local x = math.floor((rw - w) / 2)
 card.Position = UDim2.fromOffset(x, 0)
 RunService.Heartbeat:Wait()
@@ -3124,19 +3313,17 @@ end
 App.renderTour = function()
 task.spawn(render)
 end
-
 App.startTour = function()
 if App.mode ~= "Off" then
 App.setMode("Off")
 end
 App.tour = { i = 1 }
 if G.page == "Settings" then
-App.goPage("") -- the area's home tab; rebuilds the panel, which shows the tour
+App.goPage("")
 else
 App.renderTour()
 end
 end
-
 App.maybeStartTour = function()
 local ok, seen = pcall(function()
 return plugin:GetSetting(TOUR_KEY)
@@ -3161,17 +3348,14 @@ MODULES["Core/Lifecycle"] = (function()
 Smart Scatter — Lifecycle: undo/redo reload, wiring and cleanup.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
-
 return function(App)
 local ChangeHistoryService, ctx, plugin, Engine, conns = App.ChangeHistoryService, App.ctx, App.plugin, App.Engine, App.conns
 local track, LAYER_MODES, toggleBtn, clearOverlay = App.track, App.LAYER_MODES, App.toggleBtn, App.clearOverlay
 local switchArea, eachThumb, closePopup, removeGizmo = App.switchArea, App.eachThumb, App.closePopup, App.removeGizmo
 local removeSplineViz = App.removeSplineViz
-
 local function alive(folder)
 return folder ~= nil and folder:IsDescendantOf(workspace)
 end
-
 local function onHistory(name)
 if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
 return
@@ -3179,7 +3363,7 @@ end
 task.defer(function()
 local f = App.area and App.area.folder
 local keep = App.expanded and Engine.layerKey(App.expanded)
-App.resetSplineDrag(true) -- a drag the undo just rolled back is dropped, not committed
+App.resetSplineDrag(true)
 App.stopGestures()
 if LAYER_MODES[App.mode] then
 App.setMode("Off")
@@ -3200,7 +3384,6 @@ end)
 end
 track(ChangeHistoryService.OnUndo:Connect(onHistory))
 track(ChangeHistoryService.OnRedo:Connect(onHistory))
-
 track(toggleBtn.Click:Connect(function()
 App.widget.Enabled = not App.widget.Enabled
 end))
@@ -3219,7 +3402,6 @@ clearOverlay()
 App.drawSpline()
 end
 end))
-
 switchArea(Engine.listAreas()[1])
 toggleBtn:SetActive(App.widget.Enabled)
 App.maybeStartTour()
@@ -3235,10 +3417,9 @@ end
 if ctx.reloaded then
 App.status("Updated to v" .. tostring(ctx.version) .. ".")
 end
-
 return function()
-App.cancelJob() -- a running Generate belongs to this copy of the plugin: it stops with it
-pcall(App.stopGestures) -- closes any open stroke or drag recording
+App.cancelJob()
+pcall(App.stopGestures)
 if App.mode ~= "Off" then
 App.mode = "Off"
 pcall(function()

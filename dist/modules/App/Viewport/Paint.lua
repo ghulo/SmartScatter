@@ -38,6 +38,7 @@ return function(App)
 		strokeBox = b and { math.min(b[1], x0), math.min(b[2], z0), math.max(b[3], x1), math.max(b[4], z1) } or { x0, z0, x1, z1 }
 	end
 	local gestureOn = true -- paint (true) or erase (false), fixed when a gesture starts
+	local gestureAction -- the one-layer brush: what this gesture does (the mode, or its opposite with Shift)
 	local shapePts, boxStart -- lasso points · box corner
 	-- App.polyPts: polygon points (Vector3)
 	local lastClick = 0
@@ -50,6 +51,10 @@ return function(App)
 	end
 	local function erasing()
 		return (App.mode == "Erase") ~= (shiftHeld() == true)
+	end
+	-- what the one-layer brush does right now: its mode, or the opposite while Shift is held
+	local function layerAction()
+		return shiftHeld() and App.LAYER_OPPOSITE[App.mode] or App.mode
 	end
 	local function activeTool()
 		return LAYER_MODES[App.mode] and "Brush" or G.tool
@@ -128,14 +133,9 @@ return function(App)
 		App.gz = {}
 	end
 	local function toolColor()
-		if App.mode == "Clear" then
-			return VIEW.muted
-		end
-		if App.mode == "Less" or (App.mode == "Place" and erasing()) then
-			return P.danger
-		end
 		if LAYER_MODES[App.mode] then
-			return VIEW.accent
+			local act = layerAction()
+			return (act == "None" or act == "Less") and P.danger or act == "Clear" and VIEW.muted or VIEW.accent
 		end
 		return erasing() and VIEW.blocked or VIEW.accent
 	end
@@ -234,7 +234,7 @@ return function(App)
 		App.gz.dot.CFrame = CFrame.new(p)
 		App.gz.anchor.CFrame = CFrame.new(p)
 		local surf = Engine.surfaceOf(hit.Instance, hit.Material)
-		local what = LAYER_MODES[App.mode] and (App.mode .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
+		local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 			or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
 		if tool == "Polygon" and App.polyPts then
 			what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
@@ -274,19 +274,19 @@ return function(App)
 		return true
 	end
 
-	-- the object brush (mode Place): puts copies of the object down where it's dragged (Engine/Pins), Shift takes
-	-- them away; the stroke's patch is rebuilt when it ends
+	-- the object brush: Place puts copies of the object down where it's dragged (Engine/Pins); Erase takes them away
+	-- again (along with the object's painting, below). The stroke's patch is rebuilt when it ends.
 	local pinRng = Random.new(os.time())
-	local function placeStamp(pos)
+	local function placeStamp(pos, erase)
 		local l, R = App.paintLayer, G.radius
 		if not l then
 			return
 		end
 		local changed
-		if gestureOn then
-			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
-		else
+		if erase then
 			changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
+		else
+			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
 		end
 		if changed then
 			local c = App.area.cell
@@ -297,9 +297,12 @@ return function(App)
 	end
 
 	local function stamp(pos)
-		if App.mode == "Place" then
+		local act = LAYER_MODES[App.mode] and gestureAction
+		if act == "Place" then
 			placeStamp(pos)
 			return
+		elseif act == "None" then -- erasing the object: what was placed by hand here goes too
+			placeStamp(pos, true)
 		end
 		local c, R = App.area.cell, G.radius
 		local sq = G.shape == "Square"
@@ -318,11 +321,13 @@ return function(App)
 						if App.paintLayer and Engine.hasCell(App.area, cx, cz) and not strokeTouched[key] then
 							strokeTouched[key] = true -- each stroke changes a cell once
 							local v = Engine.paintValue(App.paintLayer, cx, cz)
-							local nv = 1
-							if App.mode == "More" then
+							local nv = 1 -- (Reset: back to normal)
+							if act == "More" then
 								nv = v + 0.5
-							elseif App.mode == "Less" then
+							elseif act == "Less" then
 								nv = v - 0.5
+							elseif act == "None" then
+								nv = 0
 							end
 							if nv ~= v then
 								Engine.setPaint(App.paintLayer, cx, cz, nv)
@@ -692,6 +697,7 @@ return function(App)
 		end
 		down = true
 		gestureOn = not erasing()
+		gestureAction = LAYER_MODES[App.mode] and layerAction() or nil
 		if tool == "Brush" then
 			beginGesture(LAYER_MODES[App.mode] and "Smart Scatter: Paint Layer" or "Smart Scatter: Paint Area")
 			lastPos = nil
@@ -813,7 +819,10 @@ return function(App)
 		end
 		for _, a in App.KEYMAP do
 			if App.keyOf(a.id) == key then
-				return (#(charOf(key) or "") == 1 and ctrlHeld()) and nil or a.id
+				if #(charOf(key) or "") == 1 and ctrlHeld() then
+					return nil -- Ctrl with a letter is Studio's (Ctrl+C, Ctrl+D…), not this shortcut
+				end
+				return a.id
 			end
 		end
 		return ALIASES[key]
@@ -827,6 +836,15 @@ return function(App)
 			onKey(name)
 		end
 	end))
+	-- Shift turns a brush into its opposite: the ring shows it the moment the key goes down or up
+	local function shiftChanged(input)
+		local k = input.KeyCode
+		if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" and App.gz.folder then
+			updateGizmo(mouseHit())
+		end
+	end
+	track(UIS.InputBegan:Connect(shiftChanged))
+	track(UIS.InputEnded:Connect(shiftChanged))
 	mouse.KeyDown:Connect(function(k)
 		for _, a in App.KEYMAP do
 			local key = App.keyOf(a.id)
@@ -874,10 +892,11 @@ return function(App)
 		Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
-		More = "Brush where you want more of this layer.",
-		Less = "Brush where you want less. Twice removes it there.",
-		Clear = "Brush to undo your painting for this layer.",
-		Place = "Drag to put copies down where you brush. Hold Shift to take them away. {size} resizes.",
+		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		More = "Brush where you want more of it. Shift brushes less.",
+		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
+		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
+		Clear = "Brush to bring it back to normal there. Shift erases it.",
 		Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 	}
 	-- a mode's hint, with the keys it names as they're bound ({size} → F, or whatever the user picked)

@@ -1,6 +1,6 @@
 {
- "version": "9.50",
- "build": 114,
+ "version": "9.51",
+ "build": 115,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -16,7 +16,7 @@
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
-   "sum": 268375584
+   "sum": 453414670
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
@@ -24,11 +24,11 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 657483785
+   "sum": 793074814
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
-   "sum": 881541478
+   "sum": 293738169
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
@@ -36,11 +36,11 @@
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
-   "sum": 711778477
+   "sum": 567572066
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
-   "sum": 389029674
+   "sum": 614852384
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
@@ -48,11 +48,11 @@
   },
   "App/Panel/Tabs/Brush": {
    "path": "modules/App/Panel/Tabs/Brush.lua",
-   "sum": 631299548
+   "sum": 652824774
   },
   "App/Panel/Tabs/Map": {
    "path": "modules/App/Panel/Tabs/Map.lua",
-   "sum": 704422824
+   "sum": 332814406
   },
   "App/Panel/Tabs/Scatter": {
    "path": "modules/App/Panel/Tabs/Scatter.lua",
@@ -64,15 +64,15 @@
   },
   "App/Panel/Tour": {
    "path": "modules/App/Panel/Tour.lua",
-   "sum": 349305953
+   "sum": 501098772
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
-   "sum": 479431000
+   "sum": 854411737
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 505405852
+   "sum": 191655840
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
@@ -80,7 +80,7 @@
   },
   "Engine": {
    "path": "modules/Engine.lua",
-   "sum": 718311587
+   "sum": 258451367
   },
   "Engine/Areas": {
    "path": "modules/Engine/Areas.lua",
@@ -96,7 +96,11 @@
   },
   "Engine/Kinds": {
    "path": "modules/Engine/Kinds.lua",
-   "sum": 103455714
+   "sum": 900142744
+  },
+  "Engine/Layout": {
+   "path": "modules/Engine/Layout.lua",
+   "sum": 674565840
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
@@ -120,7 +124,7 @@
   },
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",
-   "sum": 906692989
+   "sum": 627842251
   },
   "Engine/Seasons": {
    "path": "modules/Engine/Seasons.lua",

@@ -445,4 +445,5 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.MAT_CLASS = MAT_CLASS
 	I.hasKeyword = hasKeyword
+	I.chamfer = chamfer
 end

@@ -7,12 +7,10 @@ MODULES["Scan"] = (function()
 Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local HttpService = game:GetService("HttpService")
-
 E.CLASSES = { "Grass", "Dirt", "Road", "Rock", "Sand", "Snow", "Generic", "Water", "Building" }
-E.SURFACES = { "Grass", "Dirt", "Road", "Rock", "Sand", "Snow", "Generic" } -- placeable ones
+E.SURFACES = { "Grass", "Dirt", "Road", "Rock", "Sand", "Snow", "Generic" }
 E.CLASS_COLOR = {
 Grass = Color3.fromRGB(90, 200, 90),
 Dirt = Color3.fromRGB(176, 124, 70),
@@ -25,7 +23,6 @@ Water = Color3.fromRGB(50, 120, 255),
 Building = Color3.fromRGB(235, 70, 70),
 None = Color3.fromRGB(0, 0, 0),
 }
-
 local MAT_CLASS = {}
 local function mats(names, cls)
 for _, n in names do
@@ -65,12 +62,11 @@ mats({ "Water" }, "Water")
 function E.classOf(mat)
 return MAT_CLASS[mat] or "Generic"
 end
-
 local VALID = {}
 for _, c in E.CLASSES do
 VALID[c] = true
 end
-VALID.Path = true -- "Path" (a mark, or a name like "Trail") is the engine's "Dirt" class; see E.surfaceOf
+VALID.Path = true
 local WORDS = {
 { "Water", { "water", "river", "lake", "pond", "ocean", "stream", "puddle" } },
 { "Road", { "road", "street", "sidewalk", "pavement", "asphalt", "highway", "crosswalk", "parking", "driveway", "curb", "kerb" } },
@@ -84,7 +80,7 @@ local WORDS = {
 { "Rock", { "cliff", "rock", "stone", "boulder" } },
 }
 local function nameWords(name)
-name = string.gsub(name, "(%l)(%u)", "%1 %2") -- camelCase
+name = string.gsub(name, "(%l)(%u)", "%1 %2")
 name = string.gsub(name, "(%a)(%d)", "%1 %2")
 local list = {}
 for w in string.gmatch(string.lower(name), "%a+") do
@@ -95,7 +91,7 @@ end
 local function hasKeyword(name, keywords)
 local list, joined = nameWords(name)
 for _, kw in keywords do
-if string.find(kw, " ", 1, true) then -- several words: they must follow each other
+if string.find(kw, " ", 1, true) then
 if string.find(joined, " " .. kw .. " ", 1, true) then
 return true
 end
@@ -123,7 +119,6 @@ end
 end
 return nil
 end
-
 local meshMap = {}
 function E.loadMeshMap()
 local out = workspace:FindFirstChild(E.OUT)
@@ -139,7 +134,6 @@ E.loadMeshMap()
 meshMap[meshId] = cls
 E.getOut():SetAttribute("SS_MeshMap", HttpService:JSONEncode(meshMap))
 end
-
 local surfMemo = setmetatable({}, { __mode = "k" })
 function E.freshSurfaces()
 surfMemo = setmetatable({}, { __mode = "k" })
@@ -157,7 +151,7 @@ end
 local c, explicit = surfaceOfUncached(inst, material)
 if c == "Path" then
 c = "Dirt"
-end -- paths are the Dirt class everywhere (fields, filters, "Follow Paths")
+end
 surfMemo[inst] = { c, explicit, material }
 return c, explicit
 end
@@ -192,23 +186,21 @@ end
 end
 return E.classOf(material), false
 end
-
 function E.rayParams(extra)
 local ex = { workspace.CurrentCamera }
 local out = workspace:FindFirstChild(E.OUT)
 if out then
 table.insert(ex, out)
-end -- everything we place, including what a running generation adds
+end
 for _, e in extra or {} do
 table.insert(ex, e)
 end
 local rp = RaycastParams.new()
 rp.FilterType = Enum.RaycastFilterType.Exclude
 rp.FilterDescendantsInstances = ex
-rp.RespectCanCollide = true -- leaves and decorative non-collidable parts are ignored
+rp.RespectCanCollide = true
 return rp, ex
 end
-
 local function chamfer(src, nx, nz, G)
 local N = nx * nz
 local d = table.create(N, 1e9)
@@ -256,7 +248,6 @@ end
 end
 return d
 end
-
 function E.analyze(a, extra, tick)
 if a.count == 0 then
 return nil
@@ -270,7 +261,7 @@ minCX = math.min(minCX, cx)
 maxCX = math.max(maxCX, cx)
 end
 end
-local margin = 48 -- look outside the area so nearby roads/buildings still count
+local margin = 48
 local x0, x1 = minCX * a.cell - margin, (maxCX + 1) * a.cell + margin
 local z0, z1 = minCZ * a.cell - margin, (maxCZ + 1) * a.cell + margin
 local G = 4
@@ -279,11 +270,10 @@ G *= 2
 end
 local nx, nz = math.ceil((x1 - x0) / G), math.ceil((z1 - z0) / G)
 local N = nx * nz
-
 local rp = E.rayParams(extra)
 E.freshSurfaces()
 local zones = E.clearZones(a.folder)
-local picked = {} -- the area's own parts (Fill selected parts), and whether a hit is on one
+local picked = {}
 for _, p in a.on or {} do
 picked[p] = true
 end
@@ -297,12 +287,11 @@ end
 return false
 end
 local on = {}
-local roofMemo = {} -- part -> true when it stands well above the ground under it (a roof, a platform)
+local roofMemo = {}
 local top, len = a.topY + 400, 1400
 local cls, ys, ny, inM = table.create(N, "None"), table.create(N, 0), table.create(N, 1), table.create(N, false)
 local stats, maskCells = {}, 0
 local down = Vector3.new(0, -len, 0)
-
 for iz = 1, nz do
 if tick and not tick(iz / nz) then
 return nil, true
@@ -317,7 +306,7 @@ local explicit
 c, explicit = E.surfaceOf(r.Instance, r.Material)
 ys[i], ny[i] = r.Position.Y, r.Normal.Y
 if next(picked) and onPicked(r.Instance) then
-on[i] = true -- chosen as ground: never taken for a roof
+on[i] = true
 elseif c ~= "Water" and not explicit and r.Instance ~= workspace.Terrain then
 local p = r.Instance
 if not (p.Size.X > 80 and p.Size.Z > 80) then
@@ -354,7 +343,6 @@ maskCells += 1
 end
 end
 end
-
 local function field(pred)
 local src = {}
 for i = 1, N do
@@ -411,7 +399,6 @@ end),
 },
 }
 end
-
 function E.indexAt(an, x, z)
 local ix, iz = math.floor((x - an.x0) / an.G), math.floor((z - an.z0) / an.G)
 if ix < 0 or iz < 0 or ix >= an.nx or iz >= an.nz then
@@ -419,9 +406,9 @@ return nil
 end
 return iz * an.nx + ix + 1
 end
-
 I.MAT_CLASS = MAT_CLASS
 I.hasKeyword = hasKeyword
+I.chamfer = chamfer
 end
 end)()
 -- #module Assets
@@ -430,12 +417,10 @@ MODULES["Assets"] = (function()
 Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local CollectionService = game:GetService("CollectionService")
 local MAT_CLASS = I.MAT_CLASS
 local hasKeyword = I.hasKeyword
-
 E.TYPES = { "Building", "Tree", "Rock", "Prop", "Bush", "Flower" }
 E.HUGS = { "None", "Trees", "Buildings", "Roads", "Paths", "Water" }
 E.PLACES = { "Scatter", "Along" }
@@ -446,10 +431,9 @@ E.FACINGS = { "Face it", "Along", "Away", "Random" }
 local FOLLOW_FIELD = { Roads = "Roads", Paths = "Paths", Water = "Water", Houses = "Buildings", Border = "Edge" }
 E.YAW_MODES = { "Random", "Snap", "Fixed" }
 local COVERAGE = { Building = 0.10, Tree = 0.35, Rock = 0.05, Prop = 0.06, Bush = 0.14, Flower = 0.10 }
-local MIN_COUNT_R = 1.6 -- tiny assets still "claim" at least this radius when working out how many to place
+local MIN_COUNT_R = 1.6
 local CORE = { Building = 1.0, Tree = 0.2, Rock = 0.8, Prop = 0.9, Bush = 0.6, Flower = 0.5 }
 local PRIORITY = { Building = 1, Tree = 2, Rock = 3, Prop = 3.5, Bush = 4, Flower = 5 }
-
 local function surf(list)
 local t = {}
 for _, s in E.SURFACES do
@@ -460,7 +444,6 @@ t[s] = true
 end
 return t
 end
-
 function E.defaults(t)
 local d = {
 enabled = true,
@@ -507,23 +490,23 @@ fit = false,
 stagger = false,
 side = "Center",
 orient = "Upright",
-roll = 0, -- when following a spline
-front = "Auto", -- which side of the model leads along a line (see E.FRONTS)
-seed = 0, -- per-layer reroll on top of the area seed
+roll = 0,
+front = "Auto",
+seed = 0,
 vary = false,
 hueVar = 0.03,
 satVar = 0.1,
 valVar = 0.15,
 perPart = false,
 dropDetails = 0,
-slopePref = 0, -- -1 (flat ground) … 1 (steep ground): where on the slopes it'd rather grow (0 = anywhere)
-edgeYoung = 0, -- 0-1: smaller copies toward the area's edge and its clearings, like a forest's young fringe
-lean = 0, -- degrees: lean with the area's wind (its direction is the area's), a little more or less each
+slopePref = 0,
+edgeYoung = 0,
+lean = 0,
 near = "",
 nearRange = 16,
-nearStrength = 0.7, -- grow close to copies of another object in the area (its key)
-locked = false, -- keep what's placed: regenerating the area leaves this layer's copies where they are
-key = "", -- the layer's randomness identity once its first model is swapped (so the spots stay the same)
+nearStrength = 0.7,
+locked = false,
+key = "",
 }
 if t == "Building" then
 d.scaleMin, d.scaleMax, d.spacing, d.cluster, d.maxSlope, d.tilt, d.tint = 1, 1, 1.15, 0, 14, 0, 0
@@ -531,7 +514,7 @@ d.surfaces = surf({ "Grass", "Dirt", "Generic", "Sand", "Snow" })
 d.keepBuilding, d.keepRoad, d.keepWater = 3, 2, 6
 d.hug, d.hugRange, d.hugStrength, d.faceRoad = "Roads", 30, 0.85, true
 d.yawMode = "Snap"
-elseif t == "Prop" then -- barrels, crates, sacks…: little piles, some stacked
+elseif t == "Prop" then
 d.scaleMin, d.scaleMax, d.spacing, d.cluster, d.align, d.maxSlope, d.sink, d.tilt, d.tint = 0.9, 1.1, 2.2, 0.2, 0.15, 20, 0, 2, 0.04
 d.surfaces = surf({ "Grass", "Dirt", "Road", "Rock", "Sand", "Snow", "Generic" })
 d.keepBuilding, d.keepRoad, d.keepWater = 1, 0, 2
@@ -557,7 +540,6 @@ d.hug, d.hugRange, d.hugStrength = "Paths", 10, 0.4
 end
 return d
 end
-
 local function partsOf(inst)
 local t = {}
 if inst:IsA("BasePart") then
@@ -570,14 +552,13 @@ end
 end
 return t
 end
-
 local function flatTopOf(parts, ref, topY, size)
 local area = 0
 for _, p in parts do
 if p.Transparency < 1 then
 local cf, h = p.CFrame, p.Size / 2
 local axes, half = { cf.RightVector, cf.UpVector, cf.LookVector }, { h.X, h.Y, h.Z }
-for k = 1, 3 do -- the part's axis that stands vertical (a barrel's cylinder often lies along X)
+for k = 1, 3 do
 local up = axes[k].Y
 if math.abs(up) > 0.98 then
 local a, b = axes[k % 3 + 1], axes[(k + 1) % 3 + 1]
@@ -601,7 +582,6 @@ end
 end
 return math.clamp(area / math.max(size.X * size.Z, 1e-3), 0, 1)
 end
-
 local function measure(inst)
 local parts = partsOf(inst)
 if #parts == 0 then
@@ -634,7 +614,6 @@ rel = ref:ToObjectSpace(pivot),
 flatTop = flatTopOf(parts, ref, mx.Y, size),
 }
 end
-
 local KEYWORDS = {
 {
 "Building",
@@ -688,7 +667,6 @@ local KEYWORDS = {
 { "Flower", { "flower", "grass", "daisy", "tulip", "rose", "weed", "clover", "mushroom", "reed", "lily", "sprout", "petal" } },
 { "Bush", { "bush", "shrub", "hedge", "fern", "plant", "cactus" } },
 }
-
 local function typeByName(name)
 for _, pair in KEYWORDS do
 if hasKeyword(name, pair[2]) then
@@ -697,7 +675,6 @@ end
 end
 return nil
 end
-
 local function classify(inst, m)
 local named = typeByName(inst.Name)
 if named then
@@ -755,7 +732,6 @@ return "Tree"
 end
 return "Bush"
 end
-
 local function merge(d, s)
 if type(s) ~= "table" then
 return d
@@ -775,7 +751,6 @@ end
 end
 return d
 end
-
 local function strHash(str)
 local h = 5381
 for i = 1, #str do
@@ -783,14 +758,12 @@ h = (h * 33 + string.byte(str, i)) % 2147483647
 end
 return h
 end
-
 function E.isGround(inst)
 if inst:GetAttribute("SS_Surface") then
 return true
 end
 return inst:IsA("BasePart") and inst.Size.Y < 2 and math.max(inst.Size.X, inst.Size.Z) >= 16
 end
-
 local function isProcedural(inst)
 if inst.ClassName == "ProceduralModel" then
 return true
@@ -807,7 +780,7 @@ local m = Instance.new("Model")
 m.Name = inst.Name
 for _, p in partsOf(inst) do
 local c = p:Clone()
-if not c then -- generated parts may not be Archivable, and those can't be cloned as they are
+if not c then
 local was = p.Archivable
 pcall(function()
 p.Archivable = true
@@ -821,7 +794,7 @@ end
 for _, d in c:GetDescendants() do
 if d:IsA("BasePart") or d:IsA("LuaSourceContainer") then
 d:Destroy()
-end -- parts come on their own
+end
 end
 c.Parent = m
 end
@@ -831,7 +804,6 @@ end
 function E.copyOf(inst)
 return isProcedural(inst) and frozenCopy(inst) or inst:Clone()
 end
-
 function E.makeVariant(inst, w, size)
 if not inst or not (inst:IsA("Model") or inst:IsA("BasePart")) then
 return nil
@@ -845,7 +817,6 @@ return nil
 end
 return { inst = inst, m = m, w = tonumber(w) or 1, size = tonumber(size) or 1, src = isProcedural(inst) and frozenCopy(inst) or nil }
 end
-
 function E.makeLayer(inst, t, s, vlist)
 local first = E.makeVariant(inst, vlist and vlist[1] and vlist[1].w, vlist and vlist[1] and vlist[1].size)
 if not first then
@@ -889,7 +860,6 @@ end
 end
 return l
 end
-
 function E.addVariant(l, inst)
 for _, v in l.variants do
 if v.inst == inst then
@@ -903,7 +873,6 @@ end
 table.insert(l.variants, v)
 return true
 end
-
 function E.swapVariant(l, idx, inst)
 local old = l.variants[idx]
 if not old or old.inst == inst then
@@ -920,7 +889,6 @@ l.variants[idx] = v
 l.inst, l.m = l.variants[1].inst, l.variants[1].m
 return true
 end
-
 function E.removeVariant(l, idx)
 if #l.variants <= 1 or type(idx) ~= "number" or not l.variants[idx] then
 return false
@@ -929,14 +897,12 @@ table.remove(l.variants, idx)
 l.inst, l.m = l.variants[1].inst, l.variants[1].m
 return true
 end
-
 E.BIOMES = {
 { name = "Forest", mix = { Tree = 1.3, Bush = 1, Flower = 0.7, Rock = 0.6 } },
 { name = "Meadow", mix = { Flower = 1.6, Bush = 0.6, Tree = 0.25, Rock = 0.3 } },
 { name = "Desert", mix = { Rock = 1.2, Bush = 0.5, Prop = 0.3 }, surfaces = { "Sand", "Rock", "Dirt", "Generic" } },
 { name = "Town", mix = { Building = 1, Prop = 1, Tree = 0.35, Bush = 0.5 } },
 }
-
 local LIBRARY = { "asset", "template", "prefab", "model", "prop", "library", "sample" }
 function E.findTemplates()
 local byType, out, roads = {}, workspace:FindFirstChild(E.OUT), workspace:FindFirstChild(E.ROADS)
@@ -970,7 +936,6 @@ scan(game:GetService("ReplicatedStorage"), false)
 scan(workspace, true)
 return byType
 end
-
 function E.biomeLayers(biome)
 local found, layers, missing = E.findTemplates(), {}, {}
 for _, t in E.TYPES do
@@ -1001,7 +966,6 @@ end
 end
 return layers, missing
 end
-
 function E.makeSamples()
 local ss = game:GetService("ServerStorage")
 local f = ss:FindFirstChild("SmartScatter Samples")
@@ -1049,12 +1013,10 @@ model("Crate", { { "Box", Vector3.new(3, 3, 3), Vector3.new(0, 1.5, 0), Color3.f
 f.Parent = ss
 return f, true
 end
-
 function E.setPost(l, inst)
 l.post = inst and E.makeVariant(inst, 1, 1) or nil
 return inst == nil or l.post ~= nil
 end
-
 function E.variantList(l)
 local t = {}
 for _, v in l.variants do
@@ -1062,7 +1024,6 @@ table.insert(t, { inst = v.inst, w = v.w, size = v.size })
 end
 return t
 end
-
 function E.paintValue(l, cx, cz)
 local r = l.paint and l.paint[cz]
 return r and r[cx] or 1
@@ -1105,7 +1066,6 @@ paint[cz][cx] = tonumber(v)
 end
 return paint
 end
-
 function E.looksLikeSegment(l)
 local m = l.m
 if not m then
@@ -1114,10 +1074,9 @@ end
 local long, short = math.max(m.size.X, m.size.Z), math.min(m.size.X, m.size.Z)
 if m.size.Y > long then
 return false
-end -- taller than long: a lamp with an arm, a sign post, a pole
+end
 return m.size.Y < long * 0.2 or (long >= short * 4 and long >= 3)
 end
-
 function E.smartLine(l, hasSpline)
 l.s.place = "Along"
 l.s.fit = E.looksLikeSegment(l)
@@ -1125,7 +1084,6 @@ if hasSpline then
 l.s.follow = "Spline"
 end
 end
-
 function E.setType(layer, t)
 local s = layer.s
 local keep = {
@@ -1162,7 +1120,6 @@ nearStrength = s.nearStrength,
 layer.type = t
 layer.s = merge(E.defaults(t), keep)
 end
-
 function E.resetLayer(layer)
 local s = layer.s
 local line = s.place == "Along"
@@ -1171,7 +1128,6 @@ E.defaults(layer.type),
 { enabled = s.enabled, place = s.place, follow = line and s.follow or nil, fit = line and s.fit or nil, locked = s.locked, key = s.key }
 )
 end
-
 I.encodePaint = encodePaint
 I.decodePaint = decodePaint
 I.COVERAGE = COVERAGE
@@ -1189,13 +1145,11 @@ MODULES["Areas"] = (function()
 Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
 local decodePaint = I.decodePaint
 local encodePaint = I.encodePaint
-
 local SEP = "\31"
 local function nameAt(inst)
 local parent = inst.Parent
@@ -1250,11 +1204,9 @@ end
 function E.layerKey(l)
 return table.concat(pathOf(l.inst), ".")
 end
-
 local function plainName(entry)
 return type(entry) == "string" and (string.match(entry, "^(.*)" .. SEP .. "%d+$") or entry) or nil
 end
-
 local function findModel(path, index)
 local hit = resolve(path)
 if hit then
@@ -1275,7 +1227,7 @@ and not (out and c:IsDescendantOf(out))
 and not (c:IsA("BasePart") and c:FindFirstAncestorWhichIsA("Model"))
 then
 local seen = index[c.Name]
-index[c.Name] = seen == nil and c or false -- false: two candidates, don't guess
+index[c.Name] = seen == nil and c or false
 end
 end
 end
@@ -1283,7 +1235,6 @@ end
 local found = index[name]
 return found or nil, found ~= nil and found ~= false
 end
-
 local function encodeMask(rows)
 local out = {}
 for cz, row in rows do
@@ -1308,7 +1259,6 @@ end
 end
 return table.concat(out, "|")
 end
-
 function E.getOut()
 local out = workspace:FindFirstChild(E.OUT)
 if not out then
@@ -1318,7 +1268,6 @@ out.Parent = workspace
 end
 return out
 end
-
 function E.listAreas()
 local t = {}
 local out = workspace:FindFirstChild(E.OUT)
@@ -1334,7 +1283,6 @@ return a.Name < b.Name
 end)
 return t
 end
-
 function E.setCell(a, cx, cz, on)
 local row = a.rows[cz]
 if on then
@@ -1361,7 +1309,6 @@ function E.hasCell(a, cx, cz)
 local r = a.rows[cz]
 return r ~= nil and r[cx] == true
 end
-
 function E.layersToJSON(layers, withPaint, lost)
 local data = {}
 for _, l in layers do
@@ -1371,14 +1318,14 @@ table.insert(v, { p = pathOf(x.inst), w = x.w, z = x.size })
 end
 for _, x in l.missing or {} do
 table.insert(v, x)
-end -- models not found this time: kept for when they're back
+end
 table.insert(data, {
 p = pathOf(l.inst),
 t = l.type,
 s = l.s,
 v = v,
 pm = withPaint ~= false and encodePaint(l.paint) or nil,
-pn = withPaint ~= false and l.pins or nil, -- copies put down by hand (Engine/Pins); like painting, an area's own
+pn = withPaint ~= false and l.pins or nil,
 post = l.post and pathOf(l.post.inst) or l.missingPost,
 })
 end
@@ -1389,7 +1336,7 @@ return HttpService:JSONEncode(data)
 end
 function E.layersFromJSON(json)
 local layers, lost, relinked = {}, {}, 0
-local index = {} -- models by name, built on the first path that doesn't resolve
+local index = {}
 local ok, data = pcall(HttpService.JSONDecode, HttpService, json or "[]")
 if ok and type(data) == "table" then
 for _, d in data do
@@ -1450,7 +1397,6 @@ table.remove(a.lost, i)
 table.insert(a.layers, layers[1])
 return true
 end
-
 local PRESETS = "SmartScatterPresets"
 function E.listPresets()
 local t = {}
@@ -1466,7 +1412,7 @@ end)
 return t
 end
 function E.savePreset(name, layers)
-return E.savePresetJSON(name, E.layersToJSON(layers, false)) -- painting belongs to an area, not to a preset
+return E.savePresetJSON(name, E.layersToJSON(layers, false))
 end
 function E.savePresetJSON(name, json)
 local ss = game:GetService("ServerStorage")
@@ -1485,15 +1431,13 @@ v.Value = json
 v.Parent = f
 return v
 end
-
 E.AREA_LOOK = { "edge", "size", "patches", "pattern", "patchSize", "zones", "zoneMood", "windDir" }
 function E.copyLook(from, to)
 for _, k in E.AREA_LOOK do
 to[k] = from[k]
 end
 end
-
-local CODE = "SmartScatter/1 " -- the format's name and version; a later format gets a new number
+local CODE = "SmartScatter/1 "
 function E.presetCode(preset)
 return CODE .. HttpService:JSONEncode({ n = preset.Name, l = preset.Value })
 end
@@ -1510,7 +1454,6 @@ end
 local name = string.sub(string.match(d.n, "^%s*(.-)%s*$"), 1, 60)
 return E.savePresetJSON(name ~= "" and name or "Shared preset", d.l)
 end
-
 function E.report(a)
 local rows, total = {}, { copies = 0, parts = 0 }
 local function measure(name, root)
@@ -1550,7 +1493,6 @@ return x.parts > y.parts
 end)
 return rows, total
 end
-
 function E.bake(a, name)
 local out = Instance.new("Folder")
 out.Name = name or (a.folder.Name .. " (baked)")
@@ -1571,11 +1513,11 @@ end
 end
 for _, c in layerFolder:GetChildren() do
 c.Parent = dst
-end -- models (or streaming chunks) keep their grouping
+end
 dst.Parent = out
 layerFolder.Parent = nil
 end
-local road = E.roadOf(a) -- a path's road goes with it, no longer rebuilt from the curve
+local road = E.roadOf(a)
 if road then
 local link = road:FindFirstChild("Area")
 if link then
@@ -1587,7 +1529,6 @@ end
 out.Parent = workspace
 return out, n
 end
-
 function E.loadArea(folder)
 local a = {
 folder = folder,
@@ -1597,13 +1538,13 @@ cell = folder:GetAttribute("SS_Cell") or E.MASK_CELL,
 topY = folder:GetAttribute("SS_TopY") or 0,
 seed = folder:GetAttribute("SS_Seed") or 1,
 edge = folder:GetAttribute("SS_Edge") or 12,
-size = folder:GetAttribute("SS_Size") or 1, -- "Size of everything": multiplies every object's size range
-patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
+size = folder:GetAttribute("SS_Size") or 1,
+patches = folder:GetAttribute("SS_Patches") or 0,
 patchSize = folder:GetAttribute("SS_PatchSize") or 60,
-pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
-zones = folder:GetAttribute("SS_Zones") or 0, -- colour zones' strength (0 = off)
-zoneMood = folder:GetAttribute("SS_ZoneMood") or "Autumn", -- their colour (E.ZONE_MOODS)
-windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
+pattern = folder:GetAttribute("SS_Pattern") or "Groves",
+zones = folder:GetAttribute("SS_Zones") or 0,
+zoneMood = folder:GetAttribute("SS_ZoneMood") or "Autumn",
+windDir = folder:GetAttribute("SS_Wind") or 0,
 layers = {},
 }
 for cz, rest in string.gmatch(folder:GetAttribute("SS_Mask") or "", "(-?%d+):([^|]*)") do
@@ -1716,7 +1657,6 @@ a.cell = E.MASK_CELL
 end
 return a
 end
-
 function E.fillPolygon(a, poly, on, allow)
 local changed, c, n = {}, a.cell, #poly
 if n < 3 then
@@ -1748,7 +1688,6 @@ end
 end
 return changed
 end
-
 local N8 = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
 function E.maskMorph(a, op)
 local minCX, maxCX, minCZ, maxCZ = math.huge, -math.huge, math.huge, -math.huge
@@ -1820,7 +1759,7 @@ elseif op == "shrink" then
 if on and nOn < 8 then
 table.insert(unset, { cx, cz })
 end
-elseif op == "smooth" then -- by neighbours in the 3x3 block (3 or fewer: off, 6 or more: on): rounds corners, fills notches, drops specks
+elseif op == "smooth" then
 local total = nOn + (on and 1 or 0)
 if on and total <= 3 then
 table.insert(unset, { cx, cz })
@@ -1840,7 +1779,6 @@ end
 table.move(unset, 1, #unset, #set + 1, set)
 return set
 end
-
 function E.ensureFolder(a)
 local f = a.folder
 if f and f:IsDescendantOf(workspace) then
@@ -1856,7 +1794,6 @@ n.Parent = E.getOut()
 a.folder = n
 end
 end
-
 function E.saveArea(a)
 E.ensureFolder(a)
 local f = a.folder
@@ -1885,7 +1822,7 @@ math.floor(q.p.Z * 100 + 0.5) / 100,
 math.floor(q.n.X * 1000 + 0.5) / 1000,
 math.floor(q.n.Y * 1000 + 0.5) / 1000,
 math.floor(q.n.Z * 1000 + 0.5) / 1000,
-(q.sharp and 1 or 0) + (q.raised and 2 or 0), -- flags: 1 sharp, 2 raised
+(q.sharp and 1 or 0) + (q.raised and 2 or 0),
 math.floor((q.w or 1) * 100 + 0.5) / 100,
 math.floor((q.s or 1) * 100 + 0.5) / 100,
 })
@@ -1936,7 +1873,6 @@ end
 end
 f:SetAttribute("SS_Removed", #rem > 0 and HttpService:JSONEncode(rem) or nil)
 end
-
 function E.copyAt(a, inst)
 local cur = inst
 while cur and cur ~= a.folder do
@@ -1952,7 +1888,7 @@ local h = copy:GetAttribute("SS_L")
 if not h then
 return nil
 end
-if copy:GetAttribute("SS_Pin") then -- put down by hand: its pin goes, so it isn't put back
+if copy:GetAttribute("SS_Pin") then
 for _, l in a.layers do
 if l._h == h then
 E.unpin(l, copy:GetAttribute("SS_X") or 0, copy:GetAttribute("SS_Z") or 0)
@@ -1983,7 +1919,6 @@ end
 return false
 end
 E.removedAt = removedAt
-
 function E.clearZones(except)
 local t = {}
 for _, f in E.listAreas() do
@@ -2004,7 +1939,6 @@ end
 end
 return false
 end
-
 function E.fillFromParts(a, parts)
 local changed, c = {}, a.cell
 local rp = RaycastParams.new()
@@ -2026,7 +1960,7 @@ end
 end
 if (hi.X - lo.X) * (hi.Z - lo.Z) / (c * c) > 250000 then
 continue
-end -- a baseplate: paint that by hand
+end
 for cz = math.floor(lo.Z / c), math.floor(hi.Z / c) do
 for cx = math.floor(lo.X / c), math.floor(hi.X / c) do
 local o = Vector3.new((cx + 0.5) * c, hi.Y + 1, (cz + 0.5) * c)
@@ -2039,7 +1973,6 @@ a.topY = math.max(a.topY or 0, hi.Y)
 end
 return changed
 end
-
 function E.createArea(name, layersFrom)
 local f = Instance.new("Folder")
 f.Name = name
@@ -2068,7 +2001,6 @@ end
 E.saveArea(a)
 return a
 end
-
 function E.roadOf(a)
 local roads = workspace:FindFirstChild(E.ROADS)
 for _, f in roads and roads:GetChildren() or {} do
@@ -2082,7 +2014,7 @@ end
 function E.clearOutputs(a)
 for _, c in a.folder:GetChildren() do
 E.dropOutput(c)
-end -- not kept for undo: undo rebuilds from the area
+end
 local surface = E.roadOf(a)
 if surface then
 E.dropOutput(surface)
@@ -2096,7 +2028,6 @@ MODULES["Paths"] = (function()
 Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local function knot(t, a, b)
 return t + math.max((b - a).Magnitude, 1e-4) ^ 0.5
@@ -2113,7 +2044,6 @@ local b1 = a1:Lerp(a2, u / t2)
 local b2 = a2:Lerp(a3, (u - t1) / (t3 - t1))
 return b1:Lerp(b2, (u - t1) / (t2 - t1))
 end
-
 function E.autoHandle(sp, i)
 local pts, n = sp.pts, #sp.pts
 if n < 2 then
@@ -2128,12 +2058,10 @@ return pts[math.clamp(k, 1, n)].p
 end
 return (at(i + 1) - at(i - 1)) / 6
 end
-
 local function bezier(a, c1, c2, b, t)
 local u = 1 - t
 return a * (u * u * u) + c1 * (3 * u * u * t) + c2 * (3 * u * t * t) + b * (t * t * t)
 end
-
 function E.splineCurve(sp, step)
 local pts = sp.pts
 local n = #pts
@@ -2196,11 +2124,10 @@ table.insert(Z, last.s or 1)
 table.insert(R, raised(last))
 return P, U, S, W, Z, R
 end
-
 local function insideSolid(p, rp)
 local T = workspace.Terrain
 local ok, mats, occ = pcall(function()
-local lo = Vector3.new(math.floor(p.X / 4), math.floor(p.Y / 4), math.floor(p.Z / 4)) * 4 -- the voxel p is in
+local lo = Vector3.new(math.floor(p.X / 4), math.floor(p.Y / 4), math.floor(p.Z / 4)) * 4
 return T:ReadVoxels(Region3.new(lo, lo + Vector3.new(4, 4, 4)), 4)
 end)
 if ok and mats.Size.X > 0 then
@@ -2220,7 +2147,6 @@ end
 end
 return false
 end
-
 local function project(pos, up, rp)
 local hit = workspace:Raycast(pos + up * 4, -up * 12, rp) or workspace:Raycast(pos + up * 60, -up * 120, rp)
 if hit and (pos - hit.Position):Dot(up) > 1.5 and insideSolid(pos + up * 0.5, rp) then
@@ -2246,7 +2172,6 @@ end
 end
 return { P = P, U = U, W = W, Z = Z, R = R, snap = sp.snap, rp = rp }
 end
-
 function E.joinToPoint(sp, ref, target)
 if ref.cv == sp and target.cv == sp and #sp.pts >= 4 and ((ref.i == #sp.pts and target.i == 1) or (ref.i == 1 and target.i == #sp.pts)) then
 table.remove(sp.pts, ref.i)
@@ -2256,12 +2181,12 @@ end
 local q, o = ref.cv.pts[ref.i], target.cv.pts[target.i]
 if not (q and o) then
 return nil
-end -- a stale reference: nothing to join
+end
 q.p, q.n = o.p, o.n
 return "joined"
 end
 function E.joinToCurve(ref, cv, seg, p, n)
-local q = ref.cv.pts[ref.i] -- before the insert: it may shift indices on the same curve
+local q = ref.cv.pts[ref.i]
 local a, b = cv.pts[seg], cv.pts[seg + 1] or cv.pts[1]
 local t = 0.5
 if a and b and (b.p - a.p).Magnitude > 1e-3 then
@@ -2318,7 +2243,6 @@ end
 end
 return drop
 end
-
 function E.splineCurves(sp)
 local list = {}
 if not sp then
@@ -2334,7 +2258,6 @@ end
 end
 return list
 end
-
 E.ROAD_STYLES = {
 { name = "Asphalt", mat = Enum.Material.Asphalt, color = Color3.fromRGB(64, 64, 70) },
 { name = "Concrete", mat = Enum.Material.Concrete, color = Color3.fromRGB(150, 150, 150) },
@@ -2381,7 +2304,7 @@ local height = math.abs(ab:Dot(up))
 if height < 1e-3 then
 return 0
 end
-local sink = (right.Y >= 0 and -right or right) * (thick / 2) -- the top face sits on the triangle, depth goes down
+local sink = (right.Y >= 0 and -right or right) * (thick / 2)
 local n = 0
 local d0, d1 = math.abs(ab:Dot(back)), math.abs(ac:Dot(back))
 if d0 > 1e-3 then
@@ -2401,7 +2324,6 @@ return 0
 end
 return math.max(tonumber(sf.width) or sp.width or 0, 0)
 end
-
 function E.buildSurface(a, rp)
 local sp = a.spline
 local sf = sp and sp.surface
@@ -2414,7 +2336,7 @@ local thick = math.clamp(tonumber(sf.thick) or 1, 0.2, 20)
 local R0 = width / 2
 local folder = Instance.new("Folder")
 folder.Name = "Surface"
-folder:SetAttribute("SS_Surface", (style.name == "Dirt" or style.name == "Sand") and "Path" or "Road") -- also how scans read it
+folder:SetAttribute("SS_Surface", (style.name == "Dirt" or style.name == "Sand") and "Path" or "Road")
 local parts = 0
 local all = {}
 for ci, cv in E.splineCurves(sp) do
@@ -2457,7 +2379,7 @@ end
 lastDir = dir
 end
 table.insert(st, n)
-local lift = 0.04 + (ci - 1) * 0.03 -- branches sit a hair higher where they overlap the main road
+local lift = 0.04 + (ci - 1) * 0.03
 local function flat(v)
 if not v then
 return nil
@@ -2577,7 +2499,7 @@ local lx, kl = cross(1)
 local rx, kr = cross(-1)
 if not lx or not rx then
 return "gone"
-end -- the whole road lies inside the other one
+end
 return { l = lx, r = rx, k = fromStart and math.max(kl, kr) or math.min(kl, kr) }
 end
 end
@@ -2642,13 +2564,12 @@ end
 end
 end
 end
-if parts == 0 then -- no curve long enough for a road yet
+if parts == 0 then
 folder:Destroy()
 return nil, 0
 end
 return folder, parts
 end
-
 function E.roadTest(a, rp)
 local sp, cells, g = a.spline, {}, 2
 for _, cv in E.splineCurves(sp) do
@@ -2669,25 +2590,24 @@ return function(x, z)
 return cells[math.floor(x / g) * 1000003 + math.floor(z / g)] == true
 end
 end
-
 function E.maskFromSpline(a, rp)
 local sp = a.spline
 a.rows, a.count = {}, 0
 if not sp or (sp.width or 0) <= 0 then
 return
 end
-local c, R0, road = a.cell, sp.width / 2, E.roadWidth(sp) / 2 -- the road down the middle stays empty
+local c, R0, road = a.cell, sp.width / 2, E.roadWidth(sp) / 2
 local top = -math.huge
 for _, cv in E.splineCurves(sp) do
 local smp = E.splineSamples(cv, rp)
 local lastX, lastZ
 for k, p in smp.P do
 top = math.max(top, p.Y)
-local R = R0 * smp.W[k] -- the strip widens and narrows with each point's width
+local R = R0 * smp.W[k]
 if not lastX or (p.X - lastX) ^ 2 + (p.Z - lastZ) ^ 2 >= (c * 0.5) ^ 2 or k == #smp.P then
 lastX, lastZ = p.X, p.Z
 if road <= 0 then
-E.setCell(a, math.floor(p.X / c), math.floor(p.Z / c), true) -- a strip narrower than a cell still counts
+E.setCell(a, math.floor(p.X / c), math.floor(p.Z / c), true)
 end
 for cx = math.floor((p.X - R) / c), math.floor((p.X + R) / c) do
 for cz = math.floor((p.Z - R) / c), math.floor((p.Z + R) / c) do
@@ -2705,7 +2625,6 @@ if top > -math.huge then
 a.topY = top
 end
 end
-
 I.triangle = triangle
 I.project = project
 end
@@ -2716,20 +2635,17 @@ MODULES["Planning"] = (function()
 Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local CORE = I.CORE
 local COVERAGE = I.COVERAGE
 local MIN_COUNT_R = I.MIN_COUNT_R
 local PRIORITY = I.PRIORITY
 local strHash = I.strHash
-
-local scaleRange -- (defined just below; placement and lines use it too)
+local scaleRange
 scaleRange = function(l)
 local s, k = l.s, l._size or 1
 return math.min(s.scaleMin, s.scaleMax) * k, math.max(s.scaleMin, s.scaleMax) * k
 end
-
 local function prep(l)
 local lo, hi = scaleRange(l)
 local avg = (lo + hi) / 2
@@ -2744,12 +2660,11 @@ l._r = (wsum > 0 and rsum / wsum or l.m.radius) * avg
 l._core = l._r * CORE[l.type]
 l._wsum = wsum
 end
-
 local function score(l, an, i)
 local s, c = l.s, an.cls[i]
 if not s.surfaces[c] and not an.on[i] then
 return 0
-end -- parts picked for the area take anything
+end
 if math.deg(math.acos(math.clamp(an.ny[i], -1, 1))) > s.maxSlope then
 return 0
 end
@@ -2777,7 +2692,6 @@ local base = (s.hug == "Buildings" and kB) or (s.hug == "Roads" and kR) or (s.hu
 local near = math.clamp(1 - math.max(d[s.hug][i] - base, 0) / math.max(s.hugRange, 1), 0, 1)
 return (1 - s.hugStrength) + s.hugStrength * near
 end
-
 local function isLine(l)
 return l.s.place == "Along"
 end
@@ -2785,7 +2699,7 @@ E.isLine = isLine
 local function prio(l)
 return (isLine(l) and l.type ~= "Building") and 1.5 or PRIORITY[l.type]
 end
-local function before(a, b) -- placement order: big categories first, then bigger assets, then stable by key
+local function before(a, b)
 if prio(a) ~= prio(b) then
 return prio(a) < prio(b)
 end
@@ -2797,7 +2711,6 @@ return a.m.radius > b.m.radius
 end
 return E.layerKey(a) < E.layerKey(b)
 end
-
 local function ordered(layers)
 local t = {}
 for _, l in layers do
@@ -2805,7 +2718,7 @@ local weight = 0
 for _, v in l.variants do
 weight += math.max(v.w, 0)
 end
-if l.s.enabled and l.s.density > 0 and l.inst.Parent and weight > 0 then -- all shares at 0: places nothing
+if l.s.enabled and l.s.density > 0 and l.inst.Parent and weight > 0 then
 l._h = strHash(l.s.key ~= "" and l.s.key or E.layerKey(l))
 table.insert(t, l)
 end
@@ -2828,8 +2741,7 @@ end
 end
 return t
 end
-
-local function n2(x, z, o) -- Roblox's noise, -0.5..0.5 in practice, stretched to 0-1
+local function n2(x, z, o)
 return math.clamp(0.5 + math.noise(x, z, o) * 1.6, 0, 1)
 end
 local function smooth(t)
@@ -2848,18 +2760,18 @@ local PATTERN = {
 Groves = function(x, z, f, o)
 return n2(x / f, z / f, o)
 end,
-Natural = function(x, z, f, o) -- three octaves: big shapes, then detail inside them
+Natural = function(x, z, f, o)
 local v = n2(x / f, z / f, o) * 0.6 + n2(x * 2.1 / f, z * 2.1 / f, o + 17) * 0.28
 return math.clamp(v + n2(x * 4.3 / f, z * 4.3 / f, o + 31) * 0.12, 0, 1)
 end,
-Islands = function(x, z, f, o) -- the same noise, cut sharply at the middle
+Islands = function(x, z, f, o)
 return smooth(math.clamp((n2(x / f, z / f, o) - 0.42) / 0.16, 0, 1))
 end,
-Veins = function(x, z, f, o) -- ridges: high only where the noise crosses its middle
+Veins = function(x, z, f, o)
 local r = 1 - math.abs(n2(x / f, z / f, o) - 0.5) * 2
 return smooth(math.clamp((r - 0.55) / 0.4, 0, 1))
 end,
-Spots = function(x, z, f, o) -- distance to the nearest point of a jittered grid (cellular noise)
+Spots = function(x, z, f, o)
 local cx, cz, best = math.floor(x / f), math.floor(z / f), math.huge
 for dx = -1, 1 do
 for dz = -1, 1 do
@@ -2871,7 +2783,7 @@ end
 end
 return smooth(math.clamp(1 - best / (f * 0.45), 0, 1))
 end,
-Bands = function(x, z, f, o, a) -- rows across the wind direction, bent a little by noise
+Bands = function(x, z, f, o, a)
 local w = math.rad(a.windDir or 0)
 local along = x * math.cos(w) - z * math.sin(w)
 local wave = math.sin((along / f + math.noise(x / (f * 2), z / (f * 2), o) * 0.8) * math.pi * 2)
@@ -2890,7 +2802,6 @@ end
 return 1 - k + k * E.patternAt(a, x, z)
 end
 E.patchAt = patchAt
-
 E.ZONE_MOODS = { "Autumn", "Dry", "Lush", "Frost" }
 E.ZONE_HINT = {
 Autumn = "Warmer, yellow and orange toward the open ground.",
@@ -2913,24 +2824,22 @@ local mood = ZONE[a.zoneMood or "Autumn"] or ZONE.Autumn
 local w = k * (1 - E.patternAt(a, x, z))
 return mood[1] * w, mood[2] * w, mood[3] * w
 end
-
 function E.cellCentre(an, i)
 return an.x0 + ((i - 1) % an.nx + 0.5) * an.G, an.z0 + ((i - 1) // an.nx + 0.5) * an.G
 end
-
 local function suitability(l, an, i, a)
 local sc = score(l, an, i)
 if sc <= 0 then
 return 0
 end
-if a.edge and a.edge > 0 then -- soft falloff toward the painted border
+if a.edge and a.edge > 0 then
 sc *= math.clamp((an.dist.Edge[i] - an.G * 0.5) / a.edge, 0, 1)
 if sc <= 0 then
 return 0
 end
 end
 local pref = l.s.slopePref or 0
-if pref ~= 0 then -- how steep the ground is, from flat (0) to the steepest it may stand on (1)
+if pref ~= 0 then
 local t = math.clamp(math.deg(math.acos(math.clamp(an.ny[i], -1, 1))) / math.max(l.s.maxSlope, 1), 0, 1)
 sc *= pref > 0 and (1 - pref + pref * t) or (1 + pref * t)
 end
@@ -2948,7 +2857,6 @@ return function(i)
 return an.inM[i] and suitability(l, an, i, a) or 0
 end
 end
-
 function E.plan(layers, an, density, a)
 local list = ordered(layers)
 for _, l in list do
@@ -2966,7 +2874,7 @@ prep(l)
 if isLine(l) or not an then
 table.insert(plans, { layer = l, line = true })
 continue
-end -- no painted area: everything follows the spline
+end
 local cand, scores, sum = {}, {}, 0
 for i = 1, an.nx * an.nz do
 if an.inM[i] then
@@ -2991,7 +2899,6 @@ table.insert(plans, { layer = l, cand = cand, scores = scores, n = n })
 end
 return plans
 end
-
 function E.estimate(a, an, density)
 local copies, parts = 0, 0
 for _, p in E.plan(a.layers, an, density, a) do
@@ -3008,7 +2915,6 @@ end
 end
 return math.floor(copies), math.floor(parts)
 end
-
 I.score = score
 I.isLine = isLine
 I.before = before
@@ -3021,7 +2927,6 @@ MODULES["Placement"] = (function()
 Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local CollectionService = game:GetService("CollectionService")
 local CORE = I.CORE
@@ -3031,9 +2936,8 @@ local partsOf = I.partsOf
 local scaleRange = I.scaleRange
 local score = I.score
 local triangle = I.triangle
-
 local CELL = 8
-local BIG = 32 -- reach above this goes in the list
+local BIG = 32
 local Hash = {}
 Hash.__index = Hash
 local function ckey(cx, cz)
@@ -3062,7 +2966,7 @@ if rch > self.maxReach then
 self.maxReach = rch
 end
 end
-local LONG = 1.3 -- one side this much longer than the other counts as long
+local LONG = 1.3
 local function footprint(item, m, sc)
 local hx, hz = m.size.X * sc / 2, m.size.Z * sc / 2
 if math.max(hx, hz) >= math.min(hx, hz) * LONG then
@@ -3081,13 +2985,13 @@ return it.hx * math.abs(ux * c - uz * s) + it.hz * math.abs(ux * s + uz * c)
 end
 local function minDist(o, it, ro, ri)
 if o.type == it.type then
-if it.g and o.g == it.g then -- same pile: allowed to touch; pieces of one fence are already laid end to end
+if it.g and o.g == it.g then
 return it.fit and 0 or (ro + ri) * 0.9
 end
 return ro * o.sp + ri * it.sp
-elseif o.type == "Building" or it.type == "Building" then -- keep canopies off roofs
+elseif o.type == "Building" or it.type == "Building" then
 return o.type == "Building" and (ro + ri * 0.6 * it.cs) or (ri + ro * 0.6 * o.cs)
-elseif o.line and it.line then -- two objects lined up along a path: side by side, never inside each other
+elseif o.line and it.line then
 return (ro + ri) * 0.85
 end
 return ro * CORE[o.type] * o.cs + ri * CORE[it.type] * it.cs
@@ -3095,7 +2999,7 @@ end
 local function tooClose(o, it)
 local dx, dz = it.x - o.x, it.z - o.z
 local d = math.sqrt(dx * dx + dz * dz)
-local ko, ki = minDist(o, it, 1, 0), minDist(o, it, 0, 1) -- the rules are linear in each reach
+local ko, ki = minDist(o, it, 1, 0), minDist(o, it, 0, 1)
 if d > 1e-6 and d >= (ko * extent(o, dx / d, dz / d) + ki * extent(it, dx / d, dz / d)) then
 return false
 end
@@ -3132,7 +3036,6 @@ end
 end
 return false
 end
-
 function Hash:nearest(x, z, range, t)
 local best
 for _, o in self.big do
@@ -3160,7 +3063,6 @@ end
 end
 return best and math.max(best, 0)
 end
-
 local function rotateUp(up)
 local d = Vector3.yAxis:Dot(up)
 if d > 0.9999 then
@@ -3168,18 +3070,17 @@ return CFrame.identity
 end
 if d < -0.9999 then
 return CFrame.Angles(math.pi, 0, 0)
-end -- straight down: any axis will do
+end
 return CFrame.fromAxisAngle(Vector3.yAxis:Cross(up).Unit, math.acos(math.clamp(d, -1, 1)))
 end
 E.rotateUp = rotateUp
-
 E.FRONTS = { "Auto", "-Z", "+Z", "-X", "+X" }
 local FRONT_YAW = { ["-Z"] = 0, ["+Z"] = math.pi, ["-X"] = -math.pi / 2, ["+X"] = math.pi / 2 }
 local function frontOf(s)
 local f = s and s.front
 return FRONT_YAW[f] and f or nil
 end
-local function alongXOf(s, m) -- true when the model's X axis runs along the line
+local function alongXOf(s, m)
 local f = frontOf(s)
 if f then
 return f == "+X" or f == "-X"
@@ -3189,7 +3090,6 @@ end
 local function lengthOf(s, m)
 return alongXOf(s, m) and m.size.X or m.size.Z
 end
-
 local function overhangYaw(v)
 if v._over ~= nil then
 return v._over or nil
@@ -3213,29 +3113,27 @@ local rel = cf.Position - ref
 if lowY - m.bottom < H * 0.1 then
 base += rel * vol
 wb += vol
-end -- stands on the ground
+end
 if rel.Y - m.bottom > H * 0.65 then
 top += rel * vol
 wt += vol
-end -- up top
+end
 end
 v._over = false
-if wb > 0 and wt > 0 and H > math.max(m.size.X, m.size.Z) then -- taller than wide: a lamp, a sign post
+if wb > 0 and wt > 0 and H > math.max(m.size.X, m.size.Z) then
 local d = top / wt - base / wb
 d = Vector3.new(d.X, 0, d.Z)
 if d.Magnitude > math.max(0.5, math.max(m.size.X, m.size.Z) * 0.2) then
 v._over = math.atan2(d.X, -d.Z)
 local b = base / wb
-v._foot = Vector2.new(b.X, b.Z) -- what it stands on: that goes on the line, not the middle of its arm
+v._foot = Vector2.new(b.X, b.Z)
 end
 end
 return v._over or nil
 end
-
 local function groupId(l, n)
 return (l._h % 100000) * 100000 + n
 end
-
 local function pickVariant(l, rng)
 local r = rng:NextNumber() * l._wsum
 for _, v in l.variants do
@@ -3248,7 +3146,6 @@ end
 end
 return l.variants[#l.variants]
 end
-
 local function capInfo(v, s)
 local alongX = alongXOf(s, v.m)
 if v._cap ~= nil and v._capX == alongX then
@@ -3279,7 +3176,6 @@ end
 v._cap = (cnt > 0 and neg ~= pos) and { only = only, off = sum / cnt, alongX = alongX } or false
 return v._cap or nil
 end
-
 local function squeeze(clone, m, sc, f, alongX)
 local A = alongX and Vector3.xAxis or Vector3.zAxis
 local pivot = clone:GetPivot()
@@ -3297,7 +3193,7 @@ p.Size = sz * k
 local mesh = p:FindFirstChildWhichIsA("SpecialMesh")
 if mesh and mesh.MeshType == Enum.MeshType.FileMesh then
 mesh.Scale *= k
-end -- file meshes ignore part size
+end
 end
 p.CFrame = cf + A * ((c - along) * (1 - f))
 end
@@ -3306,9 +3202,7 @@ if pp then
 pp.PivotOffset = pp.CFrame:ToObjectSpace(pivot)
 end
 end
-
-local tag, recolor, dropDetails -- (below)
-
+local tag, recolor, dropDetails
 local function shifted(c, dh, ds, dv)
 local h, s, v = c:ToHSV()
 return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
@@ -3317,7 +3211,7 @@ recolor = function(parts, s, rng, zone)
 local function roll()
 if s.vary then
 return rng:NextNumber(-s.hueVar, s.hueVar), rng:NextNumber(-s.satVar, s.satVar), rng:NextNumber(-s.valVar, s.valVar)
-elseif s.tint > 0 then -- (brightness drawn first, as always: existing layouts keep their colours)
+elseif s.tint > 0 then
 local dv = rng:NextNumber(-s.tint, s.tint)
 return rng:NextNumber(-s.tint, s.tint) * 0.15, 0, dv
 end
@@ -3333,7 +3227,7 @@ zh, zs, zv = zone[1], zone[2], zone[3]
 end
 local each = s.vary and s.perPart
 for _, p in parts do
-if each then -- (the copy's own roll above stays drawn, as always: existing layouts keep their colours)
+if each then
 dh, ds, dv = roll()
 end
 local h, sa, v = (dh or 0) + zh, (ds or 0) + zs, (dv or 0) + zv
@@ -3342,8 +3236,8 @@ for _, d in p:GetChildren() do
 if d:IsA("SurfaceAppearance") then
 pcall(function()
 d.Color = shifted(d.Color, h, sa, v)
-end) -- (older Studio builds have no SurfaceAppearance.Color)
-elseif d:IsA("Decal") then -- (Texture is a Decal too)
+end)
+elseif d:IsA("Decal") then
 d.Color3 = shifted(d.Color3, h, sa, v)
 end
 end
@@ -3358,7 +3252,6 @@ p:Destroy()
 end
 end
 end
-
 local function ghostOf(v, sc, cf, sink)
 local m = v.m
 local p = Instance.new("Part")
@@ -3369,7 +3262,6 @@ p.Transparency, p.CastShadow, p.CanCollide, p.CanTouch, p.CanQuery = 0.55, false
 p.Material, p.Color = Enum.Material.SmoothPlastic, Color3.fromRGB(143, 186, 151)
 return p
 end
-
 local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stretch, only, uprightPosts)
 if E.isCleared(ctx.clear, x, z) then
 return nil
@@ -3381,8 +3273,8 @@ local box = ghostOf(v, sc, cf, sink)
 ctx.parts += 1
 return tag(ctx, l, box, x, z, item, gid, stacked)
 end
-local clone = (v.src or v.inst):Clone() -- src: a procedural model, frozen
-if only then -- keep just these parts (by index in partsOf order): an end post taken from the model itself
+local clone = (v.src or v.inst):Clone()
+if only then
 for i, p in partsOf(clone) do
 if not only[i] and p ~= clone then
 p:Destroy()
@@ -3400,7 +3292,7 @@ if stretch and math.abs(stretch - 1) > 0.005 then
 squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m))
 end
 local cx, cz = m.cx, m.cz
-if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
+if isLine(l) then
 overhangYaw(v)
 if v._foot then
 cx, cz = v._foot.X, v._foot.Y
@@ -3418,14 +3310,14 @@ table.sort(axes, function(a, b)
 return a[2] > b[2]
 end)
 local ax, len = axes[1][1], axes[1][2]
-if ext < L * 0.4 and len >= math.max(axes[2][2], axes[3][2]) * 1.5 then -- tall and thin across the run: a post
+if ext < L * 0.4 and len >= math.max(axes[2][2], axes[3][2]) * 1.5 then
 if ax.Y < 0 then
 ax = -ax
 end
 local rot = ax:Cross(Vector3.yAxis)
 local ang = math.acos(math.clamp(ax.Y, -1, 1))
 if rot.Magnitude > 1e-4 and ang > 1e-3 then
-local bottom = pcf.Position - ax * (len / 2) -- keep its foot where it was
+local bottom = pcf.Position - ax * (len / 2)
 local upright = CFrame.fromAxisAngle(rot.Unit, ang) * pcf.Rotation
 p.CFrame = CFrame.new(bottom + Vector3.yAxis * (len / 2)) * upright
 end
@@ -3455,19 +3347,18 @@ end
 end
 return tag(ctx, l, clone, x, z, item, gid, stacked)
 end
-
 function tag(ctx, l, clone, x, z, item, gid, stacked)
 local s = l.s
 CollectionService:AddTag(clone, E.TAG)
 clone:SetAttribute("SS_Type", l.type)
-clone:SetAttribute("SS_L", l._h) -- which object it is (kept copies still count for "grows near")
+clone:SetAttribute("SS_L", l._h)
 clone:SetAttribute("SS_X", x)
 clone:SetAttribute("SS_Z", z)
 clone:SetAttribute("SS_R", item.r)
-if item.pin then -- put down by hand (Engine/Pins): removing it takes the pin away
+if item.pin then
 clone:SetAttribute("SS_Pin", true)
 end
-if item.hx and item.yaw then -- its outline, for the next runs that keep it
+if item.hx and item.yaw then
 clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 end
 clone:SetAttribute("SS_Sp", s.spacing)
@@ -3484,7 +3375,6 @@ ctx.hash:add(item)
 end
 return clone
 end
-
 local function mitre(clone, A, J, nB, atEnd, pieceLen)
 local wide = {}
 for _, p in partsOf(clone) do
@@ -3497,13 +3387,13 @@ if d > bd then
 best, bd = ax, d
 end
 end
-if best and bd > 0.9 and best[2] > pieceLen * 0.4 then -- a long part running with the piece
+if best and bd > 0.9 and best[2] > pieceLen * 0.4 then
 local axis = best[1]:Dot(A) > 0 and best[1] or -best[1]
 local half = best[2] / 2
-local e = pcf.Position + axis * (atEnd and half or -half) -- the end face's centre
+local e = pcf.Position + axis * (atEnd and half or -half)
 local denom = axis:Dot(nB)
 if math.abs(denom) > 0.2 then
-local shift = (J - e):Dot(nB) / denom -- how far that end must move along the part to reach the plane
+local shift = (J - e):Dot(nB) / denom
 local lat, ld = nil, math.huge
 for _, ax in axes do
 if ax ~= best then
@@ -3514,7 +3404,7 @@ end
 end
 end
 local isWide = lat and lat[2] > 0.5
-if isWide then -- the inner side corner: whichever needs the end pulled back the most
+if isWide then
 for sgn = -1, 1, 2 do
 local sc = (J - (e + lat[1] * (lat[2] / 2 * sgn))):Dot(nB) / denom
 if (atEnd and sc < shift) or (not atEnd and sc > shift) then
@@ -3552,7 +3442,6 @@ end
 end
 return wide
 end
-
 local AXIS = { X = "RightVector", Y = "UpVector", Z = "LookVector" }
 local function fillJoint(ea, eb, nB)
 local function frame(e, atEnd)
@@ -3564,7 +3453,7 @@ if up.Y < 0 then
 up = -up
 end
 local L, W, H = sz[e.along], sz[e.across], sz[e.up]
-local c = p.Position + along * (L / 2) * (atEnd and 1 or -1) + up * (H / 2) -- top of the end face
+local c = p.Position + along * (L / 2) * (atEnd and 1 or -1) + up * (H / 2)
 return c + across * (W / 2), c - across * (W / 2), along, H
 end
 local a1, a2, dirA, H = frame(ea, true)
@@ -3572,7 +3461,7 @@ local b1, b2 = frame(eb, false)
 if (a1 - b2).Magnitude + (a2 - b1).Magnitude < (a1 - b1).Magnitude + (a2 - b2).Magnitude then
 b1, b2 = b2, b1
 end
-local ai, bi, ao, bo = a1, b1, a2, b2 -- inner corners (touching) and outer ones (apart)
+local ai, bi, ao, bo = a1, b1, a2, b2
 if (a1 - b1).Magnitude > (a2 - b2).Magnitude then
 ai, bi, ao, bo = a2, b2, a1, b1
 end
@@ -3584,7 +3473,7 @@ local denom = dirA:Dot(nB)
 if math.abs(denom) < 0.2 then
 return 0
 end
-local s = (I - ao):Dot(nB) / denom -- along A's outer edge to the bisector: where the two outer edges meet
+local s = (I - ao):Dot(nB) / denom
 if s < 0 or s > (ao - ai).Magnitude * 2 then
 return 0
 end
@@ -3601,7 +3490,6 @@ end
 tmp:Destroy()
 return n
 end
-
 local function flatAround(an, ix, iz, y, r)
 local k = math.clamp(math.ceil(r / an.G), 1, 3)
 for jz = math.max(iz - k, 0), math.min(iz + k, an.nz - 1) do
@@ -3614,12 +3502,11 @@ end
 end
 return true
 end
-
 local KEEP_CLASS = { Buildings = "Building", Roads = "Road", Water = "Water" }
 local function clearAt(an, i, x, z, field, k)
 if k <= 0 or an.dist[field][i] >= k + an.G * 1.5 then
 return true
-end -- well away: the field is exact enough
+end
 local want, G = KEEP_CLASS[field], an.G
 local r = math.ceil(k / G) + 1
 local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
@@ -3637,7 +3524,6 @@ end
 end
 return true
 end
-
 local function placeAt(ctx, l, i, x, z, rng, g)
 g = g or {}
 local v = g.v or pickVariant(l, rng)
@@ -3645,10 +3531,10 @@ local an, s, m = ctx.an, l.s, v.m
 i = i or E.indexAt(an, x, z)
 if not i or (not an.inM[i] and not g.line) then
 return nil
-end -- lines come from the area's own edge
+end
 if g.line and E.isCleared(ctx.clear, x, z) then
 return nil
-end -- (the area's own cells already leave zones out)
+end
 local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
 if (g.member or g.pin) and not g.stackOn then
 if score(l, an, i) <= 0 then
@@ -3658,25 +3544,24 @@ if l.paint and E.paintValue(l, math.floor(x / an.cell), math.floor(z / an.cell))
 return nil
 end
 end
-
 local keep = 0.5
 if g.member or g.line or g.pin then
 else
-if s.cluster > 0 then -- natural clumps
+if s.cluster > 0 then
 local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
 keep = math.clamp(0.5 + math.noise(x / f, z / f, (ctx.seed % 997) + (l._h % 1000) * 0.173) * 2.2, 0, 1)
 if rng:NextNumber() > 1 - s.cluster * (1 - keep) then
 return nil
 end
 end
-if s.hug == "Trees" then -- undergrowth: gather around trees already placed
+if s.hug == "Trees" then
 local d = ctx.hash:nearest(x, z, s.hugRange + 16, "Tree")
 local near = d and math.clamp(1 - d / math.max(s.hugRange, 1), 0, 1) or 0
 if rng:NextNumber() > (1 - s.hugStrength) + s.hugStrength * near then
 return nil
 end
 end
-if l._nearH then -- grows close to another object's copies (placed before it)
+if l._nearH then
 local d = ctx.hash:nearest(x, z, s.nearRange + 16, l._nearH)
 local near = d and math.clamp(1 - d / math.max(s.nearRange, 1), 0, 1) or 0
 if rng:NextNumber() > (1 - s.nearStrength) + s.nearStrength * near then
@@ -3684,11 +3569,10 @@ return nil
 end
 end
 end
-
 local lo, hi = scaleRange(l)
 local t = s.cluster > 0 and math.clamp(rng:NextNumber() * 0.7 + keep * 0.3, 0, 1) or rng:NextNumber()
 local sc = g.sc or (lo + (hi - lo) * t) * v.size
-if s.edgeYoung > 0 and not g.line and not g.sc then -- the young fringe: smaller toward the edge and clearings
+if s.edgeYoung > 0 and not g.line and not g.sc then
 local reach = 12 + m.radius * sc * 4
 local open = math.clamp(an.dist.Edge[i] / reach, 0, 1) * math.clamp(E.patchAt(ctx.area, x, z) * 1.25, 0, 1)
 sc *= 1 - s.edgeYoung * 0.6 * (1 - open)
@@ -3708,7 +3592,6 @@ pin = g.pin,
 if not g.line and not g.stackOn then
 footprint(item, m, sc)
 end
-
 local base = g.stackOn
 local hit, y
 if base then
@@ -3716,7 +3599,7 @@ y = base.top
 else
 if not g.post and ctx.hash:conflicts(item) then
 return nil
-end -- posts sit on the joints of their own panels
+end
 if not g.line then
 local cr = l._core or 0
 if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then
@@ -3751,11 +3634,10 @@ return rng:NextInteger(0, 3) * math.pi / 2
 end
 return rng:NextNumber(0, math.pi * 2)
 end
-
 if l.type == "Building" and not base then
 if g.yaw then
 yaw = g.yaw
-elseif s.faceRoad and an.dist.Roads[i] < 90 then -- turn the front (-Z / LookVector) toward the nearest road
+elseif s.faceRoad and an.dist.Roads[i] < 90 then
 local f = an.dist.Roads
 local function at(a, b)
 a = math.clamp(a, 0, an.nx - 1)
@@ -3781,7 +3663,7 @@ return nil
 end
 if not an.inM[j] then
 return nil
-end -- the whole house stays inside the painted area
+end
 local c = an.cls[j]
 if not s.surfaces[c] and not an.on[j] then
 return nil
@@ -3816,31 +3698,28 @@ end
 end
 end
 end
-
-if item.hx then -- now it's turned: its real outline must fit where only its narrow side was tried
+if item.hx then
 item.yaw = yaw
 if not base and not g.post and ctx.hash:conflicts(item) then
 return nil
 end
 end
-
 local up = (s.align > 0 and hit) and Vector3.yAxis:Lerp(hit.Normal, s.align).Unit or Vector3.yAxis
 local cf = CFrame.new(x, y, z) * rotateUp(up) * CFrame.Angles(0, yaw, 0)
 if s.tilt > 0 and not base and not (g.line and s.fit) then
 cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 end
-if s.lean > 0 and not base and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
+if s.lean > 0 and not base and not (g.line and s.fit) then
 local wd = math.rad(ctx.area.windDir or 0)
-local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd))) -- turns "up" toward the wind
+local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd)))
 cf = CFrame.new(cf.Position) * CFrame.fromAxisAngle(axis, math.rad(s.lean) * rng:NextNumber(0.7, 1.3)) * cf.Rotation
 end
-
-if l.type ~= "Flower" and not base then -- don't clip into the user's own geometry
+if l.type ~= "Flower" and not base then
 local h = math.max(m.size.Y * sc - 1, 1)
 local real = l.type == "Building" or g.line
 local w = real and m.size.X * sc or math.max(1, item.r * CORE[l.type] * 2)
 local d = real and m.size.Z * sc or w
-if g.stretch then -- as long as the piece really gets (squeeze stretches at most 15%)
+if g.stretch then
 local st = math.min(g.stretch, 1.15)
 if alongXOf(s, m) then
 w *= st
@@ -3854,14 +3733,12 @@ return nil
 end
 end
 end
-
 local sink = base and 0 or s.sink * m.size.Y * sc
 if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
-return nil -- not made after all (a keep-clear zone): it mustn't count as placed
+return nil
 end
 return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 end
-
 local function place(ctx, l, i, rng, gid)
 local an = ctx.an
 local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
@@ -3869,7 +3746,6 @@ local x = an.x0 + (ix + rng:NextNumber()) * an.G
 local z = an.z0 + (iz + rng:NextNumber()) * an.G
 return placeAt(ctx, l, i, x, z, rng, gid and { gid = gid } or nil)
 end
-
 local function growGroup(ctx, l, lead, gid, want, rng)
 local s = l.s
 local members, got, tries = { lead }, 0, 0
@@ -3911,7 +3787,6 @@ end
 end
 return got
 end
-
 I.Hash = Hash
 I.FRONT_YAW = FRONT_YAW
 I.frontOf = frontOf
@@ -3935,7 +3810,6 @@ MODULES["Lines"] = (function()
 Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local FOLLOW_FIELD = I.FOLLOW_FIELD
 local FRONT_YAW = I.FRONT_YAW
@@ -3953,7 +3827,6 @@ local pickVariant = I.pickVariant
 local placeAt = I.placeAt
 local project = I.project
 local scaleRange = I.scaleRange
-
 local function traceLines(an, f, target, anyMask)
 local nx, nz, G, x0, z0 = an.nx, an.nz, an.G, an.x0, an.z0
 local function v(ix, iz)
@@ -3998,16 +3871,16 @@ local code = (a < 0 and 1 or 0) + (b < 0 and 2 or 0) + (c < 0 and 4 or 0) + (d <
 if code ~= 0 and code ~= 15 then
 local S = function()
 return edgePoint(ix, iz, false)
-end -- bottom edge a-b
+end
 local E_ = function()
 return edgePoint(ix + 1, iz, true)
-end -- right edge b-c
+end
 local N = function()
 return edgePoint(ix, iz + 1, false)
-end -- top edge d-c
+end
 local W = function()
 return edgePoint(ix, iz, true)
-end -- left edge a-d
+end
 if code == 1 or code == 14 then
 link(S(), W())
 elseif code == 2 or code == 13 then
@@ -4020,7 +3893,7 @@ elseif code == 6 or code == 9 then
 link(S(), N())
 elseif code == 7 or code == 8 then
 link(W(), N())
-elseif code == 5 or code == 10 then -- saddle: decide by the centre
+elseif code == 5 or code == 10 then
 local mid = (a + b + c + d) / 4
 if (mid < 0) == (code == 5) then
 link(S(), E_())
@@ -4065,7 +3938,7 @@ local ids = {}
 for id in links do
 table.insert(ids, id)
 end
-table.sort(ids) -- deterministic
+table.sort(ids)
 local seen = {}
 local function mark(pts)
 for _, p in pts do
@@ -4121,7 +3994,7 @@ elseif #R > 2 then
 table.remove(R)
 end
 local n = #R
-for _ = 1, 8 do -- Laplacian smoothing, ends pinned on open lines
+for _ = 1, 8 do
 local S2 = table.create(n)
 for i = 1, n do
 local a, b
@@ -4145,9 +4018,7 @@ end
 end
 return out
 end
-
 local BLOCKS_LINE = { Road = true, Dirt = true, Water = true, Building = true }
-
 local function gapper(skip, rng)
 if skip <= 0 then
 return function()
@@ -4176,7 +4047,7 @@ for k = 1, n do
 mask[k] = nextKeep()
 end
 if skip > 0 and n > 2 then
-for k = 1, n do -- a single piece between two openings looks like a mistake: drop it
+for k = 1, n do
 if mask[k] and not mask[k - 1] and not mask[k + 1] then
 mask[k] = false
 end
@@ -4184,7 +4055,6 @@ end
 end
 return mask
 end
-
 local function fitPieces(total, at3, pieceL, joints, halfW)
 if total < 0.05 then
 return {}
@@ -4194,11 +4064,11 @@ local function at(d)
 local p = at3(d)
 return Vector3.new(p.X, 0, p.Z)
 end
-local tol = math.clamp(pieceL * 0.05, 0.15, 1.2) -- how far a piece may stray from the curve
+local tol = math.clamp(pieceL * 0.05, 0.15, 1.2)
 if halfW > 0.5 then
 tol = math.min(tol, 0.35)
-end -- a wide piece's edge is in plain view: keep it tight
-local minL = math.min(pieceL * 0.3, total) -- never squeeze below this
+end
+local minL = math.min(pieceL * 0.3, total)
 local n = math.max(math.ceil(total / math.max(pieceL / 8, 0.1)), 2)
 local h = total / n
 local G = table.create(n + 1)
@@ -4218,7 +4088,7 @@ while i <= n do
 if turn(G[i] - G[i - 1], G[i + 1] - G[i]) > CORNER then
 local lo, hi = math.max((i - 2) * h, 0), math.min(i * h, total)
 local best, bestD, e = -1, (i - 1) * h, h / 16
-for k = 0, 32 do -- refine: the point of sharpest turn in this window
+for k = 0, 32 do
 local d = lo + (hi - lo) * k / 32
 local t = turn(at3(d) - at3(d - e), at3(d + e) - at3(d))
 if t > best then
@@ -4282,14 +4152,14 @@ lmax[k] = math.clamp((d1 - d0) * math.sqrt(tol / s), minL, pieceL)
 end
 end
 end
-local w = math.max(math.ceil(pieceL * 0.5 / h), 1) -- ease: lengths start shrinking half a piece before a bend
+local w = math.max(math.ceil(pieceL * 0.5 / h), 1)
 local rho = table.create(n + 1)
 for k = 1, n + 1 do
 local m = pieceL
 for j = math.max(k - w, 1), math.min(k + w, n + 1) do
 m = math.min(m, lmax[j])
 end
-rho[k] = 1 / m -- pieces per stud
+rho[k] = 1 / m
 end
 local function rhoAt(d)
 local x = math.clamp(d / h, 0, n)
@@ -4297,7 +4167,7 @@ local k = math.min(math.floor(x), n - 1)
 return rho[k + 1] + (rho[k + 2] - rho[k + 1]) * (x - k)
 end
 local out = {}
-local function add(d0, d1, depth) -- split a piece that still cuts across the curve
+local function add(d0, d1, depth)
 if depth < 4 and d1 - d0 > minL * 1.2 and bow(d0, d1) > tol * 1.5 then
 local mid = (d0 + d1) / 2
 add(d0, mid, depth + 1)
@@ -4340,20 +4210,18 @@ end
 return out
 end
 E.fitPieces = fitPieces
-
 local NUDGE = { 0, 0.25, -0.25, 0.45, -0.45 }
-
 local function placeSpline(ctx, l, rng)
 if not ctx.splines or #ctx.splines == 0 then
 return 0
 end
 local s, m = l.s, l.m
-local facing = s.fit and "Along" or s.facing -- end-to-end pieces always run along the line
+local facing = s.fit and "Along" or s.facing
 local lo, hi = scaleRange(l)
 local avg = (lo + hi) / 2
 local long = lengthOf(s, m)
 local alongX = alongXOf(s, m)
-local front = frontOf(s) -- nil: the smart guess
+local front = frontOf(s)
 local pieceL = long * avg * l.variants[1].size * 0.98
 local wideSeg = (alongX and m.size.Z or m.size.X) > 0.6
 local interval = s.fit and pieceL or math.max(s.interval, 1)
@@ -4370,7 +4238,6 @@ end
 end
 local sides = (side == "Both" and off > 0) and { -off, off } or (side == "Left" and { -off }) or (side == "Right" and { off }) or { 0 }
 local roll = math.rad(s.roll or 0)
-
 local function tangent(Q, k)
 local a, b = Q[math.max(k - 1, 1)], Q[math.min(k + 1, #Q)]
 local t = b - a
@@ -4401,7 +4268,7 @@ return score > 0 and 1 or (score < 0 and -1 or 0)
 end
 local function frame(pos, t, n, side, pitch, v)
 local up, fwd
-if s.orient == "Upright" and pitch then -- an end-to-end piece: follows the slope of its chord, no roll
+if s.orient == "Upright" and pitch then
 fwd = t
 up = Vector3.yAxis - t * t.Y
 elseif s.orient == "Upright" then
@@ -4409,7 +4276,7 @@ up, fwd = Vector3.yAxis, Vector3.new(t.X, 0, t.Z)
 elseif s.orient == "Surface" then
 up = n
 fwd = t - n * t:Dot(n)
-else -- Follow: pitch with the curve, up stays as close to the surface normal as the tangent allows
+else
 fwd = t
 up = n - t * n:Dot(t)
 end
@@ -4463,7 +4330,7 @@ if roll ~= 0 then
 cf *= (facing == "Along" and alongX) and CFrame.Angles(roll, 0, 0) or CFrame.Angles(0, 0, roll)
 end
 end
-if s.tilt > 0 and not s.fit then -- end-to-end pieces stay true so their joints meet
+if s.tilt > 0 and not s.fit then
 cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 end
 return cf
@@ -4504,7 +4371,7 @@ stretch,
 nil,
 s.fit and s.orient == "Upright"
 )
-if clone then -- (none is made in a keep-clear zone)
+if clone then
 got += 1
 end
 if not s.fit then
@@ -4512,7 +4379,6 @@ mine:add(probe)
 end
 return clone
 end
-
 for _, smp in ctx.splines do
 curRp, curveSide = smp.rp, 0
 if (facing == "Face it" or facing == "Away") and table.find(sides, 0) and #smp.P >= 2 then
@@ -4537,7 +4403,7 @@ local right = t:Cross(up)
 if right.Magnitude < 1e-4 then
 right = t:Cross(Vector3.yAxis)
 end
-local q = smp.P[k] + right.Unit * side * (smp.W and smp.W[k] or 1) -- edges follow the strip's width
+local q = smp.P[k] + right.Unit * side * (smp.W and smp.W[k] or 1)
 if smp.snap then
 Q[k], W[k] = project(q, n, smp.rp)
 else
@@ -4575,7 +4441,7 @@ local pieces = fitPieces(total, function(d)
 return (at(d))
 end, pieceL, joints, halfW)
 local keep = gapMask(#pieces, s.skip, rng)
-if l.post and #pieces > 0 then -- posts at every joint and both ends of the fence that's there
+if l.post and #pieces > 0 then
 local loop = (Q[1] - Q[#Q]).Magnitude < 0.05
 local marks = {}
 for k, pc in pieces do
@@ -4681,8 +4547,8 @@ local ci = not loop and capInfo(placed[k].v, s)
 if ci and got < cap then
 local cf0 = frame(placed[k].a:Lerp(placed[k].b, 0.5), placed[k].t, placed[k].n, side, true)
 local offDir = cf0:VectorToWorldSpace(ci.alongX and Vector3.xAxis or Vector3.zAxis):Dot(placed[k].t)
-local pk = placed[(offDir * ci.off < 0) and j or k] -- posts at piece starts: cap the stretch's end
-local e = offDir * ci.off * pk.sc -- post offset from the centre along the fence (unsqueezed)
+local pk = placed[(offDir * ci.off < 0) and j or k]
+local e = offDir * ci.off * pk.sc
 local halfL = lengthOf(s, pk.v.m) * pk.sc * pk.f / 2
 local inset = halfL - math.abs(e) * pk.f
 local post = e < 0 and pk.b - pk.t * inset or pk.a + pk.t * inset
@@ -4741,13 +4607,12 @@ end
 end
 return got
 end
-
 local function placeLine(ctx, l, rng)
 if l.s.follow == "Spline" or not ctx.an then
 return placeSpline(ctx, l, rng)
 end
 local an, s = ctx.an, l.s
-local facing = s.fit and "Along" or s.facing -- end-to-end pieces always run along the line
+local facing = s.fit and "Along" or s.facing
 local fieldName = FOLLOW_FIELD[s.follow] or "Roads"
 local f = an.dist[fieldName]
 if not f then
@@ -4763,13 +4628,12 @@ local depth = facing == "Along" and short
 or (facing == "Random" and math.max(m.size.X, m.size.Z))
 or ((front == "-X" or front == "+X") and m.size.X or m.size.Z)
 local target = s.offset + depth * avg / 2 + an.G * 0.5
-local pieceL = long * avg * l.variants[1].size * 0.98 -- a hair of overlap so joints never show daylight
+local pieceL = long * avg * l.variants[1].size * 0.98
 local interval = s.fit and pieceL or math.max(s.interval, 1)
 local gid = groupId(l, 99999)
 local mine = Hash.new()
 local minD = s.fit and pieceL * 0.2 or math.min(interval * 0.5, target * 1.2)
 local got, cap = 0, s.maxCount > 0 and s.maxCount or 5000
-
 local function blocked(x, z)
 local j = E.indexAt(an, x, z)
 if not j then
@@ -4808,11 +4672,11 @@ elseif facing == "Random" then
 return rng:NextNumber(0, math.pi * 2)
 end
 local nx_, nz_ = normalToward(x, z, tx, tz)
-local oy = v and overhangYaw(v) or 0 -- a lamp's arm is its front
+local oy = v and overhangYaw(v) or 0
 if facing == "Away" then
 return math.atan2(nx_, nz_) + oy
 end
-return math.atan2(-nx_, -nz_) + oy -- LookVector (-Z) toward the feature
+return math.atan2(-nx_, -nz_) + oy
 end
 local function put(x, z, tx, tz, sc, v, stretch)
 if got >= cap then
@@ -4838,7 +4702,6 @@ got += 1
 mine:add(probe)
 end
 end
-
 for ci, ln in traceLines(an, f, target, fieldName == "Edge") do
 local P = ln.pts
 local acc = { 0 }
@@ -4846,7 +4709,7 @@ for k = 2, #P do
 acc[k] = acc[k - 1] + math.sqrt((P[k][1] - P[k - 1][1]) ^ 2 + (P[k][2] - P[k - 1][2]) ^ 2)
 end
 local total = acc[#P]
-local function at(d) -- binary search: callers probe back and forth along the line
+local function at(d)
 d = math.clamp(d, 0, total)
 local lo, hi = 1, #P
 while hi - lo > 1 do
@@ -4862,7 +4725,6 @@ local a, b = P[k - 1], P[k]
 local t = (d - acc[k - 1]) / math.max(acc[k] - acc[k - 1], 1e-6)
 return a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t
 end
-
 if s.fit then
 local pieces = fitPieces(total, function(d)
 local x, z = at(d)
@@ -4887,7 +4749,7 @@ put(cx, cz, tx, tz, sc, v, tl * (short > 0.6 and 1.0005 or 1.02) / (lengthOf(s, 
 end
 end
 end
-if l.post and #pieces > 0 then -- posts at every joint and both ends of the fence that's there
+if l.post and #pieces > 0 then
 local marks = {}
 for k, pc in pieces do
 if keep[k] or keep[k - 1] or (ln.closed and k == 1 and keep[#pieces]) then
@@ -4927,7 +4789,7 @@ else
 local d = math.min(interval * 0.5, total * 0.5)
 if s.stagger and ci % 2 == 0 then
 d += interval * 0.5
-end -- every other traced edge starts half a gap later
+end
 local nextKeep = gapper(s.skip, rng)
 while d <= total and got < cap and ctx.alive() do
 local dd = math.clamp(d + (rng:NextNumber() - 0.5) * s.jitter * interval, 0, total)
@@ -4947,7 +4809,6 @@ end
 end
 return got
 end
-
 I.placeLine = placeLine
 end
 end)()
@@ -4960,17 +4821,14 @@ first, on their exact spots, under the object's rules (surfaces, slope, spacing)
 A pin's seed picks its model, size and turn, so it looks the same every time.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local placeAt = I.placeAt
 local scaleRange = I.scaleRange
-
 local function pinSpacing(l)
 local lo, hi = scaleRange(l)
 return math.max(l.m.radius * (lo + hi) / 2 * l.s.spacing * 2, 1)
 end
 E.pinSpacing = pinSpacing
-
 local function roomFor(l, x, z, gap)
 for _, p in l.pins or {} do
 local dx, dz = p[1] - x, p[2] - z
@@ -4980,9 +4838,8 @@ end
 end
 return true
 end
-
 function E.brushPins(a, l, x, z, R, rng)
-l._size = a.size or 1 -- ("Size of everything", as generating sets it)
+l._size = a.size or 1
 local gap = pinSpacing(l)
 local want = math.clamp(math.floor(R * R / (gap * gap) * 0.9), 1, 40)
 local added = {}
@@ -5001,7 +4858,6 @@ end
 end
 return added
 end
-
 function E.erasePins(l, x, z, R)
 local n, keep = 0, {}
 for _, p in l.pins or {} do
@@ -5015,7 +4871,6 @@ end
 l.pins = #keep > 0 and keep or nil
 return n
 end
-
 function E.unpin(l, x, z)
 for k, p in l.pins or {} do
 if math.abs(p[1] - x) < 0.05 and math.abs(p[2] - z) < 0.05 then
@@ -5028,7 +4883,6 @@ end
 end
 return false
 end
-
 function E.readPins(list)
 local out = {}
 for _, p in type(list) == "table" and list or {} do
@@ -5038,7 +4892,6 @@ end
 end
 return #out > 0 and out or nil
 end
-
 function I.placePins(ctx, l, wanted)
 local n = 0
 for _, p in l.pins or {} do
@@ -5058,7 +4911,6 @@ MODULES["Generate"] = (function()
 Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local CollectionService = game:GetService("CollectionService")
 local CORE = I.CORE
@@ -5069,9 +4921,8 @@ local growGroup = I.growGroup
 local place = I.place
 local placeLine = I.placeLine
 local placePins = I.placePins
-
 local function itemOf(inst)
-local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
+local fp = inst:GetAttribute("SS_Fp")
 return {
 hx = fp and fp.X,
 yaw = fp and fp.Y,
@@ -5086,7 +4937,6 @@ g = inst:GetAttribute("SS_G"),
 lk = inst:GetAttribute("SS_L"),
 }
 end
-
 local function hide(inst)
 inst.Archivable = false
 end
@@ -5098,7 +4948,6 @@ inst.Archivable = false
 inst:Destroy()
 end
 E.dropOutput = drop
-
 function E.generate(a, an, density, extra, opts)
 opts = opts or {}
 E.freshSurfaces()
@@ -5115,13 +4964,13 @@ output = opts.output or { walk = true, shadows = true, query = true, chunks = fa
 }
 if a.spline then
 local rp = (E.rayParams(extra))
-local stray = a.folder:FindFirstChild("Surface") -- 7.2-7.5 kept it inside the area
+local stray = a.folder:FindFirstChild("Surface")
 if stray then
 drop(stray)
 end
 local oldSurface = E.roadOf(a)
 if not opts.from or not oldSurface then
-if oldSurface then -- set aside, not destroyed: a cancelled run puts it back
+if oldSurface then
 ctx.oldSurface, ctx.oldSurfaceParent = oldSurface, oldSurface.Parent
 hide(oldSurface)
 oldSurface.Parent = nil
@@ -5149,7 +4998,7 @@ local curves = E.splineCurves(a.spline)
 for _, cv in curves do
 local smp = E.splineSamples(cv, rp)
 smp.joints = {}
-local raw = E.splineCurve(cv, 0.75) -- unsnapped samples, same indexing, to find where each point lies
+local raw = E.splineCurve(cv, 0.75)
 for i, q in cv.pts do
 local shared = q.sharp
 if not shared then
@@ -5181,7 +5030,6 @@ end
 table.insert(ctx.splines, smp)
 end
 end
-
 for _, inst in CollectionService:GetTagged(E.TAG) do
 if
 inst:IsDescendantOf(workspace)
@@ -5192,7 +5040,6 @@ then
 ctx.hash:add(itemOf(inst))
 end
 end
-
 local keep = {}
 for _, p in plans do
 local l = p.layer
@@ -5203,7 +5050,7 @@ end
 local folders, counts, total = {}, {}, 0
 local stale, staged = {}, {}
 local R = not ctx.output.chunks and opts.region or nil
-if R then -- grown by what reaches across its border: the soft edge and the widest spacing
+if R then
 local pad = a.edge or 0
 for _, p in plans do
 pad = math.max(pad, (a.edge or 0) + (p.layer._r or 0) * p.layer.s.spacing * 2)
@@ -5213,7 +5060,7 @@ end
 local function inPatch(x, z)
 return x >= R[1] and x <= R[3] and z >= R[2] and z <= R[4]
 end
-local partial, cut = {}, {} -- [layer] = its existing folder · copies inside the patch, dropped at the swap
+local partial, cut = {}, {}
 if R then
 for _, p in plans do
 if not p.line and not keep[E.layerKey(p.layer)] then
@@ -5224,7 +5071,7 @@ end
 for _, f in a.folder:GetChildren() do
 if f:GetAttribute("SS_Surface") then
 continue
-end -- the road surface is managed above
+end
 local key = f:GetAttribute("SS_Key") or ""
 local pl = partial[key]
 if pl and not partial[pl] then
@@ -5273,14 +5120,12 @@ else
 table.insert(stale, f)
 end
 end
-
 local _, ex = E.rayParams(extra)
 table.insert(ex, workspace.Terrain)
 ctx.op = OverlapParams.new()
 ctx.op.FilterType = Enum.RaycastFilterType.Exclude
 ctx.op.FilterDescendantsInstances = ex
 ctx.op.RespectCanCollide = true
-
 local function folderFor(l)
 local f = folders[l]
 if not f then
@@ -5316,8 +5161,7 @@ chunks[f][key] = c
 end
 return c
 end
-
-local function rebuilt(l) -- placed this run (in full, or in the patch)
+local function rebuilt(l)
 return not counts[l] or partial[l] ~= nil
 end
 local work, base = 0, 0
@@ -5336,7 +5180,6 @@ ctx.aborted = true
 end
 return not ctx.aborted
 end
-
 for _, p in plans do
 if ctx.aborted then
 break
@@ -5345,7 +5188,7 @@ local l = p.layer
 if rebuilt(l) then
 cur = 0
 local rng = Random.new((a.seed * 7919 + l._h + (tonumber(l.s.seed) or 0) * 104729) % 2147483647)
-if partial[l] then -- only the patch's candidates, and its share of the count
+if partial[l] then
 local cand, scores, all, part = {}, {}, 0, 0
 for k, i in p.cand do
 all += p.scores[k]
@@ -5367,7 +5210,7 @@ local grouped = l.s.groups
 local gmin = math.max(1, math.floor(math.min(l.s.groupMin, l.s.groupMax)))
 local gmax = math.max(gmin, math.floor(math.max(l.s.groupMin, l.s.groupMax)))
 local gnext = 0
-while got < n and t < n * 14 + 30 do -- plenty of attempts so tight rules still reach the target count
+while got < n and t < n * 14 + 30 do
 t += 1
 cur = got
 if not ctx.alive() then
@@ -5446,14 +5289,14 @@ for _, f in stale do
 drop(f)
 end
 for _, inst in cut do
-if inst.Parent then -- a copy nested in another cut copy already went with it
+if inst.Parent then
 drop(inst)
 end
 end
 for _, f in staged do
 local pl = partial[f:GetAttribute("SS_Key") or ""]
 local into = pl and partial[pl]
-if into then -- a patch: its copies join the layer's folder, each shown once it's in place
+if into then
 for _, inst in f:GetChildren() do
 hide(inst)
 inst.Parent = into
@@ -5477,11 +5320,9 @@ shape, not its name, so renamed, turned and scaled copies still match; and the s
 of what later tools change (swapping models, seasons), so they can be put back.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
-local STEP = 40 -- a side is known to 1/40 of the copy's longest side: tells shapes apart, forgives float error
+local STEP = 40
 local SNAPSHOT = "SmartScatter Snapshot"
-
 function E.shapeKey(parts)
 local unit = 0
 for _, p in parts do
@@ -5504,7 +5345,6 @@ end
 table.sort(keys)
 return #parts .. "|" .. table.concat(keys, "|"), unit
 end
-
 local function partKind(p)
 if p:IsA("MeshPart") then
 return "MeshPart:" .. p.MeshId
@@ -5530,7 +5370,6 @@ end
 function E.keyOf(inst)
 return E.shapeKey(describe(inst))
 end
-
 local function shapedPart(p)
 return p:IsA("MeshPart") or p:IsA("UnionOperation") or (p:IsA("Part") and p:FindFirstChildOfClass("SpecialMesh") ~= nil)
 end
@@ -5538,12 +5377,11 @@ local function skipped(inst)
 if inst:IsA("Terrain") or inst:IsA("Camera") then
 return true
 end
-if inst.Name == E.OUT or inst.Name == E.ROADS then -- what the plugin placed: its areas own it
+if inst.Name == E.OUT or inst.Name == E.ROADS then
 return inst.Parent == workspace
 end
-return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil -- players and NPCs
+return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil
 end
-
 function E.scanKinds(opts)
 opts = opts or {}
 local roots = opts.roots or { workspace }
@@ -5598,7 +5436,7 @@ pick(r)
 end
 local kinds = {}
 for _, k in list do
-if #k.copies >= 2 then -- (a shape repeated only inside other copies has one left here)
+if #k.copies >= 2 then
 local name, most = "?", 0
 for n, c in k.names do
 if c > most or (c == most and n < name) then
@@ -5621,7 +5459,6 @@ return a.name < b.name
 end)
 return kinds
 end
-
 local function folder(make)
 local ss = game:GetService("ServerStorage")
 local f = ss:FindFirstChild(SNAPSHOT)
@@ -5653,7 +5490,6 @@ e = index[inst]
 end
 return e
 end
-
 function E.snapshot(list)
 local have = {}
 for _, e in entries() do
@@ -5666,7 +5502,7 @@ local f, added = nil, 0
 for _, inst in list do
 if not have[inst] and inst.Parent then
 local old = inst.Archivable
-inst.Archivable = true -- (a clone of a non-archivable instance is nil)
+inst.Archivable = true
 local copy = inst:Clone()
 inst.Archivable = old
 if copy then
@@ -5692,39 +5528,59 @@ end
 end
 return added
 end
-
 function E.snapshotChanged(inst, now)
 local e = entryOf(inst)
 if not e then
 return false
 end
+if now == false then
+e.Now.Value = nil
+else
 e.Now.Value = now or inst
-index[inst] = nil
 index[now or inst] = e
+end
+if now ~= nil then
+index[inst] = nil
+end
 e:SetAttribute("SS_Changed", true)
 return true
 end
-
+function E.snapshotAdded(inst)
+local f = folder(true)
+local e = Instance.new("Folder")
+e.Name = inst.Name
+local now = Instance.new("ObjectValue")
+now.Name = "Now"
+now.Value = inst
+now.Parent = e
+e:SetAttribute("SS_Added", true)
+e:SetAttribute("SS_Changed", true)
+e.Parent = f
+index[inst] = e
+end
 function E.snapshotInfo()
 local f = folder(false)
 if not f then
 return nil
 end
-local changed = 0
-local list = f:GetChildren()
-for _, e in list do
-if e:GetAttribute("SS_Changed") then
-changed += 1
+local saved, changed = 0, 0
+for _, e in f:GetChildren() do
+saved += e:GetAttribute("SS_Added") and 0 or 1
+changed += e:GetAttribute("SS_Changed") and 1 or 0
 end
+return { saved = saved, changed = changed, time = f:GetAttribute("SS_Saved") }
 end
-return { saved = #list, changed = changed, time = f:GetAttribute("SS_Saved") }
-end
-
 function E.restoreSnapshot(only)
 local back, map = 0, {}
 for _, e in entries() do
 local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
-if orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
+if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then
+if now.Value and now.Value.Parent then
+now.Value:Destroy()
+end
+e:Destroy()
+back += 1
+elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 local was = now.Value
 if was and was.Parent then
 was:Destroy()
@@ -5743,7 +5599,6 @@ end
 end
 return back, map
 end
-
 function E.clearSnapshot()
 local f = folder(false)
 if f then
@@ -5751,7 +5606,6 @@ f:Destroy()
 end
 index = {}
 end
-
 local CollectionService = game:GetService("CollectionService")
 local AXES = { Vector3.xAxis, -Vector3.xAxis, Vector3.yAxis, -Vector3.yAxis, Vector3.zAxis, -Vector3.zAxis }
 local function snapAxis(v)
@@ -5815,7 +5669,6 @@ end
 table.sort(list)
 return list[math.ceil(#list / 2)]
 end
-
 function E.kindRef(copies)
 local scales, sizes = {}, {}
 for _, c in copies do
@@ -5826,7 +5679,6 @@ end
 end
 return { scale = median(scales), size = median(sizes), up = upOfCopies(copies) }
 end
-
 function E.swapCopies(copies, with, opts)
 opts = opts or {}
 local ref = opts.ref or E.kindRef(copies)
@@ -5910,30 +5762,26 @@ change keeps what it replaced (an attribute on the part, a copy of the terrain),
 taken off again exactly.
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
-
 return function(E, I)
 local hasKeyword = I.hasKeyword
-local ORIG = "SS_SeasonOrig" -- the colour a part, tint or decal had before any season
-local STATE = "SmartScatter Season" -- ServerStorage: what's applied, and the terrain as it was
-
+local ORIG = "SS_SeasonOrig"
+local STATE = "SmartScatter Season"
 E.SEASONS = { "Snow", "Autumn", "Dry" }
 E.SEASON_HINT = {
 Snow = "Leaves and grass go white, roofs and flat tops get snow, everything else turns cold and pale.",
 Autumn = "Leaves turn orange, red, yellow and brown, each tree its own; the rest warms up a little.",
 Dry = "Leaves and grass fade to straw and brown; the rest bleaches a little in the sun.",
 }
-
 local AUTUMN = {
-Color3.fromRGB(214, 110, 32), -- orange
-Color3.fromRGB(184, 52, 30), -- red
-Color3.fromRGB(226, 178, 48), -- yellow
-Color3.fromRGB(150, 88, 40), -- brown
-Color3.fromRGB(200, 140, 40), -- gold
+Color3.fromRGB(214, 110, 32),
+Color3.fromRGB(184, 52, 30),
+Color3.fromRGB(226, 178, 48),
+Color3.fromRGB(150, 88, 40),
+Color3.fromRGB(200, 140, 40),
 }
 local SNOW = Color3.fromRGB(236, 241, 248)
 local STRAW = Color3.fromRGB(196, 170, 104)
 local DEAD = Color3.fromRGB(140, 110, 70)
-
 local function atBrightness(target, c)
 local h, s, _ = target:ToHSV()
 local _, _, v = c:ToHSV()
@@ -5944,7 +5792,6 @@ local function hsvShift(c, dh, ds, dv)
 local h, s, v = c:ToHSV()
 return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
 end
-
 function E.seasonColor(c, season, amount, kind)
 if amount <= 0 then
 return c
@@ -5970,7 +5817,6 @@ return hsvShift(c, -0.01 * amount, -0.2 * amount, 0.08 * amount)
 end
 return c
 end
-
 local LEAF_WORDS = { "leaf", "leaves", "foliage", "bush", "shrub", "grass", "canopy", "needle", "pine", "fern", "hedge", "ivy", "moss" }
 local function isFoliage(p, c)
 if p.Material == Enum.Material.Grass or p.Material == Enum.Material.LeafyGrass then
@@ -5996,7 +5842,6 @@ local pos = unit:GetPivot().Position
 local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
 return n - math.floor(n)
 end
-
 local function stateFolder(make)
 local ss = game:GetService("ServerStorage")
 local f = ss:FindFirstChild(STATE)
@@ -6011,7 +5856,7 @@ local function skipped(inst)
 if inst:IsA("Terrain") or inst:IsA("Camera") then
 return true
 end
-if (inst.Name == E.OUT or inst.Name == E.ROADS) and inst.Parent == workspace then -- areas colour themselves
+if (inst.Name == E.OUT or inst.Name == E.ROADS) and inst.Parent == workspace then
 return true
 end
 return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil
@@ -6026,10 +5871,8 @@ local function original(obj, prop)
 local o = obj:GetAttribute(ORIG)
 return typeof(o) == "Color3" and o or obj[prop]
 end
-
 local TERRAIN_GREEN = { Enum.Material.Grass, Enum.Material.LeafyGrass }
-local TERRAIN_TO = { Snow = Enum.Material.Snow, Dry = Enum.Material.Ground } -- (autumn keeps its grass)
-
+local TERRAIN_TO = { Snow = Enum.Material.Snow, Dry = Enum.Material.Ground }
 local function cellsAround(roots)
 local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
 for _, r in roots do
@@ -6051,7 +5894,6 @@ end
 local function v16(v)
 return Vector3int16.new(v.X, v.Y, v.Z)
 end
-
 local function restoreTerrain()
 local f = stateFolder(false)
 local saved = f and f:FindFirstChild("Terrain")
@@ -6072,7 +5914,6 @@ t:SetAttribute("SS_SeasonOrig_" .. m.Name, nil)
 end
 end
 end
-
 function E.applySeason(opts)
 local season, strength = opts.season or "Snow", math.clamp(opts.strength or 1, 0, 1)
 local roots = opts.roots or { workspace }
@@ -6092,7 +5933,7 @@ local kind = { foliage = isFoliage(p, base), top = season == "Snow" and isTop(p)
 setKept(p, "Color", E.seasonColor(base, season, amount, kind))
 for _, d in p:GetChildren() do
 if d:IsA("SurfaceAppearance") then
-pcall(function() -- (older Studio builds have no SurfaceAppearance.Color)
+pcall(function()
 setKept(d, "Color", E.seasonColor(original(d, "Color"), season, amount, kind))
 end)
 elseif d:IsA("Decal") then
@@ -6119,7 +5960,6 @@ end
 for _, r in roots do
 visit(r)
 end
-
 restoreTerrain()
 local t = workspace.Terrain
 if opts.terrainColors then
@@ -6139,7 +5979,7 @@ local f = stateFolder(true)
 saved.Name = "Terrain"
 saved.Parent = f
 f:SetAttribute("SS_TerrainCorner", c0)
-local B = 128 -- cells (512 studs)
+local B = 128
 for x = c0.X, c1.X - 1, B do
 for y = c0.Y, c1.Y - 1, B do
 for z = c0.Z, c1.Z - 1, B do
@@ -6164,7 +6004,6 @@ f:SetAttribute("SS_Strength", strength)
 f:SetAttribute("SS_Parts", n)
 return n, terrainOk
 end
-
 function E.seasonInfo()
 local f = stateFolder(false)
 if not f or not f:GetAttribute("SS_Season") then
@@ -6172,7 +6011,6 @@ return nil
 end
 return { season = f:GetAttribute("SS_Season"), strength = f:GetAttribute("SS_Strength") or 1, parts = f:GetAttribute("SS_Parts") or 0 }
 end
-
 function E.clearSeason(opts)
 opts = opts or {}
 local n, seen = 0, 0
@@ -6210,12 +6048,582 @@ return n
 end
 end
 end)()
+-- #module Layout
+MODULES["Layout"] = (function()
+--[[
+Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
+other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
+territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
+change. The rules are the plugin's own, relaxed to what the map's copies already do, so a map's style stays.
+E.relayout is the pure part (tested offline); E.layoutPlan reads the map for it, E.layoutApply carries it out.
+Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+return function(E, I)
+local chamfer = I.chamfer
+local HAND = "SS_HandPlaced"
+function E.isHandPlaced(inst)
+local cur = inst
+while cur and cur ~= workspace and cur ~= game do
+if cur:GetAttribute(HAND) then
+return true
+end
+cur = cur.Parent
+end
+return false
+end
+function E.setHandPlaced(list, on)
+for _, inst in list do
+inst:SetAttribute(HAND, on and true or nil)
+end
+end
+local function hashOf(size)
+local h = { size = size, cells = {}, lo = Vector3.new(math.huge, 0, math.huge), hi = Vector3.new(-math.huge, 0, -math.huge) }
+function h.add(x, z, v)
+local cx, cz = math.floor(x / size), math.floor(z / size)
+h.lo, h.hi = Vector3.new(math.min(h.lo.X, cx), 0, math.min(h.lo.Z, cz)), Vector3.new(math.max(h.hi.X, cx), 0, math.max(h.hi.Z, cz))
+local k = cx .. "," .. cz
+local c = h.cells[k]
+if not c then
+c = {}
+h.cells[k] = c
+end
+table.insert(c, { x = x, z = z, v = v })
+end
+function h.nearest(x, z, reach, skip)
+local best, bv = math.huge, nil
+local cx, cz = math.floor(x / size), math.floor(z / size)
+if h.lo.X > h.hi.X then
+return best, bv
+end
+local span = math.max(math.abs(cx - h.lo.X), math.abs(cx - h.hi.X), math.abs(cz - h.lo.Z), math.abs(cz - h.hi.Z))
+local n = math.min(math.ceil(reach / size), span)
+local skipFn = type(skip) == "function" and skip
+for ring = 0, n do
+for dx = -ring, ring do
+for dz = -ring, ring do
+if math.max(math.abs(dx), math.abs(dz)) == ring then
+for _, p in h.cells[(cx + dx) .. "," .. (cz + dz)] or {} do
+if p.v ~= skip and not (skipFn and skipFn(p.v)) then
+local d = math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2)
+if d < best and d <= reach then
+best, bv = d, p.v
+end
+end
+end
+end
+end
+end
+if best <= ring * size then
+break
+end
+end
+return best, bv
+end
+return h
+end
+function E.evenness(points)
+if #points < 3 then
+return 1
+end
+local near = {}
+local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
+for _, p in points do
+x0, x1, z0, z1 = math.min(x0, p.x), math.max(x1, p.x), math.min(z0, p.z), math.max(z1, p.z)
+end
+local reach = math.max(x1 - x0, z1 - z0, 1)
+local h = hashOf(math.max(reach / math.sqrt(#points), 1))
+for i, p in points do
+h.add(p.x, p.z, i)
+end
+local sum = 0
+for i, p in points do
+local d = h.nearest(p.x, p.z, reach, i)
+if d < math.huge then
+table.insert(near, d)
+sum += d
+end
+end
+if #near < 2 or sum <= 0 then
+return 1
+end
+local mean, var = sum / #near, 0
+for _, d in near do
+var += (d - mean) ^ 2
+end
+return math.clamp(1 - math.sqrt(var / #near) / mean, 0, 1)
+end
+function E.typicalSpacing(points)
+local reach = 1
+for _, p in points do
+reach = math.max(reach, math.abs(p.x - points[1].x), math.abs(p.z - points[1].z))
+end
+local h = hashOf(math.max(reach / math.sqrt(math.max(#points, 1)), 1))
+for i, p in points do
+h.add(p.x, p.z, i)
+end
+local near = {}
+for i, p in points do
+local d = h.nearest(p.x, p.z, reach * 2 + 1, i)
+if d < math.huge then
+table.insert(near, d)
+end
+end
+table.sort(near)
+return near[math.max(1, math.ceil(#near / 2))] or 0
+end
+function E.relayout(points, spots, opts)
+local d = math.max(opts.spacing or 1, 0.5)
+local crowd, gap = opts.crowd or 0.5, opts.gap or 1.7
+local step = opts.step or d / 3
+local rng = Random.new(tonumber(opts.seed) or 1)
+local all = hashOf(d)
+for i, p in points do
+all.add(p.x, p.z, i)
+end
+local order = {}
+local room = {}
+for i, p in points do
+room[i] = all.nearest(p.x, p.z, d * 3, i)
+table.insert(order, i)
+end
+table.sort(order, function(a, b)
+local fa, fb = points[a].fixed and 1 or 0, points[b].fixed and 1 or 0
+if fa ~= fb then
+return fa > fb
+end
+if room[a] ~= room[b] then
+return room[a] > room[b]
+end
+return a < b
+end)
+local kept = hashOf(d)
+local pool, crowded, bad = {}, 0, 0
+local maxR = 0
+for _, p in points do
+maxR = math.max(maxR, p.r or 0)
+end
+for _, i in order do
+local p = points[i]
+if p.fixed then
+kept.add(p.x, p.z, i)
+elseif p.bad then
+bad += 1
+table.insert(pool, i)
+else
+local _, q = kept.nearest(p.x, p.z, math.max(crowd * d, ((p.r or 0) + maxR) * 0.9))
+local tooClose = false
+if q then
+local o = points[q]
+local dist = math.sqrt((o.x - p.x) ^ 2 + (o.z - p.z) ^ 2)
+tooClose = dist < math.max(crowd * d, ((p.r or 0) + (o.r or 0)) * 0.9)
+end
+if tooClose then
+crowded += 1
+table.insert(pool, i)
+else
+kept.add(p.x, p.z, i)
+end
+end
+end
+local key = function(x, z)
+return math.floor(x / step + 0.5) .. "," .. math.floor(z / step + 0.5)
+end
+local byKey, D = {}, {}
+for s, sp in spots do
+byKey[key(sp.x, sp.z)] = s
+D[s] = kept.nearest(sp.x, sp.z, gap * d + d)
+end
+local inHole, queue, holes = {}, {}, 0
+for s = 1, #spots do
+if D[s] >= gap * d and not inHole[s] then
+holes += 1
+inHole[s] = true
+table.insert(queue, s)
+while #queue > 0 do
+local c = table.remove(queue)
+local cx, cz = spots[c].x, spots[c].z
+for dx = -1, 1 do
+for dz = -1, 1 do
+local n = byKey[key(cx + dx * step, cz + dz * step)]
+if n and not inHole[n] and D[n] >= 0.75 * d then
+inHole[n] = true
+table.insert(queue, n)
+end
+end
+end
+end
+end
+end
+local list = {}
+for s in inHole do
+table.insert(list, s)
+end
+table.sort(list, function(a, b)
+if D[a] ~= D[b] then
+return D[a] > D[b]
+end
+return a < b
+end)
+local targets = {}
+local placed = hashOf(d)
+for _, s in list do
+local sp = spots[s]
+local want = d * (0.78 + rng:NextNumber() * 0.14)
+if kept.nearest(sp.x, sp.z, want) >= want and placed.nearest(sp.x, sp.z, want) >= want then
+placed.add(sp.x, sp.z, #targets + 1)
+table.insert(targets, { x = sp.x, z = sp.z })
+end
+end
+local usedI, usedT = {}, {}
+local out = { moves = {}, adds = {}, removes = {}, crowded = crowded, bad = bad, holes = holes }
+local function move(i, t)
+usedI[i], usedT[t] = true, true
+table.insert(out.moves, { i = i, x = targets[t].x, z = targets[t].z })
+end
+if #pool * #targets <= 200000 then
+local pairsList = {}
+for _, i in pool do
+for t, tg in targets do
+table.insert(pairsList, { i = i, t = t, d = (points[i].x - tg.x) ^ 2 + (points[i].z - tg.z) ^ 2 })
+end
+end
+table.sort(pairsList, function(a, b)
+if a.d ~= b.d then
+return a.d < b.d
+end
+if a.i ~= b.i then
+return a.i < b.i
+end
+return a.t < b.t
+end)
+for _, pr in pairsList do
+if not usedI[pr.i] and not usedT[pr.t] then
+move(pr.i, pr.t)
+end
+end
+else
+local free = hashOf(d)
+for _, i in pool do
+free.add(points[i].x, points[i].z, i)
+end
+for t, tg in targets do
+local _, i = free.nearest(tg.x, tg.z, math.huge, function(v)
+return usedI[v]
+end)
+if i then
+move(i, t)
+end
+end
+end
+table.sort(out.moves, function(a, b)
+return a.i < b.i
+end)
+if opts.fill then
+for t, tg in targets do
+if not usedT[t] then
+table.insert(out.adds, { x = tg.x, z = tg.z })
+end
+end
+end
+if opts.remove then
+for _, i in pool do
+if not usedI[i] then
+table.insert(out.removes, i)
+end
+end
+table.sort(out.removes)
+end
+return out
+end
+local function boxOf(inst)
+if inst:IsA("BasePart") then
+return inst.CFrame, inst.Size
+end
+return inst:GetBoundingBox()
+end
+local function footOf(inst)
+local cf, size = boxOf(inst)
+local ex = math.abs(cf.RightVector.X) * size.X + math.abs(cf.UpVector.X) * size.Y + math.abs(cf.LookVector.X) * size.Z
+local ey = math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z
+local ez = math.abs(cf.RightVector.Z) * size.X + math.abs(cf.UpVector.Z) * size.Y + math.abs(cf.LookVector.Z) * size.Z
+return { x = cf.Position.X, z = cf.Position.Z, r = math.max(ex, ez) / 2, base = cf.Position.Y - ey / 2, h = ey }
+end
+local function percentile(list, q)
+if #list == 0 then
+return nil
+end
+table.sort(list)
+return list[math.clamp(math.floor(#list * q + 0.5), 1, #list)]
+end
+local function yawOf(cf)
+local look = cf.LookVector
+return math.atan2(-look.X, -look.Z)
+end
+function E.layoutPlan(kind, opts)
+opts = opts or {}
+local copies, insts = {}, {}
+for _, c in kind.copies do
+local inst = c.inst
+if inst.Parent and (inst:IsA("Model") or inst:IsA("BasePart")) then
+local f = footOf(inst)
+f.inst, f.fixed = inst, E.isHandPlaced(inst)
+table.insert(copies, f)
+table.insert(insts, inst)
+end
+end
+if #copies < 3 then
+return nil, "It needs at least 3 copies to see how they're spaced."
+end
+local typical = E.typicalSpacing(copies)
+local d = math.max(typical * (opts.spacing or 1), 0.5)
+local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+for _, c in copies do
+lo = lo:Min(Vector3.new(c.x, c.base, c.z))
+hi = hi:Max(Vector3.new(c.x, c.base + c.h, c.z))
+end
+local R = 2 * d
+local g = math.max(2, math.floor(d / 3))
+while ((hi.X - lo.X) / g + 4 * R / g) * ((hi.Z - lo.Z) / g + 4 * R / g) > 250000 do
+g *= 2
+end
+local pad = R + d
+local gx0, gz0 = math.floor((lo.X - pad) / g), math.floor((lo.Z - pad) / g)
+local nx, nz = math.floor((hi.X + pad) / g) - gx0 + 1, math.floor((hi.Z + pad) / g) - gz0 + 1
+local N = nx * nz
+local src = {}
+for _, c in copies do
+src[(math.floor(c.z / g) - gz0) * nx + (math.floor(c.x / g) - gx0) + 1] = true
+end
+local near = chamfer(src, nx, nz, g)
+local out = {}
+for i = 1, N do
+if near[i] > R then
+out[i] = true
+end
+end
+local toOut = chamfer(out, nx, nz, g)
+local closed = {}
+for i = 1, N do
+if near[i] <= R and toOut[i] >= R - g then
+closed[i] = true
+end
+end
+local toClosed = chamfer(closed, nx, nz, g)
+local rows, count = {}, 0
+for i = 1, N do
+if toClosed[i] <= 0.6 * d then
+local cx, cz = (i - 1) % nx + gx0, (i - 1) // nx + gz0
+rows[cz] = rows[cz] or {}
+rows[cz][cx] = true
+count += 1
+end
+end
+local a = { rows = rows, count = count, cell = g, topY = hi.Y + 20, edge = 0, patches = 0, size = 1, seed = 1 }
+local an, stopped = E.analyze(a, insts, opts.tick)
+if not an then
+return nil, stopped and "Stopped." or "Nothing to read there."
+end
+local l = E.makeLayer(copies[1].inst)
+if not l then
+return nil, "This kind's model can't be read (it needs parts)."
+end
+local s = l.s
+s.useAlt, s.hug, s.slopePref, s.near = false, "None", 0, ""
+l.paint = nil
+E.heat(l, an, a)
+local core = l._core or 0
+local classes, slopes, roads, water, builds, n = {}, {}, {}, {}, {}, 0
+for _, c in copies do
+local i = E.indexAt(an, c.x, c.z)
+if i then
+n += 1
+local cls = an.cls[i]
+classes[cls] = (classes[cls] or 0) + 1
+table.insert(slopes, math.deg(math.acos(math.clamp(an.ny[i], -1, 1))))
+table.insert(roads, an.dist.Roads[i])
+table.insert(water, an.dist.Water[i])
+table.insert(builds, an.dist.Buildings[i])
+end
+end
+for cls, k in classes do
+local share = k / math.max(n, 1)
+if cls ~= "None" and cls ~= "Water" and ((cls ~= "Road" and cls ~= "Building") and (share >= 0.03 or k >= 2) or share >= 0.3) then
+s.surfaces[cls] = true
+end
+end
+s.maxSlope = math.min(89, math.max(s.maxSlope, (percentile(slopes, 0.95) or 0) + 5))
+local function relax(key, list)
+local p = percentile(list, 0.1)
+if p then
+s[key] = math.max(0, math.min(s[key], p - core - an.G))
+end
+end
+relax("keepRoad", roads)
+relax("keepWater", water)
+relax("keepBuilding", builds)
+local suit = E.heat(l, an, a)
+for _, c in copies do
+local i = E.indexAt(an, c.x, c.z)
+c.bad = opts.fixRules ~= false and not c.fixed and i ~= nil and suit(i) <= 0
+end
+local spots = {}
+for i = 1, an.nx * an.nz do
+if an.inM[i] and suit(i) > 0 then
+local x, z = E.cellCentre(an, i)
+table.insert(spots, { x = x, z = z })
+end
+end
+local plan = E.relayout(copies, spots, {
+spacing = d,
+crowd = opts.crowd,
+gap = opts.gap,
+step = an.G,
+fill = opts.fill,
+remove = opts.remove,
+seed = opts.seed,
+})
+local rp = an.rp
+local ol = OverlapParams.new()
+ol.FilterType = Enum.RaycastFilterType.Exclude
+local offsets = {}
+for _, c in copies do
+local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+c.ground = r and r.Position.Y or c.base
+table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
+end
+local usualSink = percentile(offsets, 0.5) or 0
+local yaws, sumC, sumS = {}, 0, 0
+for _, c in copies do
+local y = yawOf(c.inst:GetPivot())
+table.insert(yaws, y)
+sumC += math.cos(y)
+sumS += math.sin(y)
+end
+local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8
+local rng = Random.new((tonumber(opts.seed) or 1) + 17)
+local function standAt(x, z, c)
+local r = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
+return nil
+end
+local ignore = table.clone(insts)
+table.insert(ignore, r.Instance)
+table.insert(ignore, workspace.Terrain)
+ol.FilterDescendantsInstances = ignore
+local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
+for _, p in hits do
+if p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5) then
+return nil
+end
+end
+return r.Position.Y
+end
+local result = {
+kind = kind.name,
+spacing = d,
+typical = typical,
+moves = {},
+adds = {},
+removes = {},
+crowded = plan.crowded,
+bad = plan.bad,
+holes = plan.holes,
+}
+local final = {}
+local moved, gone = {}, {}
+for _, mv in plan.moves do
+local c = copies[mv.i]
+local y = standAt(mv.x, mv.z, c)
+if y then
+local offset = c.bad and usualSink or math.clamp(c.base - c.ground, -c.h * 0.5, 2)
+local shift = Vector3.new(mv.x - c.x, y + offset - c.base, mv.z - c.z)
+table.insert(
+result.moves,
+{ inst = c.inst, cf = c.inst:GetPivot() + shift, from = Vector3.new(c.x, c.base, c.z), to = Vector3.new(mv.x, y, mv.z) }
+)
+moved[mv.i] = true
+table.insert(final, { x = mv.x, z = mv.z })
+end
+end
+for _, i in plan.removes do
+gone[i] = true
+table.insert(result.removes, copies[i].inst)
+end
+for i, c in copies do
+if not moved[i] and not gone[i] then
+table.insert(final, { x = c.x, z = c.z })
+end
+end
+local sources = {}
+for _, c in copies do
+if not c.fixed and not c.bad then
+table.insert(sources, c)
+end
+end
+if #sources == 0 then
+sources = copies
+end
+for _, ad in plan.adds do
+local c = sources[rng:NextInteger(1, #sources)]
+local y = standAt(ad.x, ad.z, c)
+if y then
+local pivot = c.inst:GetPivot()
+local turn = turned and CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0) or CFrame.identity
+local rot = turn * pivot.Rotation
+local rel = pivot.Position - Vector3.new(c.x, c.base, c.z)
+local at = Vector3.new(ad.x, y + usualSink, ad.z) + turn:VectorToWorldSpace(rel)
+table.insert(result.adds, { src = c.inst, cf = CFrame.new(at) * rot, to = Vector3.new(ad.x, y, ad.z) })
+table.insert(final, { x = ad.x, z = ad.z })
+end
+end
+result.evenBefore = E.evenness(copies)
+result.evenAfter = E.evenness(final)
+return result
+end
+function E.layoutApply(plan)
+local keep = {}
+for _, mv in plan.moves do
+table.insert(keep, mv.inst)
+end
+for _, inst in plan.removes do
+table.insert(keep, inst)
+end
+E.snapshot(keep)
+for _, mv in plan.moves do
+if mv.inst.Parent then
+mv.inst:PivotTo(mv.cf)
+E.snapshotChanged(mv.inst)
+end
+end
+local added = {}
+for _, ad in plan.adds do
+if ad.src.Parent then
+local new = E.copyOf(ad.src)
+if new then
+new:SetAttribute(HAND, nil)
+new:PivotTo(ad.cf)
+new.Parent = ad.src.Parent
+E.snapshotAdded(new)
+table.insert(added, new)
+end
+end
+end
+for _, inst in plan.removes do
+if inst.Parent then
+E.snapshotChanged(inst, false)
+inst:Destroy()
+end
+end
+return added
+end
+end
+end)()
 
 --[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
-	Seasons turns it snowy, autumn or dry.
+	Seasons turns it snowy, autumn or dry; Layout re-spaces its crowded and empty spots.
 	Upright placement: a model's "up" is how it stands in the world, never its pivot rotation.
 
 	Each module below is `return function(E, I) … end` and runs once, in ORDER:
@@ -6224,7 +6632,7 @@ end)()
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons" }
+local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons", "Layout" }
 
 local function module(name)
 	return MODULES[name]

@@ -1,8 +1,9 @@
 --[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
-	first), seasons (snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything
-	changes them, and putting them back).
+	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
+	(snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything changes them,
+	and putting them back).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -396,6 +397,358 @@ return function(App)
 			end, { Parent = acts }),
 			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
 		)
+	end
+
+	--------------------------------------------------------------------------------
+	-- Improving a layout
+	--------------------------------------------------------------------------------
+	local tidy = { key = nil, spacing = 1, crowd = 0.5, gap = 1.7, fill = true, fixRules = true, remove = false, plan = nil }
+	local tidyBusy = false
+	local PREVIEW = "SmartScatterLayoutPreview"
+	local function clearPreview()
+		local cam = workspace.CurrentCamera
+		local f = cam and cam:FindFirstChild(PREVIEW)
+		if f then
+			f:Destroy()
+		end
+	end
+	clearPreview() -- (one left by an earlier load of the plugin)
+	-- the plan in the viewport: an orange dot and a line to where each moved copy goes, a green disc where a copy
+	-- is added, a red ring round each one taken out
+	local function drawPreview(plan)
+		clearPreview()
+		local f = App.new("Folder", { Name = PREVIEW, Archivable = false, Parent = workspace.CurrentCamera })
+		local T = workspace.Terrain
+		local MOVE, ADD, OUT = Color3.fromRGB(245, 166, 60), Color3.fromRGB(110, 210, 120), Color3.fromRGB(235, 80, 70)
+		local flat = CFrame.Angles(math.rad(90), 0, 0) -- (a cylinder adornment stands along Z)
+		local function disc(at, r, color, inner)
+			App.new("CylinderHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.new(at + Vector3.new(0, 0.3, 0)) * flat,
+				Radius = r,
+				InnerRadius = inner or 0,
+				Height = 0.2,
+				Color3 = color,
+				Transparency = inner and 0.1 or 0.35,
+				AlwaysOnTop = true,
+				ZIndex = 3,
+				Parent = f,
+			})
+		end
+		local function dot(at, color)
+			App.new("SphereHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.new(at + Vector3.new(0, 0.6, 0)),
+				Radius = 0.9,
+				Color3 = color,
+				AlwaysOnTop = true,
+				ZIndex = 4,
+				Parent = f,
+			})
+		end
+		local r = math.max(plan.spacing * 0.2, 1)
+		for _, mv in plan.moves do
+			local a, b = mv.from + Vector3.new(0, 0.6, 0), mv.to + Vector3.new(0, 0.6, 0)
+			dot(mv.from, MOVE)
+			App.new("LineHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.lookAt(a, b),
+				Length = (b - a).Magnitude,
+				Thickness = 3,
+				Color3 = MOVE,
+				AlwaysOnTop = true,
+				ZIndex = 3,
+				Parent = f,
+			})
+			disc(mv.to, r, MOVE)
+		end
+		for _, ad in plan.adds do
+			disc(ad.to, r, ADD)
+		end
+		for _, inst in plan.removes do
+			if inst.Parent then
+				local cf = inst:GetPivot()
+				disc(cf.Position, r * 1.3, OUT, r * 1.1)
+			end
+		end
+	end
+
+	local function tidyKind()
+		for _, k in App.kinds or {} do
+			if k.key == tidy.key then
+				return k
+			end
+		end
+		return nil
+	end
+	local function dropPlan()
+		tidy.plan = nil
+		clearPreview()
+	end
+
+	local function runPlan()
+		local k = tidyKind()
+		if tidyBusy or not k then
+			return
+		end
+		tidyBusy = true
+		dropPlan()
+		App.status("Reading the ground around " .. k.name .. "…")
+		App.rebuildAll()
+		task.spawn(function()
+			local rows = 0
+			local ok, plan, why = pcall(Engine.layoutPlan, k, {
+				spacing = tidy.spacing,
+				crowd = tidy.crowd,
+				gap = tidy.gap,
+				fill = tidy.fill,
+				fixRules = tidy.fixRules,
+				remove = tidy.remove,
+				seed = 11,
+				tick = function(p)
+					rows += 1
+					if rows % 8 == 0 then -- (a breath for Studio now and then, not every row)
+						App.showProgress("Scanning", p)
+						task.wait()
+					end
+					return true
+				end,
+			})
+			App.showProgress(nil)
+			tidyBusy = false
+			if not ok then
+				App.status("The plan stopped: " .. tostring(plan), "error")
+			elseif not plan then
+				App.status(why or "Nothing to plan.")
+			else
+				tidy.plan = plan
+				drawPreview(plan)
+				local nothing = #plan.moves + #plan.adds + #plan.removes == 0
+				App.status(
+					nothing and (k.name .. " is already well spaced: nothing to change.")
+						or "The plan is in the viewport: orange moves, green is added, red is taken out. Apply, or change the settings and plan again."
+				)
+			end
+			App.rebuildAll()
+		end)
+	end
+
+	local function applyPlan()
+		local k, plan = tidyKind(), tidy.plan
+		if not (k and plan) then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Improve layout")
+		local ok, added = pcall(Engine.layoutApply, plan)
+		endRec(rec, not ok)
+		dropPlan()
+		if not ok then
+			App.status("Stopped: " .. tostring(added), "error")
+			App.rebuildAll()
+			return
+		end
+		for _, inst in added do
+			table.insert(k.copies, { inst = inst, scale = 1 })
+		end
+		local sel = table.clone(added)
+		for _, mv in plan.moves do
+			table.insert(sel, mv.inst)
+		end
+		Selection:Set(sel)
+		App.status(
+			string.format(
+				"%s: moved %d, added %d, took out %d (the changed ones are selected). Restore original in the Snapshot card puts it all back.",
+				k.name,
+				#plan.moves,
+				#added,
+				#plan.removes
+			)
+		)
+		App.rebuildAll()
+	end
+
+	App.buildImproveLayout = function(b)
+		local kinds = {}
+		for _, k in App.kinds or {} do
+			if #alive(k) >= 3 then
+				table.insert(kinds, k)
+			end
+		end
+		if #kinds == 0 then
+			tidy.key = nil
+			dropPlan()
+			explain(b, App.kinds and "No kind has enough copies (3 or more) to space out." or "Scan the map first, then pick a kind to space out.")
+			return
+		end
+		if not tidyKind() then
+			tidy.key = kinds[1].key
+			dropPlan()
+		end
+		label("Kind", 13, P.text, SANS, { Parent = b })
+		local grid = App.chipGrid(b, 2, 30)
+		for i, k in kinds do
+			if i > 8 then
+				break
+			end
+			App.chip(grid, string.format("%s  ×%s", k.name, num(#alive(k))), function()
+				return tidy.key == k.key
+			end, function()
+				if tidy.key ~= k.key then
+					tidy.key = k.key
+					dropPlan()
+					App.rebuildAll()
+				end
+			end).LayoutOrder =
+				i
+		end
+		local k = tidyKind()
+		local list, hand = alive(k), 0
+		for _, inst in list do
+			hand += Engine.isHandPlaced(inst) and 1 or 0
+		end
+		-- settings: a change drops the plan, which no longer matches
+		local function changed()
+			if tidy.plan then
+				dropPlan()
+				App.rebuildAll()
+			end
+		end
+		App.slider(
+			"Spacing",
+			0.5,
+			2,
+			function()
+				return tidy.spacing
+			end,
+			function(v)
+				tidy.spacing = v
+			end,
+			"%.2f×",
+			0.05,
+			nil,
+			changed,
+			"1× keeps the kind's own typical spacing, the usual gap between neighbours. Lower packs it closer, higher spreads it out.",
+			1
+		).Parent =
+			b
+		App.slider("Crowded under", 0.2, 0.9, function()
+			return tidy.crowd
+		end, function(v)
+			tidy.crowd = v
+		end, "%.0f%%", 0.05, nil, changed, "A copy closer than this to another (as a share of the spacing), or overlapping it, is crowded.", 0.5).Parent =
+			b
+		App.slider(
+			"Empty over",
+			1.2,
+			3,
+			function()
+				return tidy.gap
+			end,
+			function(v)
+				tidy.gap = v
+			end,
+			"%.0f%%",
+			0.05,
+			nil,
+			changed,
+			"A spot farther than this from every copy (as a share of the spacing) is a hole. Lower fills smaller holes.",
+			1.7
+		).Parent =
+			b
+		for _, o in
+			{
+				{ "fill", "Fill holes with new copies", "Holes left once the crowded copies have moved get new copies, cloned from the kind." },
+				{
+					"fixRules",
+					"Move ones that break the rules",
+					"Copies standing where the kind never should (on a road, in water, too steep) move too.",
+				},
+				{ "remove", "Take out extras that can't move", "Crowded copies with no hole to go to are taken out. Off: they stay where they are." },
+			}
+		do
+			App.switchRow(o[2], function()
+				return tidy[o[1]]
+			end, function(v)
+				tidy[o[1]] = v
+			end, changed, o[3]).Parent = b
+		end
+		-- hand-placed copies
+		explain(
+			b,
+			hand > 0
+					and string.format(
+						"%d hand-placed cop%s stay%s exactly where %s.",
+						hand,
+						hand == 1 and "y" or "ies",
+						hand == 1 and "s" or "",
+						hand == 1 and "it is" or "they are"
+					)
+				or "Mark copies you placed on purpose as hand-placed: they never move, and others make room around them."
+		)
+		local handRow = buttonRow(b)
+		local function mark(on)
+			local sel = Selection:Get()
+			if #sel == 0 then
+				App.status("Select the copies (or a folder of them) in the Explorer first.")
+				return
+			end
+			local rec = beginRec(on and "Smart Scatter: Mark hand-placed" or "Smart Scatter: Unmark hand-placed")
+			Engine.setHandPlaced(sel, on)
+			endRec(rec)
+			App.status(string.format("%s %d as hand-placed.", on and "Marked" or "Unmarked", #sel))
+			dropPlan()
+			App.rebuildAll()
+		end
+		hintOn(
+			button("Mark selected as hand-placed", nil, function()
+				mark(true)
+			end, { Parent = handRow }),
+			"The selected copies, or everything in a selected folder, never move or go."
+		)
+		button("Unmark", "ghost", function()
+			mark(false)
+		end, { Parent = handRow })
+		-- the plan
+		local plan = tidy.plan
+		if plan then
+			local stats = col({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Parent = b }, {
+				App.corner(10),
+				App.pad(12, 12, 10, 10),
+				vlist(4),
+			})
+			label(
+				string.format("Spacing %.0f studs · crowded %d · breaking rules %d · holes %d", plan.spacing, plan.crowded, plan.bad, plan.holes),
+				12,
+				P.dim,
+				SANS,
+				{ Parent = stats }
+			)
+			label(string.format("Move %d · add %d · take out %d", #plan.moves, #plan.adds, #plan.removes), 13, P.text, SANS_B, { Parent = stats })
+			label(
+				string.format("Evenness %d%% → %d%%", math.floor(plan.evenBefore * 100 + 0.5), math.floor(plan.evenAfter * 100 + 0.5)),
+				13,
+				plan.evenAfter >= plan.evenBefore and P.accent or P.danger,
+				SANS_B,
+				{ Parent = stats }
+			)
+		end
+		local acts = buttonRow(b)
+		if plan and #plan.moves + #plan.adds + #plan.removes > 0 then
+			hintOn(
+				button("Apply", "accent", applyPlan, { Parent = acts }),
+				"Carries out the plan as one step (Ctrl+Z undoes it). Every copy it touches is kept in the snapshot first."
+			)
+		end
+		hintOn(
+			button(tidyBusy and "Planning…" or (plan and "Plan again" or "Plan"), if plan then nil else "accent", runPlan, { Parent = acts }),
+			"Reads the ground around the kind with its placement rules and works out what to move, add or take out. Nothing changes until you Apply."
+		)
+		if plan then
+			button("Clear preview", "ghost", function()
+				dropPlan()
+				App.rebuildAll()
+			end, { Parent = acts })
+		end
 	end
 
 	-- seasons: what the Seasons card is set to (this session)

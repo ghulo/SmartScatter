@@ -851,10 +851,14 @@ return function(App)
 		elseif name == "down" then
 			bar(0.2, 0.38, 0.5, 0.66)
 			bar(0.5, 0.66, 0.8, 0.38)
-		elseif name == "trash" then
-			bar(0.16, 0.28, 0.84, 0.28)
-			bar(0.38, 0.14, 0.62, 0.14)
-			rect(0.5, 0.6, 0.52, 0.56, false, 2)
+		elseif name == "trash" then -- a trash can: a lid with its handle, a body with ribs
+			bar(0.14, 0.27, 0.86, 0.27)
+			bar(0.4, 0.13, 0.6, 0.13)
+			bar(0.4, 0.13, 0.4, 0.27)
+			bar(0.6, 0.13, 0.6, 0.27)
+			rect(0.5, 0.62, 0.54, 0.6, false, 2)
+			bar(0.42, 0.46, 0.42, 0.78)
+			bar(0.58, 0.46, 0.58, 0.78)
 		elseif name == "logo" then
 			ring(0.5, 0.2, 0.08, true)
 			ring(0.24, 0.72, 0.08, true)
@@ -1280,6 +1284,79 @@ return function(App)
 		return row
 	end
 
+	-- A button that takes something away: red, with a trash can, so it's never mistaken for another one.
+	-- opts.on(): lit up solid while it returns true (a brush that erases); opts.confirm: text shown after a first
+	-- click, and only a second click within 3 seconds does it; opts.full: the row's whole width.
+	-- Returns the button and a function that redraws it (after opts.on changes).
+	local function dangerButton(text, onClick, opts)
+		opts = opts or {}
+		local b = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			Size = opts.full and UDim2.new(1, 0, 0, 32) or UDim2.fromOffset(0, 30),
+			AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
+		}, {
+			corner(8),
+			pad(10, 12, 0, 0),
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 6),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		local st = stroke(P.danger)
+		st.Parent = b
+		local ic = icon("trash", 14, P.danger)
+		ic.LayoutOrder = 1
+		ic.Parent = b
+		local t = label(text, 13, P.danger, SANS_B, {
+			Size = UDim2.fromOffset(0, 30),
+			AutomaticSize = Enum.AutomaticSize.X,
+			LayoutOrder = 2,
+			Parent = b,
+		})
+		local lit = glow(b, 8, 0.7, P.danger)
+		local hot, armed = false, 0
+		local function look()
+			local on = opts.on and opts.on()
+			local fg = on and Color3.new(1, 1, 1) or P.danger
+			b.BackgroundColor3 = on and P.danger or P.danger:Lerp(P.card, hot and 0.74 or 0.86)
+			st.Color = P.danger:Lerp(P.card, on and 0 or 0.45)
+			t.TextColor3 = fg
+			setIconColor(ic, fg)
+			lit:set(on == true)
+		end
+		look()
+		b.MouseEnter:Connect(function()
+			hot = true
+			look()
+		end)
+		b.MouseLeave:Connect(function()
+			hot = false
+			look()
+		end)
+		pressable(b, 0.96)
+		b.MouseButton1Click:Connect(function()
+			if opts.confirm and os.clock() - armed > 3 then -- asks twice
+				armed = os.clock()
+				t.Text = opts.confirm
+				task.delay(3, function()
+					if os.clock() - armed >= 2.9 then
+						t.Text = text
+					end
+				end)
+				return
+			end
+			armed = 0
+			t.Text = text
+			onClick()
+			look()
+		end)
+		return b, look
+	end
+
 	-- used by later modules
 	App.new = new
 	App.textSize = textSize
@@ -1306,6 +1383,7 @@ return function(App)
 	App.topLight = topLight
 	App.hideTip = hideTip
 	App.button = button
+	App.dangerButton = dangerButton
 	App.buttonRow = buttonRow
 	App.hintOn = hintOn
 	App.refreshSliders = refreshSliders

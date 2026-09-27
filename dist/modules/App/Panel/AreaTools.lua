@@ -29,7 +29,8 @@ return function(App)
 		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 		local cells = {}
-		local function cell(iconName, text, color, hint, onClick)
+		-- a tool; tinted: in its colour even when not picked (Erase: red, so it's never taken for another tool)
+		local function cell(iconName, text, color, hint, onClick, tinted)
 			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
 			local st = stroke(P.line)
 			st.Parent = b
@@ -48,13 +49,14 @@ return function(App)
 			hintOn(b, hint)
 			b.MouseButton1Click:Connect(onClick)
 			App.pressable(b, 0.96)
-			local lit = App.glow(b, 8, 0.6)
+			local lit = App.glow(b, 8, 0.6, color)
 			local c = { hot = false }
 			c.paint = function(on)
 				lit:set(on)
-				b.BackgroundColor3 = on and color:Lerp(P.card, 0.85) or (c.hot and P.hover or P.raised)
-				st.Color = on and color:Lerp(P.card, 0.5) or P.line
-				local fg = on and color or (c.hot and P.text or P.dim)
+				local idle = tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
+				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
+				st.Color = on and color:Lerp(P.card, 0.4) or (tinted and color:Lerp(P.card, 0.6) or P.line)
+				local fg = on and color or (tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
 				setIconColor(ic, fg)
 				t.TextColor3 = fg
 			end
@@ -81,9 +83,9 @@ return function(App)
 				c.paint(G.tool == t and App.mode == "Paint")
 			end
 		end
-		local er = cell("erase", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
+		local er = cell("trash", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
 			App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-		end)
+		end, true)
 		er.look = function()
 			er.paint(App.mode == "Erase")
 		end
@@ -149,6 +151,29 @@ return function(App)
 		App.ui.refreshTool = function()
 			refresh()
 			showTool()
+		end
+
+		-- erase everything painted: only once there is some, at the bottom, apart, and it asks twice
+		if App.area and App.area.count > 0 then
+			gap(parent, 2)
+			App.fadeLine(parent, nil, 0.14)
+			local clr = App.dangerButton("Erase all paint", function()
+				if not App.area or App.area.count == 0 then
+					return
+				end
+				local rec = beginRec("Smart Scatter: Erase area")
+				App.area.rows, App.area.count = {}, 0
+				Engine.clearOutputs(App.area)
+				saveArea()
+				endRec(rec)
+				App.analysisDirty = true
+				App.lastCounts, App.lastTotal = {}, 0
+				rebuildOverlay()
+				App.rebuildAll()
+				App.status("Area erased. Objects and settings are kept, paint a new one.")
+			end, { confirm = "Click again to erase everything", full = true })
+			clr.Parent = parent
+			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 		end
 	end
 
@@ -317,38 +342,6 @@ return function(App)
 				maskOp(t[2], t[1])
 			end, { Parent = tools })
 			hintOn(b, t[3])
-		end
-		-- erase everything painted: only once there is some, and it asks twice
-		if App.area and App.area.count > 0 then
-			local armed = 0
-			local clr
-			clr = button("Erase all paint", "danger", function()
-				if not App.area or App.area.count == 0 then
-					return
-				end
-				if os.clock() - armed > 3 then
-					armed = os.clock()
-					clr.Text = "Click again to erase"
-					task.delay(3, function()
-						if os.clock() - armed >= 2.9 then
-							clr.Text = "Erase all paint"
-						end
-					end)
-					return
-				end
-				armed = 0
-				local rec = beginRec("Smart Scatter: Erase area")
-				App.area.rows, App.area.count = {}, 0
-				Engine.clearOutputs(App.area)
-				saveArea()
-				endRec(rec)
-				App.analysisDirty = true
-				App.lastCounts, App.lastTotal = {}, 0
-				rebuildOverlay()
-				App.rebuildAll()
-				App.status("Area erased. Objects and settings are kept, paint a new one.")
-			end, { Parent = buttonRow(parent) })
-			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 		end
 	end
 

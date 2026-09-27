@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX36"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX37"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 114
-local BUNDLED_VERSION = "9.50"
+local BUNDLED_BUILD = 115
+local BUNDLED_VERSION = "9.51"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1975,10 +1975,14 @@ return function(App)
 		elseif name == "down" then
 			bar(0.2, 0.38, 0.5, 0.66)
 			bar(0.5, 0.66, 0.8, 0.38)
-		elseif name == "trash" then
-			bar(0.16, 0.28, 0.84, 0.28)
-			bar(0.38, 0.14, 0.62, 0.14)
-			rect(0.5, 0.6, 0.52, 0.56, false, 2)
+		elseif name == "trash" then -- a trash can: a lid with its handle, a body with ribs
+			bar(0.14, 0.27, 0.86, 0.27)
+			bar(0.4, 0.13, 0.6, 0.13)
+			bar(0.4, 0.13, 0.4, 0.27)
+			bar(0.6, 0.13, 0.6, 0.27)
+			rect(0.5, 0.62, 0.54, 0.6, false, 2)
+			bar(0.42, 0.46, 0.42, 0.78)
+			bar(0.58, 0.46, 0.58, 0.78)
 		elseif name == "logo" then
 			ring(0.5, 0.2, 0.08, true)
 			ring(0.24, 0.72, 0.08, true)
@@ -2404,6 +2408,79 @@ return function(App)
 		return row
 	end
 
+	-- A button that takes something away: red, with a trash can, so it's never mistaken for another one.
+	-- opts.on(): lit up solid while it returns true (a brush that erases); opts.confirm: text shown after a first
+	-- click, and only a second click within 3 seconds does it; opts.full: the row's whole width.
+	-- Returns the button and a function that redraws it (after opts.on changes).
+	local function dangerButton(text, onClick, opts)
+		opts = opts or {}
+		local b = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			Size = opts.full and UDim2.new(1, 0, 0, 32) or UDim2.fromOffset(0, 30),
+			AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
+		}, {
+			corner(8),
+			pad(10, 12, 0, 0),
+			new("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 6),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		local st = stroke(P.danger)
+		st.Parent = b
+		local ic = icon("trash", 14, P.danger)
+		ic.LayoutOrder = 1
+		ic.Parent = b
+		local t = label(text, 13, P.danger, SANS_B, {
+			Size = UDim2.fromOffset(0, 30),
+			AutomaticSize = Enum.AutomaticSize.X,
+			LayoutOrder = 2,
+			Parent = b,
+		})
+		local lit = glow(b, 8, 0.7, P.danger)
+		local hot, armed = false, 0
+		local function look()
+			local on = opts.on and opts.on()
+			local fg = on and Color3.new(1, 1, 1) or P.danger
+			b.BackgroundColor3 = on and P.danger or P.danger:Lerp(P.card, hot and 0.74 or 0.86)
+			st.Color = P.danger:Lerp(P.card, on and 0 or 0.45)
+			t.TextColor3 = fg
+			setIconColor(ic, fg)
+			lit:set(on == true)
+		end
+		look()
+		b.MouseEnter:Connect(function()
+			hot = true
+			look()
+		end)
+		b.MouseLeave:Connect(function()
+			hot = false
+			look()
+		end)
+		pressable(b, 0.96)
+		b.MouseButton1Click:Connect(function()
+			if opts.confirm and os.clock() - armed > 3 then -- asks twice
+				armed = os.clock()
+				t.Text = opts.confirm
+				task.delay(3, function()
+					if os.clock() - armed >= 2.9 then
+						t.Text = text
+					end
+				end)
+				return
+			end
+			armed = 0
+			t.Text = text
+			onClick()
+			look()
+		end)
+		return b, look
+	end
+
 	-- used by later modules
 	App.new = new
 	App.textSize = textSize
@@ -2430,6 +2507,7 @@ return function(App)
 	App.topLight = topLight
 	App.hideTip = hideTip
 	App.button = button
+	App.dangerButton = dangerButton
 	App.buttonRow = buttonRow
 	App.hintOn = hintOn
 	App.refreshSliders = refreshSliders
@@ -2784,9 +2862,13 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" | "Place" (one layer) · "Off"
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "Place" | "More" | "Less" | "None" | "Clear" (one layer) · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
-	local LAYER_MODES = { More = "paint", Less = "paint", Clear = "paint", Place = "pins" }
+	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
+	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
+	App.LAYER_LABEL = { Place = "Place", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
+	App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
 	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)
@@ -2955,7 +3037,8 @@ return function(App)
 		local grid = chipGrid(parent, 3, 36)
 		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 		local cells = {}
-		local function cell(iconName, text, color, hint, onClick)
+		-- a tool; tinted: in its colour even when not picked (Erase: red, so it's never taken for another tool)
+		local function cell(iconName, text, color, hint, onClick, tinted)
 			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
 			local st = stroke(P.line)
 			st.Parent = b
@@ -2974,13 +3057,14 @@ return function(App)
 			hintOn(b, hint)
 			b.MouseButton1Click:Connect(onClick)
 			App.pressable(b, 0.96)
-			local lit = App.glow(b, 8, 0.6)
+			local lit = App.glow(b, 8, 0.6, color)
 			local c = { hot = false }
 			c.paint = function(on)
 				lit:set(on)
-				b.BackgroundColor3 = on and color:Lerp(P.card, 0.85) or (c.hot and P.hover or P.raised)
-				st.Color = on and color:Lerp(P.card, 0.5) or P.line
-				local fg = on and color or (c.hot and P.text or P.dim)
+				local idle = tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
+				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
+				st.Color = on and color:Lerp(P.card, 0.4) or (tinted and color:Lerp(P.card, 0.6) or P.line)
+				local fg = on and color or (tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
 				setIconColor(ic, fg)
 				t.TextColor3 = fg
 			end
@@ -3007,9 +3091,9 @@ return function(App)
 				c.paint(G.tool == t and App.mode == "Paint")
 			end
 		end
-		local er = cell("erase", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
+		local er = cell("trash", "Erase", P.danger, "Erase: take ground out of the area (Shift does it while painting).", function()
 			App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-		end)
+		end, true)
 		er.look = function()
 			er.paint(App.mode == "Erase")
 		end
@@ -3075,6 +3159,29 @@ return function(App)
 		App.ui.refreshTool = function()
 			refresh()
 			showTool()
+		end
+
+		-- erase everything painted: only once there is some, at the bottom, apart, and it asks twice
+		if App.area and App.area.count > 0 then
+			gap(parent, 2)
+			App.fadeLine(parent, nil, 0.14)
+			local clr = App.dangerButton("Erase all paint", function()
+				if not App.area or App.area.count == 0 then
+					return
+				end
+				local rec = beginRec("Smart Scatter: Erase area")
+				App.area.rows, App.area.count = {}, 0
+				Engine.clearOutputs(App.area)
+				saveArea()
+				endRec(rec)
+				App.analysisDirty = true
+				App.lastCounts, App.lastTotal = {}, 0
+				rebuildOverlay()
+				App.rebuildAll()
+				App.status("Area erased. Objects and settings are kept, paint a new one.")
+			end, { confirm = "Click again to erase everything", full = true })
+			clr.Parent = parent
+			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 		end
 	end
 
@@ -3243,38 +3350,6 @@ return function(App)
 				maskOp(t[2], t[1])
 			end, { Parent = tools })
 			hintOn(b, t[3])
-		end
-		-- erase everything painted: only once there is some, and it asks twice
-		if App.area and App.area.count > 0 then
-			local armed = 0
-			local clr
-			clr = button("Erase all paint", "danger", function()
-				if not App.area or App.area.count == 0 then
-					return
-				end
-				if os.clock() - armed > 3 then
-					armed = os.clock()
-					clr.Text = "Click again to erase"
-					task.delay(3, function()
-						if os.clock() - armed >= 2.9 then
-							clr.Text = "Erase all paint"
-						end
-					end)
-					return
-				end
-				armed = 0
-				local rec = beginRec("Smart Scatter: Erase area")
-				App.area.rows, App.area.count = {}, 0
-				Engine.clearOutputs(App.area)
-				saveArea()
-				endRec(rec)
-				App.analysisDirty = true
-				App.lastCounts, App.lastTotal = {}, 0
-				rebuildOverlay()
-				App.rebuildAll()
-				App.status("Area erased. Objects and settings are kept, paint a new one.")
-			end, { Parent = buttonRow(parent) })
-			hintOn(clr, "Removes all painted ground in this area and what was placed on it. Your objects stay. Ctrl+Z brings it back.")
 		end
 	end
 
@@ -4274,8 +4349,9 @@ end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
-	first), seasons (snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything
-	changes them, and putting them back).
+	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
+	(snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything changes them,
+	and putting them back).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -4669,6 +4745,358 @@ return function(App)
 			end, { Parent = acts }),
 			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
 		)
+	end
+
+	--------------------------------------------------------------------------------
+	-- Improving a layout
+	--------------------------------------------------------------------------------
+	local tidy = { key = nil, spacing = 1, crowd = 0.5, gap = 1.7, fill = true, fixRules = true, remove = false, plan = nil }
+	local tidyBusy = false
+	local PREVIEW = "SmartScatterLayoutPreview"
+	local function clearPreview()
+		local cam = workspace.CurrentCamera
+		local f = cam and cam:FindFirstChild(PREVIEW)
+		if f then
+			f:Destroy()
+		end
+	end
+	clearPreview() -- (one left by an earlier load of the plugin)
+	-- the plan in the viewport: an orange dot and a line to where each moved copy goes, a green disc where a copy
+	-- is added, a red ring round each one taken out
+	local function drawPreview(plan)
+		clearPreview()
+		local f = App.new("Folder", { Name = PREVIEW, Archivable = false, Parent = workspace.CurrentCamera })
+		local T = workspace.Terrain
+		local MOVE, ADD, OUT = Color3.fromRGB(245, 166, 60), Color3.fromRGB(110, 210, 120), Color3.fromRGB(235, 80, 70)
+		local flat = CFrame.Angles(math.rad(90), 0, 0) -- (a cylinder adornment stands along Z)
+		local function disc(at, r, color, inner)
+			App.new("CylinderHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.new(at + Vector3.new(0, 0.3, 0)) * flat,
+				Radius = r,
+				InnerRadius = inner or 0,
+				Height = 0.2,
+				Color3 = color,
+				Transparency = inner and 0.1 or 0.35,
+				AlwaysOnTop = true,
+				ZIndex = 3,
+				Parent = f,
+			})
+		end
+		local function dot(at, color)
+			App.new("SphereHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.new(at + Vector3.new(0, 0.6, 0)),
+				Radius = 0.9,
+				Color3 = color,
+				AlwaysOnTop = true,
+				ZIndex = 4,
+				Parent = f,
+			})
+		end
+		local r = math.max(plan.spacing * 0.2, 1)
+		for _, mv in plan.moves do
+			local a, b = mv.from + Vector3.new(0, 0.6, 0), mv.to + Vector3.new(0, 0.6, 0)
+			dot(mv.from, MOVE)
+			App.new("LineHandleAdornment", {
+				Adornee = T,
+				CFrame = CFrame.lookAt(a, b),
+				Length = (b - a).Magnitude,
+				Thickness = 3,
+				Color3 = MOVE,
+				AlwaysOnTop = true,
+				ZIndex = 3,
+				Parent = f,
+			})
+			disc(mv.to, r, MOVE)
+		end
+		for _, ad in plan.adds do
+			disc(ad.to, r, ADD)
+		end
+		for _, inst in plan.removes do
+			if inst.Parent then
+				local cf = inst:GetPivot()
+				disc(cf.Position, r * 1.3, OUT, r * 1.1)
+			end
+		end
+	end
+
+	local function tidyKind()
+		for _, k in App.kinds or {} do
+			if k.key == tidy.key then
+				return k
+			end
+		end
+		return nil
+	end
+	local function dropPlan()
+		tidy.plan = nil
+		clearPreview()
+	end
+
+	local function runPlan()
+		local k = tidyKind()
+		if tidyBusy or not k then
+			return
+		end
+		tidyBusy = true
+		dropPlan()
+		App.status("Reading the ground around " .. k.name .. "…")
+		App.rebuildAll()
+		task.spawn(function()
+			local rows = 0
+			local ok, plan, why = pcall(Engine.layoutPlan, k, {
+				spacing = tidy.spacing,
+				crowd = tidy.crowd,
+				gap = tidy.gap,
+				fill = tidy.fill,
+				fixRules = tidy.fixRules,
+				remove = tidy.remove,
+				seed = 11,
+				tick = function(p)
+					rows += 1
+					if rows % 8 == 0 then -- (a breath for Studio now and then, not every row)
+						App.showProgress("Scanning", p)
+						task.wait()
+					end
+					return true
+				end,
+			})
+			App.showProgress(nil)
+			tidyBusy = false
+			if not ok then
+				App.status("The plan stopped: " .. tostring(plan), "error")
+			elseif not plan then
+				App.status(why or "Nothing to plan.")
+			else
+				tidy.plan = plan
+				drawPreview(plan)
+				local nothing = #plan.moves + #plan.adds + #plan.removes == 0
+				App.status(
+					nothing and (k.name .. " is already well spaced: nothing to change.")
+						or "The plan is in the viewport: orange moves, green is added, red is taken out. Apply, or change the settings and plan again."
+				)
+			end
+			App.rebuildAll()
+		end)
+	end
+
+	local function applyPlan()
+		local k, plan = tidyKind(), tidy.plan
+		if not (k and plan) then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Improve layout")
+		local ok, added = pcall(Engine.layoutApply, plan)
+		endRec(rec, not ok)
+		dropPlan()
+		if not ok then
+			App.status("Stopped: " .. tostring(added), "error")
+			App.rebuildAll()
+			return
+		end
+		for _, inst in added do
+			table.insert(k.copies, { inst = inst, scale = 1 })
+		end
+		local sel = table.clone(added)
+		for _, mv in plan.moves do
+			table.insert(sel, mv.inst)
+		end
+		Selection:Set(sel)
+		App.status(
+			string.format(
+				"%s: moved %d, added %d, took out %d (the changed ones are selected). Restore original in the Snapshot card puts it all back.",
+				k.name,
+				#plan.moves,
+				#added,
+				#plan.removes
+			)
+		)
+		App.rebuildAll()
+	end
+
+	App.buildImproveLayout = function(b)
+		local kinds = {}
+		for _, k in App.kinds or {} do
+			if #alive(k) >= 3 then
+				table.insert(kinds, k)
+			end
+		end
+		if #kinds == 0 then
+			tidy.key = nil
+			dropPlan()
+			explain(b, App.kinds and "No kind has enough copies (3 or more) to space out." or "Scan the map first, then pick a kind to space out.")
+			return
+		end
+		if not tidyKind() then
+			tidy.key = kinds[1].key
+			dropPlan()
+		end
+		label("Kind", 13, P.text, SANS, { Parent = b })
+		local grid = App.chipGrid(b, 2, 30)
+		for i, k in kinds do
+			if i > 8 then
+				break
+			end
+			App.chip(grid, string.format("%s  ×%s", k.name, num(#alive(k))), function()
+				return tidy.key == k.key
+			end, function()
+				if tidy.key ~= k.key then
+					tidy.key = k.key
+					dropPlan()
+					App.rebuildAll()
+				end
+			end).LayoutOrder =
+				i
+		end
+		local k = tidyKind()
+		local list, hand = alive(k), 0
+		for _, inst in list do
+			hand += Engine.isHandPlaced(inst) and 1 or 0
+		end
+		-- settings: a change drops the plan, which no longer matches
+		local function changed()
+			if tidy.plan then
+				dropPlan()
+				App.rebuildAll()
+			end
+		end
+		App.slider(
+			"Spacing",
+			0.5,
+			2,
+			function()
+				return tidy.spacing
+			end,
+			function(v)
+				tidy.spacing = v
+			end,
+			"%.2f×",
+			0.05,
+			nil,
+			changed,
+			"1× keeps the kind's own typical spacing, the usual gap between neighbours. Lower packs it closer, higher spreads it out.",
+			1
+		).Parent =
+			b
+		App.slider("Crowded under", 0.2, 0.9, function()
+			return tidy.crowd
+		end, function(v)
+			tidy.crowd = v
+		end, "%.0f%%", 0.05, nil, changed, "A copy closer than this to another (as a share of the spacing), or overlapping it, is crowded.", 0.5).Parent =
+			b
+		App.slider(
+			"Empty over",
+			1.2,
+			3,
+			function()
+				return tidy.gap
+			end,
+			function(v)
+				tidy.gap = v
+			end,
+			"%.0f%%",
+			0.05,
+			nil,
+			changed,
+			"A spot farther than this from every copy (as a share of the spacing) is a hole. Lower fills smaller holes.",
+			1.7
+		).Parent =
+			b
+		for _, o in
+			{
+				{ "fill", "Fill holes with new copies", "Holes left once the crowded copies have moved get new copies, cloned from the kind." },
+				{
+					"fixRules",
+					"Move ones that break the rules",
+					"Copies standing where the kind never should (on a road, in water, too steep) move too.",
+				},
+				{ "remove", "Take out extras that can't move", "Crowded copies with no hole to go to are taken out. Off: they stay where they are." },
+			}
+		do
+			App.switchRow(o[2], function()
+				return tidy[o[1]]
+			end, function(v)
+				tidy[o[1]] = v
+			end, changed, o[3]).Parent = b
+		end
+		-- hand-placed copies
+		explain(
+			b,
+			hand > 0
+					and string.format(
+						"%d hand-placed cop%s stay%s exactly where %s.",
+						hand,
+						hand == 1 and "y" or "ies",
+						hand == 1 and "s" or "",
+						hand == 1 and "it is" or "they are"
+					)
+				or "Mark copies you placed on purpose as hand-placed: they never move, and others make room around them."
+		)
+		local handRow = buttonRow(b)
+		local function mark(on)
+			local sel = Selection:Get()
+			if #sel == 0 then
+				App.status("Select the copies (or a folder of them) in the Explorer first.")
+				return
+			end
+			local rec = beginRec(on and "Smart Scatter: Mark hand-placed" or "Smart Scatter: Unmark hand-placed")
+			Engine.setHandPlaced(sel, on)
+			endRec(rec)
+			App.status(string.format("%s %d as hand-placed.", on and "Marked" or "Unmarked", #sel))
+			dropPlan()
+			App.rebuildAll()
+		end
+		hintOn(
+			button("Mark selected as hand-placed", nil, function()
+				mark(true)
+			end, { Parent = handRow }),
+			"The selected copies, or everything in a selected folder, never move or go."
+		)
+		button("Unmark", "ghost", function()
+			mark(false)
+		end, { Parent = handRow })
+		-- the plan
+		local plan = tidy.plan
+		if plan then
+			local stats = col({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Parent = b }, {
+				App.corner(10),
+				App.pad(12, 12, 10, 10),
+				vlist(4),
+			})
+			label(
+				string.format("Spacing %.0f studs · crowded %d · breaking rules %d · holes %d", plan.spacing, plan.crowded, plan.bad, plan.holes),
+				12,
+				P.dim,
+				SANS,
+				{ Parent = stats }
+			)
+			label(string.format("Move %d · add %d · take out %d", #plan.moves, #plan.adds, #plan.removes), 13, P.text, SANS_B, { Parent = stats })
+			label(
+				string.format("Evenness %d%% → %d%%", math.floor(plan.evenBefore * 100 + 0.5), math.floor(plan.evenAfter * 100 + 0.5)),
+				13,
+				plan.evenAfter >= plan.evenBefore and P.accent or P.danger,
+				SANS_B,
+				{ Parent = stats }
+			)
+		end
+		local acts = buttonRow(b)
+		if plan and #plan.moves + #plan.adds + #plan.removes > 0 then
+			hintOn(
+				button("Apply", "accent", applyPlan, { Parent = acts }),
+				"Carries out the plan as one step (Ctrl+Z undoes it). Every copy it touches is kept in the snapshot first."
+			)
+		end
+		hintOn(
+			button(tidyBusy and "Planning…" or (plan and "Plan again" or "Plan"), if plan then nil else "accent", runPlan, { Parent = acts }),
+			"Reads the ground around the kind with its placement rules and works out what to move, add or take out. Nothing changes until you Apply."
+		)
+		if plan then
+			button("Clear preview", "ghost", function()
+				dropPlan()
+				App.rebuildAll()
+			end, { Parent = acts })
+		end
 	end
 
 	-- seasons: what the Seasons card is set to (this session)
@@ -5301,42 +5729,92 @@ return function(App)
 		})
 	end
 
+	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
+	local LAYER_HINT = {
+		Place = "Puts copies down exactly where you brush, at the object's spacing.",
+		More = "More of it where you brush (up to three times as much).",
+		Less = "Less of it where you brush; twice clears it.",
+		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
+		Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
+	}
 	local function buildLayerPaint(l, parent, more)
 		parent.add({
 			id = "layerpaint",
 			title = "Paint or place this object",
-			keys = "brush more less clear place pins",
+			keys = "brush more less erase reset place pins",
 			more = more,
 			build = function(b)
-				local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
-					return App.paintLayer == l and App.mode or nil
-				end, function(m)
-					App.setMode(m, l)
-				end, nil, nil, true)
-				seg.Parent = b
-				explain(
-					b,
-					"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
-				)
-				App.ui.refreshLayerBrush = refresh
-				if l.pins then
-					gap(b, 4)
-					button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
+				local labels, modeOf = {}, {}
+				for _, m in App.LAYER_ORDER do
+					if m ~= "None" then
+						table.insert(labels, App.LAYER_LABEL[m])
+						modeOf[App.LAYER_LABEL[m]] = m
+					end
+				end
+				local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+				local seg, refresh = segmented(labels, function()
+					return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
+				end, function(label)
+					App.setMode(modeOf[label], l)
+				end, nil, nil, true, nil, LAYER_HINT)
+				seg.Size = UDim2.new(1, -100, 1, 0)
+				seg.Parent = row
+				local erase, eraseLook = App.dangerButton("Erase", function()
+					App.setMode("None", l)
+				end, {
+					on = function()
+						return App.paintLayer == l and App.mode == "None"
+					end,
+				})
+				erase.AutomaticSize = Enum.AutomaticSize.None
+				erase.Size = UDim2.fromOffset(92, 30)
+				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
+				erase.Parent = row
+				hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
+				local what = App.para("", { Parent = b })
+				what.TextColor3 = P.dim
+				local function say()
+					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
+					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]]) .. ".")
+						or "Pick one, then brush over the area in the viewport."
+				end
+				say()
+				App.ui.refreshLayerBrush = function()
+					refresh()
+					eraseLook()
+					say()
+				end
+				slider("Brush size", 4, 200, function()
+					return G.radius
+				end, function(v)
+					G.radius = v
+				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
+					b
+				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
+				if l.paint then
+					hintOn(
+						button("Reset all painting", nil, function()
+							l.paint = nil
+							if App.paintLayer == l then
+								recolorOverlay()
+							end
+							commit(l)
+							App.refreshObjects()
+						end, { Parent = buttonRow(b) }),
+						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+					)
+				end
+				if l.pins then -- what takes away for good, at the bottom, apart
+					gap(b, 2)
+					App.fadeLine(b, nil, 0.14)
+					local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
 						l.pins = nil
 						commit(l)
 						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
-				end
-				if l.paint then
-					gap(b, 4)
-					button("Reset painting", nil, function()
-						l.paint = nil
-						if App.paintLayer == l then
-							recolorOverlay()
-						end
-						commit(l)
-						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
+					end, { confirm = "Click again to remove", full = true })
+					rm.Parent = b
+					hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
 				end
 			end,
 		})
@@ -6196,14 +6674,15 @@ return function(App)
 	-- single copies: take out the one that looks wrong, or bring them all back
 	local function fillRemoveCopies(b)
 		local fix = buttonRow(b)
-		local pick = button("", nil, function()
+		local pick, refresh = App.dangerButton("Remove single copies", function()
 			App.setMode("Remove")
-		end, { Parent = fix })
-		hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
-		local function refresh()
-			pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
-		end
-		refresh()
+		end, {
+			on = function()
+				return App.mode == "Remove"
+			end,
+		})
+		pick.Parent = fix
+		hintOn(pick, "Lit: click placed copies in the viewport to take them out; click here again when done. Generating again keeps them out.")
 		App.ui.refreshRemoveBtn = refresh
 		local n = App.area and Engine.removedCount(App.area) or 0
 		if n > 0 then
@@ -6977,7 +7456,7 @@ end
 
 return function(App)
 	local Engine, P, SANS = App.Engine, App.P, App.SANS
-	local label, chip, chipGrid, hintOn = App.label, App.chip, App.chipGrid, App.hintOn
+	local label, hintOn = App.label, App.hintOn
 
 	-- the object the "Paint one object" card works on (this session only; the first one that can be painted)
 	local picked
@@ -7003,12 +7482,45 @@ return function(App)
 		if not table.find(list, picked) then
 			picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 		end
-		label("Object", 13, P.text, SANS, { Parent = b })
-		local grid = chipGrid(b, 3, 30)
-		for i, l in list do
-			local c = chip(grid, l.inst.Name, function()
-				return picked == l
-			end, function()
+		-- the objects as rows: a small view of the model, its name, how many are placed; the picked one lit
+		for _, l in list do
+			local on = picked == l
+			local row = App.new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundColor3 = on and P.accentSoft or P.raised,
+				Size = UDim2.new(1, 0, 0, 48),
+				Parent = b,
+			}, { App.corner(10) })
+			local st = App.stroke(on and P.accentLine or P.line)
+			st.Parent = row
+			local th = App.thumbnail(l.inst, 38)
+			th.Position = UDim2.fromOffset(5, 5)
+			th.Parent = row
+			label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, on and P.accent or P.text, App.SANS_B, {
+				Position = UDim2.fromOffset(52, 7),
+				Size = UDim2.new(1, -60, 0, 18),
+				Parent = row,
+			})
+			local n = App.lastCounts[l]
+			local bits = { n and (App.num(n) .. " placed") or l.type }
+			if l.pins then
+				table.insert(bits, #l.pins .. " by hand")
+			end
+			if l.paint then
+				table.insert(bits, "painted")
+			end
+			label(table.concat(bits, " · "), 11, P.dim, SANS, { Position = UDim2.fromOffset(52, 25), Size = UDim2.new(1, -60, 0, 16), Parent = row })
+			if not on then
+				row.MouseEnter:Connect(function()
+					row.BackgroundColor3 = P.hover
+				end)
+				row.MouseLeave:Connect(function()
+					row.BackgroundColor3 = P.raised
+				end)
+			end
+			App.pressable(row, 0.985)
+			row.MouseButton1Click:Connect(function()
 				if picked ~= l then
 					if App.LAYER_MODES[App.mode] then -- the brush moves over to the new pick
 						App.setMode(App.mode, l)
@@ -7017,8 +7529,7 @@ return function(App)
 					App.rebuildAll()
 				end
 			end)
-			c.LayoutOrder = i
-			hintOn(c, "Brush " .. l.inst.Name .. ".")
+			hintOn(row, "Brush " .. l.inst.Name .. ".")
 		end
 		App.buildLayerPaint(picked, { -- its controls straight into this card
 			add = function(spec)
@@ -7051,7 +7562,7 @@ return function(App)
 				sub = kind == "Clear" and "Where nothing from any area may go"
 					or painted and string.format("%s studs² painted. Keep painting, or tune what fills it.", App.num(a.count * a.cell * a.cell))
 					or "Pick a tool, then paint the ground in the viewport",
-				keys = "paint ground brush lasso box polygon fill erase size shape reach selected parts",
+				keys = "paint ground brush lasso box polygon fill erase all delete size shape reach selected parts",
 				build = App.buildPaintTools,
 			})
 			App.ui.step1Card = card
@@ -7062,7 +7573,7 @@ return function(App)
 					id = "objectbrush",
 					title = "Paint one object",
 					sub = "More, less or none of it where you brush; or place copies exactly",
-					keys = "more less clear place pins object brush by hand",
+					keys = "more less erase reset place pins object brush by hand",
 					build = buildObjectBrush,
 				})
 			end
@@ -7088,7 +7599,7 @@ return function(App)
 					id = "tidy",
 					title = "Tidy the edge",
 					sub = "Fill holes, smooth, grow or shrink what's painted",
-					keys = "fill holes smooth grow shrink erase all paint cleanup",
+					keys = "fill holes smooth grow shrink cleanup",
 					more = true,
 					build = App.buildTidy,
 				})
@@ -7155,6 +7666,14 @@ return function(App)
 			sub = "Replace every copy of a kind with another model or a mix",
 			keys = "swap replace model mix kind copies preview try",
 			build = App.buildSwap,
+		})
+		cs.add({
+			id = "layout",
+			title = "Improve layout",
+			icon = "layers",
+			sub = "Re-space crowded and empty spots, by the placement rules",
+			keys = "layout spacing crowded empty holes gaps respace even tidy hand placed",
+			build = App.buildImproveLayout,
 		})
 		cs.add({
 			id = "seasons",
@@ -7572,7 +8091,7 @@ return function(App)
 			title = "Four tabs",
 			text = "Scatter: what fills the area, its objects and their rules.\n"
 				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
-				.. "Map: the path and its road; scanning a finished map, swapping its models, seasons.\n"
+				.. "Map: the path and its road; scanning a finished map to swap, re-space or re-season it.\n"
 				.. "Settings: the plugin itself.\n\n"
 				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
 				.. "below the tabs, like road or spacing.",
@@ -8045,7 +8564,7 @@ return function(App)
 			local v = j and App.heatFn(j) or 0
 			return v <= 0 and VIEW.less or VIEW.muted:Lerp(VIEW.accent, math.clamp(0.25 + v * 0.75, 0, 1))
 		end
-		if App.paintLayer and LAYER_MODES[App.mode] == "paint" then
+		if App.paintLayer and LAYER_MODES[App.mode] then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
 				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
@@ -8100,7 +8619,7 @@ return function(App)
 		table.sort(xs)
 		local c, parts, i = App.area.cell, {}, 1
 		local zone = App.kindOf(App.area) == "Clear"
-		local painting = App.paintLayer and LAYER_MODES[App.mode] == "paint" -- per-object paint: no outline, just the amounts
+		local painting = App.paintLayer and LAYER_MODES[App.mode] ~= nil -- one object: no outline, just its amounts
 		-- a cell's look: its colour, and whether it's on the outline (brighter, more solid)
 		local function style(cx)
 			local col = cellColor(cx, cz, zone)
@@ -8265,6 +8784,7 @@ return function(App)
 		strokeBox = b and { math.min(b[1], x0), math.min(b[2], z0), math.max(b[3], x1), math.max(b[4], z1) } or { x0, z0, x1, z1 }
 	end
 	local gestureOn = true -- paint (true) or erase (false), fixed when a gesture starts
+	local gestureAction -- the one-layer brush: what this gesture does (the mode, or its opposite with Shift)
 	local shapePts, boxStart -- lasso points · box corner
 	-- App.polyPts: polygon points (Vector3)
 	local lastClick = 0
@@ -8277,6 +8797,10 @@ return function(App)
 	end
 	local function erasing()
 		return (App.mode == "Erase") ~= (shiftHeld() == true)
+	end
+	-- what the one-layer brush does right now: its mode, or the opposite while Shift is held
+	local function layerAction()
+		return shiftHeld() and App.LAYER_OPPOSITE[App.mode] or App.mode
 	end
 	local function activeTool()
 		return LAYER_MODES[App.mode] and "Brush" or G.tool
@@ -8355,14 +8879,9 @@ return function(App)
 		App.gz = {}
 	end
 	local function toolColor()
-		if App.mode == "Clear" then
-			return VIEW.muted
-		end
-		if App.mode == "Less" or (App.mode == "Place" and erasing()) then
-			return P.danger
-		end
 		if LAYER_MODES[App.mode] then
-			return VIEW.accent
+			local act = layerAction()
+			return (act == "None" or act == "Less") and P.danger or act == "Clear" and VIEW.muted or VIEW.accent
 		end
 		return erasing() and VIEW.blocked or VIEW.accent
 	end
@@ -8461,7 +8980,7 @@ return function(App)
 		App.gz.dot.CFrame = CFrame.new(p)
 		App.gz.anchor.CFrame = CFrame.new(p)
 		local surf = Engine.surfaceOf(hit.Instance, hit.Material)
-		local what = LAYER_MODES[App.mode] and (App.mode .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
+		local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
 			or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
 		if tool == "Polygon" and App.polyPts then
 			what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
@@ -8501,19 +9020,19 @@ return function(App)
 		return true
 	end
 
-	-- the object brush (mode Place): puts copies of the object down where it's dragged (Engine/Pins), Shift takes
-	-- them away; the stroke's patch is rebuilt when it ends
+	-- the object brush: Place puts copies of the object down where it's dragged (Engine/Pins); Erase takes them away
+	-- again (along with the object's painting, below). The stroke's patch is rebuilt when it ends.
 	local pinRng = Random.new(os.time())
-	local function placeStamp(pos)
+	local function placeStamp(pos, erase)
 		local l, R = App.paintLayer, G.radius
 		if not l then
 			return
 		end
 		local changed
-		if gestureOn then
-			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
-		else
+		if erase then
 			changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
+		else
+			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
 		end
 		if changed then
 			local c = App.area.cell
@@ -8524,9 +9043,12 @@ return function(App)
 	end
 
 	local function stamp(pos)
-		if App.mode == "Place" then
+		local act = LAYER_MODES[App.mode] and gestureAction
+		if act == "Place" then
 			placeStamp(pos)
 			return
+		elseif act == "None" then -- erasing the object: what was placed by hand here goes too
+			placeStamp(pos, true)
 		end
 		local c, R = App.area.cell, G.radius
 		local sq = G.shape == "Square"
@@ -8545,11 +9067,13 @@ return function(App)
 						if App.paintLayer and Engine.hasCell(App.area, cx, cz) and not strokeTouched[key] then
 							strokeTouched[key] = true -- each stroke changes a cell once
 							local v = Engine.paintValue(App.paintLayer, cx, cz)
-							local nv = 1
-							if App.mode == "More" then
+							local nv = 1 -- (Reset: back to normal)
+							if act == "More" then
 								nv = v + 0.5
-							elseif App.mode == "Less" then
+							elseif act == "Less" then
 								nv = v - 0.5
+							elseif act == "None" then
+								nv = 0
 							end
 							if nv ~= v then
 								Engine.setPaint(App.paintLayer, cx, cz, nv)
@@ -8919,6 +9443,7 @@ return function(App)
 		end
 		down = true
 		gestureOn = not erasing()
+		gestureAction = LAYER_MODES[App.mode] and layerAction() or nil
 		if tool == "Brush" then
 			beginGesture(LAYER_MODES[App.mode] and "Smart Scatter: Paint Layer" or "Smart Scatter: Paint Area")
 			lastPos = nil
@@ -9040,7 +9565,10 @@ return function(App)
 		end
 		for _, a in App.KEYMAP do
 			if App.keyOf(a.id) == key then
-				return (#(charOf(key) or "") == 1 and ctrlHeld()) and nil or a.id
+				if #(charOf(key) or "") == 1 and ctrlHeld() then
+					return nil -- Ctrl with a letter is Studio's (Ctrl+C, Ctrl+D…), not this shortcut
+				end
+				return a.id
 			end
 		end
 		return ALIASES[key]
@@ -9054,6 +9582,15 @@ return function(App)
 			onKey(name)
 		end
 	end))
+	-- Shift turns a brush into its opposite: the ring shows it the moment the key goes down or up
+	local function shiftChanged(input)
+		local k = input.KeyCode
+		if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" and App.gz.folder then
+			updateGizmo(mouseHit())
+		end
+	end
+	track(UIS.InputBegan:Connect(shiftChanged))
+	track(UIS.InputEnded:Connect(shiftChanged))
 	mouse.KeyDown:Connect(function(k)
 		for _, a in App.KEYMAP do
 			local key = App.keyOf(a.id)
@@ -9101,10 +9638,11 @@ return function(App)
 		Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
-		More = "Brush where you want more of this layer.",
-		Less = "Brush where you want less. Twice removes it there.",
-		Clear = "Brush to undo your painting for this layer.",
-		Place = "Drag to put copies down where you brush. Hold Shift to take them away. {size} resizes.",
+		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		More = "Brush where you want more of it. Shift brushes less.",
+		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
+		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
+		Clear = "Brush to bring it back to normal there. Shift erases it.",
 		Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 	}
 	-- a mode's hint, with the keys it names as they're bound ({size} → F, or whatever the user picked)
@@ -10180,11 +10718,11 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
-	Seasons turns it snowy, autumn or dry.
+	Seasons turns it snowy, autumn or dry; Layout re-spaces its crowded and empty spots.
 	Upright placement: a model's "up" is how it stands in the world, never its pivot rotation.
 
 	Each module below is `return function(E, I) … end` and runs once, in ORDER:
@@ -10193,7 +10731,7 @@ end
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons" }
+local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons", "Layout" }
 
 local function module(name) -- (a flattened release swaps this line for its own table of modules)
 	return require(script:FindFirstChild(name))
@@ -12648,34 +13186,53 @@ return function(E, I)
 		return added
 	end
 
-	-- a tool changed a kept copy (swapped it for `now`, or recoloured it in place: now == inst). Returns whether
-	-- the copy was in the snapshot.
+	-- a tool changed a kept copy: swapped it for `now`, moved or recoloured it in place (now nil: the same copy),
+	-- or took it out (now false). Returns whether the copy was in the snapshot.
 	function E.snapshotChanged(inst, now)
 		local e = entryOf(inst)
 		if not e then
 			return false
 		end
-		e.Now.Value = now or inst
-		index[inst] = nil
-		index[now or inst] = e
+		if now == false then
+			e.Now.Value = nil
+		else
+			e.Now.Value = now or inst
+			index[now or inst] = e
+		end
+		if now ~= nil then
+			index[inst] = nil
+		end
 		e:SetAttribute("SS_Changed", true)
 		return true
 	end
 
-	-- { saved = copies kept, changed = copies changed since, time = when it was started } or nil
+	-- a tool added a copy that wasn't in the map: Restore takes it out again
+	function E.snapshotAdded(inst)
+		local f = folder(true)
+		local e = Instance.new("Folder")
+		e.Name = inst.Name
+		local now = Instance.new("ObjectValue")
+		now.Name = "Now"
+		now.Value = inst
+		now.Parent = e
+		e:SetAttribute("SS_Added", true)
+		e:SetAttribute("SS_Changed", true)
+		e.Parent = f
+		index[inst] = e
+	end
+
+	-- { saved = copies kept, changed = copies changed (or added) since, time = when it was started } or nil
 	function E.snapshotInfo()
 		local f = folder(false)
 		if not f then
 			return nil
 		end
-		local changed = 0
-		local list = f:GetChildren()
-		for _, e in list do
-			if e:GetAttribute("SS_Changed") then
-				changed += 1
-			end
+		local saved, changed = 0, 0
+		for _, e in f:GetChildren() do
+			saved += e:GetAttribute("SS_Added") and 0 or 1
+			changed += e:GetAttribute("SS_Changed") and 1 or 0
 		end
-		return { saved = #list, changed = changed, time = f:GetAttribute("SS_Saved") }
+		return { saved = saved, changed = changed, time = f:GetAttribute("SS_Saved") }
 	end
 
 	-- puts every changed copy back as it was, where it was (the originals stay kept, so it can be done again).
@@ -12685,7 +13242,13 @@ return function(E, I)
 		local back, map = 0, {}
 		for _, e in entries() do
 			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
-			if orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
+			if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then -- added since: out again
+				if now.Value and now.Value.Parent then
+					now.Value:Destroy()
+				end
+				e:Destroy()
+				back += 1
+			elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 				local was = now.Value
 				if was and was.Parent then
 					was:Destroy()
@@ -12879,7 +13442,640 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
+	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
+	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
+	change. The rules are the plugin's own, relaxed to what the map's copies already do, so a map's style stays.
+	E.relayout is the pure part (tested offline); E.layoutPlan reads the map for it, E.layoutApply carries it out.
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E, I)
+	local chamfer = I.chamfer
+
+	--------------------------------------------------------------------------------
+	-- Hand-placed copies
+	--------------------------------------------------------------------------------
+	local HAND = "SS_HandPlaced"
+	-- a copy is hand-placed when it, or anything it's in (a whole folder), is marked
+	function E.isHandPlaced(inst)
+		local cur = inst
+		while cur and cur ~= workspace and cur ~= game do
+			if cur:GetAttribute(HAND) then
+				return true
+			end
+			cur = cur.Parent
+		end
+		return false
+	end
+	function E.setHandPlaced(list, on)
+		for _, inst in list do
+			inst:SetAttribute(HAND, on and true or nil)
+		end
+	end
+
+	--------------------------------------------------------------------------------
+	-- The spacing itself (pure: points in, what to do out)
+	--------------------------------------------------------------------------------
+	-- a grid of points for "what's near here", cell size `size`
+	local function hashOf(size)
+		local h = { size = size, cells = {}, lo = Vector3.new(math.huge, 0, math.huge), hi = Vector3.new(-math.huge, 0, -math.huge) }
+		function h.add(x, z, v)
+			local cx, cz = math.floor(x / size), math.floor(z / size)
+			h.lo, h.hi = Vector3.new(math.min(h.lo.X, cx), 0, math.min(h.lo.Z, cz)), Vector3.new(math.max(h.hi.X, cx), 0, math.max(h.hi.Z, cz))
+			local k = cx .. "," .. cz
+			local c = h.cells[k]
+			if not c then
+				c = {}
+				h.cells[k] = c
+			end
+			table.insert(c, { x = x, z = z, v = v })
+		end
+		-- the nearest point within `reach` (distance, value), or math.huge. skip: a value to pass over, or a
+		-- function saying which values to pass over. Looks ring by ring outward, stopping once nothing nearer can be.
+		function h.nearest(x, z, reach, skip)
+			local best, bv = math.huge, nil
+			local cx, cz = math.floor(x / size), math.floor(z / size)
+			if h.lo.X > h.hi.X then
+				return best, bv -- (nothing added yet)
+			end
+			-- no further than the reach, nor past the last cell anything was added to
+			local span = math.max(math.abs(cx - h.lo.X), math.abs(cx - h.hi.X), math.abs(cz - h.lo.Z), math.abs(cz - h.hi.Z))
+			local n = math.min(math.ceil(reach / size), span)
+			local skipFn = type(skip) == "function" and skip
+			for ring = 0, n do
+				for dx = -ring, ring do
+					for dz = -ring, ring do
+						if math.max(math.abs(dx), math.abs(dz)) == ring then
+							for _, p in h.cells[(cx + dx) .. "," .. (cz + dz)] or {} do
+								if p.v ~= skip and not (skipFn and skipFn(p.v)) then
+									local d = math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2)
+									if d < best and d <= reach then
+										best, bv = d, p.v
+									end
+								end
+							end
+						end
+					end
+				end
+				if best <= ring * size then -- every cell further out is at least this far
+					break
+				end
+			end
+			return best, bv
+		end
+		return h
+	end
+
+	-- how even a set of points is, 0-1: 1 when every point's nearest neighbour is equally far (a spread-out, even
+	-- layout), lower the more some crowd while others stand alone
+	function E.evenness(points)
+		if #points < 3 then
+			return 1
+		end
+		local near = {}
+		local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
+		for _, p in points do
+			x0, x1, z0, z1 = math.min(x0, p.x), math.max(x1, p.x), math.min(z0, p.z), math.max(z1, p.z)
+		end
+		local reach = math.max(x1 - x0, z1 - z0, 1)
+		local h = hashOf(math.max(reach / math.sqrt(#points), 1))
+		for i, p in points do
+			h.add(p.x, p.z, i)
+		end
+		local sum = 0
+		for i, p in points do
+			local d = h.nearest(p.x, p.z, reach, i)
+			if d < math.huge then
+				table.insert(near, d)
+				sum += d
+			end
+		end
+		if #near < 2 or sum <= 0 then
+			return 1
+		end
+		local mean, var = sum / #near, 0
+		for _, d in near do
+			var += (d - mean) ^ 2
+		end
+		return math.clamp(1 - math.sqrt(var / #near) / mean, 0, 1)
+	end
+
+	-- the usual gap between neighbours: the median distance from each point to its nearest one
+	function E.typicalSpacing(points)
+		local reach = 1
+		for _, p in points do
+			reach = math.max(reach, math.abs(p.x - points[1].x), math.abs(p.z - points[1].z))
+		end
+		local h = hashOf(math.max(reach / math.sqrt(math.max(#points, 1)), 1))
+		for i, p in points do
+			h.add(p.x, p.z, i)
+		end
+		local near = {}
+		for i, p in points do
+			local d = h.nearest(p.x, p.z, reach * 2 + 1, i)
+			if d < math.huge then
+				table.insert(near, d)
+			end
+		end
+		table.sort(near)
+		return near[math.max(1, math.ceil(#near / 2))] or 0
+	end
+
+	-- Plans the spacing. points: the copies { { x, z, r (footprint radius), fixed (hand-placed), bad (breaks the
+	-- rules) } }. spots: where a copy may stand, a grid of cell centres { { x, z } } `step` studs apart (the kind's
+	-- territory where its rules allow it). opts: spacing (studs), crowd (a copy closer than crowd × spacing to
+	-- another, or overlapping it, is crowded), gap (a spot farther than gap × spacing from every copy is a hole),
+	-- step, fill (new copies for holes left over), remove (take out extras that can't move), seed.
+	-- Returns { moves = { { i, x, z } }, adds = { { x, z } }, removes = { i }, crowded, bad, holes }.
+	function E.relayout(points, spots, opts)
+		local d = math.max(opts.spacing or 1, 0.5)
+		local crowd, gap = opts.crowd or 0.5, opts.gap or 1.7
+		local step = opts.step or d / 3
+		local rng = Random.new(tonumber(opts.seed) or 1)
+		local all = hashOf(d)
+		for i, p in points do
+			all.add(p.x, p.z, i)
+		end
+		-- 1. who stays: hand-placed copies always; then the most spread-out first, so in a crowded clump the one
+		-- with the most room keeps its place and the others go into the pool
+		local order = {}
+		local room = {}
+		for i, p in points do
+			room[i] = all.nearest(p.x, p.z, d * 3, i)
+			table.insert(order, i)
+		end
+		table.sort(order, function(a, b)
+			local fa, fb = points[a].fixed and 1 or 0, points[b].fixed and 1 or 0
+			if fa ~= fb then
+				return fa > fb
+			end
+			if room[a] ~= room[b] then
+				return room[a] > room[b]
+			end
+			return a < b
+		end)
+		local kept = hashOf(d)
+		local pool, crowded, bad = {}, 0, 0
+		local maxR = 0
+		for _, p in points do
+			maxR = math.max(maxR, p.r or 0)
+		end
+		for _, i in order do
+			local p = points[i]
+			if p.fixed then
+				kept.add(p.x, p.z, i)
+			elseif p.bad then
+				bad += 1
+				table.insert(pool, i)
+			else
+				local _, q = kept.nearest(p.x, p.z, math.max(crowd * d, ((p.r or 0) + maxR) * 0.9))
+				local tooClose = false
+				if q then
+					local o = points[q]
+					local dist = math.sqrt((o.x - p.x) ^ 2 + (o.z - p.z) ^ 2)
+					tooClose = dist < math.max(crowd * d, ((p.r or 0) + (o.r or 0)) * 0.9) -- (or their footprints overlap)
+				end
+				if tooClose then
+					crowded += 1
+					table.insert(pool, i)
+				else
+					kept.add(p.x, p.z, i)
+				end
+			end
+		end
+
+		-- 2. the holes: spots far from every copy that stays, grown out to the whole hole (the room around them
+		-- that's still more than most of a spacing from any copy), so a hole is filled evenly, not just its middle
+		local key = function(x, z)
+			return math.floor(x / step + 0.5) .. "," .. math.floor(z / step + 0.5)
+		end
+		local byKey, D = {}, {}
+		for s, sp in spots do
+			byKey[key(sp.x, sp.z)] = s
+			D[s] = kept.nearest(sp.x, sp.z, gap * d + d)
+		end
+		local inHole, queue, holes = {}, {}, 0
+		for s = 1, #spots do
+			if D[s] >= gap * d and not inHole[s] then
+				holes += 1
+				inHole[s] = true
+				table.insert(queue, s)
+				while #queue > 0 do
+					local c = table.remove(queue)
+					local cx, cz = spots[c].x, spots[c].z
+					for dx = -1, 1 do
+						for dz = -1, 1 do
+							local n = byKey[key(cx + dx * step, cz + dz * step)]
+							if n and not inHole[n] and D[n] >= 0.75 * d then
+								inHole[n] = true
+								table.insert(queue, n)
+							end
+						end
+					end
+				end
+			end
+		end
+		-- 3. fill the holes, their middles first. The typical spacing is the median gap to the nearest neighbour, so
+		-- half the copies stand closer than it: a random fill matches it with gaps of about 0.85 of it, a little uneven
+		-- like the rest
+		local list = {}
+		for s in inHole do
+			table.insert(list, s)
+		end
+		table.sort(list, function(a, b)
+			if D[a] ~= D[b] then
+				return D[a] > D[b]
+			end
+			return a < b
+		end)
+		local targets = {}
+		local placed = hashOf(d)
+		for _, s in list do
+			local sp = spots[s]
+			local want = d * (0.78 + rng:NextNumber() * 0.14)
+			if kept.nearest(sp.x, sp.z, want) >= want and placed.nearest(sp.x, sp.z, want) >= want then
+				placed.add(sp.x, sp.z, #targets + 1)
+				table.insert(targets, { x = sp.x, z = sp.z })
+			end
+		end
+
+		-- 4. the pool moves into the holes, shortest moves first; what's left is added or taken out
+		local usedI, usedT = {}, {}
+		local out = { moves = {}, adds = {}, removes = {}, crowded = crowded, bad = bad, holes = holes }
+		local function move(i, t)
+			usedI[i], usedT[t] = true, true
+			table.insert(out.moves, { i = i, x = targets[t].x, z = targets[t].z })
+		end
+		if #pool * #targets <= 200000 then -- every pairing, shortest first
+			local pairsList = {}
+			for _, i in pool do
+				for t, tg in targets do
+					table.insert(pairsList, { i = i, t = t, d = (points[i].x - tg.x) ^ 2 + (points[i].z - tg.z) ^ 2 })
+				end
+			end
+			table.sort(pairsList, function(a, b)
+				if a.d ~= b.d then
+					return a.d < b.d
+				end
+				if a.i ~= b.i then
+					return a.i < b.i
+				end
+				return a.t < b.t
+			end)
+			for _, pr in pairsList do
+				if not usedI[pr.i] and not usedT[pr.t] then
+					move(pr.i, pr.t)
+				end
+			end
+		else -- a huge map: each hole takes the nearest copy still free
+			local free = hashOf(d)
+			for _, i in pool do
+				free.add(points[i].x, points[i].z, i)
+			end
+			for t, tg in targets do
+				local _, i = free.nearest(tg.x, tg.z, math.huge, function(v)
+					return usedI[v]
+				end)
+				if i then
+					move(i, t)
+				end
+			end
+		end
+		table.sort(out.moves, function(a, b)
+			return a.i < b.i
+		end)
+		if opts.fill then
+			for t, tg in targets do
+				if not usedT[t] then
+					table.insert(out.adds, { x = tg.x, z = tg.z })
+				end
+			end
+		end
+		if opts.remove then
+			for _, i in pool do
+				if not usedI[i] then
+					table.insert(out.removes, i)
+				end
+			end
+			table.sort(out.removes)
+		end
+		return out
+	end
+
+	--------------------------------------------------------------------------------
+	-- Reading the map for a plan, and carrying it out
+	--------------------------------------------------------------------------------
+	local function boxOf(inst)
+		if inst:IsA("BasePart") then
+			return inst.CFrame, inst.Size
+		end
+		return inst:GetBoundingBox()
+	end
+	-- a copy's footprint: its middle on the ground plane, its radius, its underside's height and its height
+	local function footOf(inst)
+		local cf, size = boxOf(inst)
+		local ex = math.abs(cf.RightVector.X) * size.X + math.abs(cf.UpVector.X) * size.Y + math.abs(cf.LookVector.X) * size.Z
+		local ey = math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z
+		local ez = math.abs(cf.RightVector.Z) * size.X + math.abs(cf.UpVector.Z) * size.Y + math.abs(cf.LookVector.Z) * size.Z
+		return { x = cf.Position.X, z = cf.Position.Z, r = math.max(ex, ez) / 2, base = cf.Position.Y - ey / 2, h = ey }
+	end
+	local function percentile(list, q)
+		if #list == 0 then
+			return nil
+		end
+		table.sort(list)
+		return list[math.clamp(math.floor(#list * q + 0.5), 1, #list)]
+	end
+	local function yawOf(cf)
+		local look = cf.LookVector
+		return math.atan2(-look.X, -look.Z)
+	end
+
+	-- Reads the map around a kind and plans its new layout. kind: { name, copies = { { inst } } } from
+	-- E.scanKinds. opts: spacing (× the kind's own typical spacing), crowd, gap, fill, remove, fixRules (move
+	-- copies that break the rules), seed, tick (progress 0-1; returning false stops). Returns the plan (for
+	-- E.layoutApply and a preview), or nil and why.
+	function E.layoutPlan(kind, opts)
+		opts = opts or {}
+		local copies, insts = {}, {}
+		for _, c in kind.copies do
+			local inst = c.inst
+			if inst.Parent and (inst:IsA("Model") or inst:IsA("BasePart")) then
+				local f = footOf(inst)
+				f.inst, f.fixed = inst, E.isHandPlaced(inst)
+				table.insert(copies, f)
+				table.insert(insts, inst)
+			end
+		end
+		if #copies < 3 then
+			return nil, "It needs at least 3 copies to see how they're spaced."
+		end
+		local typical = E.typicalSpacing(copies)
+		local d = math.max(typical * (opts.spacing or 1), 0.5)
+
+		-- the kind's territory: its copies, grown by a couple of spacings and shrunk back (so holes inside it and
+		-- bays in its edge are in, open ground beyond it isn't), then a little margin
+		local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+		for _, c in copies do
+			lo = lo:Min(Vector3.new(c.x, c.base, c.z))
+			hi = hi:Max(Vector3.new(c.x, c.base + c.h, c.z))
+		end
+		local R = 2 * d
+		local g = math.max(2, math.floor(d / 3))
+		while ((hi.X - lo.X) / g + 4 * R / g) * ((hi.Z - lo.Z) / g + 4 * R / g) > 250000 do
+			g *= 2
+		end
+		local pad = R + d
+		local gx0, gz0 = math.floor((lo.X - pad) / g), math.floor((lo.Z - pad) / g)
+		local nx, nz = math.floor((hi.X + pad) / g) - gx0 + 1, math.floor((hi.Z + pad) / g) - gz0 + 1
+		local N = nx * nz
+		local src = {}
+		for _, c in copies do
+			src[(math.floor(c.z / g) - gz0) * nx + (math.floor(c.x / g) - gx0) + 1] = true
+		end
+		local near = chamfer(src, nx, nz, g)
+		local out = {}
+		for i = 1, N do
+			if near[i] > R then
+				out[i] = true
+			end
+		end
+		local toOut = chamfer(out, nx, nz, g)
+		local closed = {}
+		for i = 1, N do
+			if near[i] <= R and toOut[i] >= R - g then
+				closed[i] = true
+			end
+		end
+		local toClosed = chamfer(closed, nx, nz, g)
+		local rows, count = {}, 0
+		for i = 1, N do
+			if toClosed[i] <= 0.6 * d then
+				local cx, cz = (i - 1) % nx + gx0, (i - 1) // nx + gz0
+				rows[cz] = rows[cz] or {}
+				rows[cz][cx] = true
+				count += 1
+			end
+		end
+
+		-- the ground there, read the way an area reads it (the kind's own copies left out of the rays)
+		local a = { rows = rows, count = count, cell = g, topY = hi.Y + 20, edge = 0, patches = 0, size = 1, seed = 1 }
+		local an, stopped = E.analyze(a, insts, opts.tick)
+		if not an then
+			return nil, stopped and "Stopped." or "Nothing to read there."
+		end
+
+		-- its rules: the smart defaults for what it is, relaxed to what its copies already do in this map
+		local l = E.makeLayer(copies[1].inst)
+		if not l then
+			return nil, "This kind's model can't be read (it needs parts)."
+		end
+		local s = l.s
+		s.useAlt, s.hug, s.slopePref, s.near = false, "None", 0, ""
+		l.paint = nil
+		E.heat(l, an, a) -- (works out its footprint core, which the keep-away distances add to)
+		local core = l._core or 0
+		local classes, slopes, roads, water, builds, n = {}, {}, {}, {}, {}, 0
+		for _, c in copies do
+			local i = E.indexAt(an, c.x, c.z)
+			if i then
+				n += 1
+				local cls = an.cls[i]
+				classes[cls] = (classes[cls] or 0) + 1
+				table.insert(slopes, math.deg(math.acos(math.clamp(an.ny[i], -1, 1))))
+				table.insert(roads, an.dist.Roads[i])
+				table.insert(water, an.dist.Water[i])
+				table.insert(builds, an.dist.Buildings[i])
+			end
+		end
+		for cls, k in classes do
+			-- where the copies stand is allowed; roads and buildings only when a good share of them stand there on
+			-- purpose (a lamp kind), not when a few ended up there by mistake
+			local share = k / math.max(n, 1)
+			if cls ~= "None" and cls ~= "Water" and ((cls ~= "Road" and cls ~= "Building") and (share >= 0.03 or k >= 2) or share >= 0.3) then
+				s.surfaces[cls] = true
+			end
+		end
+		s.maxSlope = math.min(89, math.max(s.maxSlope, (percentile(slopes, 0.95) or 0) + 5))
+		local function relax(key, list)
+			local p = percentile(list, 0.1)
+			if p then
+				s[key] = math.max(0, math.min(s[key], p - core - an.G))
+			end
+		end
+		relax("keepRoad", roads)
+		relax("keepWater", water)
+		relax("keepBuilding", builds)
+		local suit = E.heat(l, an, a)
+
+		-- the copies that break the rules, and the spots a copy may stand on
+		for _, c in copies do
+			local i = E.indexAt(an, c.x, c.z)
+			c.bad = opts.fixRules ~= false and not c.fixed and i ~= nil and suit(i) <= 0
+		end
+		local spots = {}
+		for i = 1, an.nx * an.nz do
+			if an.inM[i] and suit(i) > 0 then
+				local x, z = E.cellCentre(an, i)
+				table.insert(spots, { x = x, z = z })
+			end
+		end
+		local plan = E.relayout(copies, spots, {
+			spacing = d,
+			crowd = opts.crowd,
+			gap = opts.gap,
+			step = an.G,
+			fill = opts.fill,
+			remove = opts.remove,
+			seed = opts.seed,
+		})
+
+		-- where each move and addition really stands: on the ground, clear of anything else, a spot at a time
+		local rp = an.rp
+		local ol = OverlapParams.new()
+		ol.FilterType = Enum.RaycastFilterType.Exclude
+		local offsets = {}
+		for _, c in copies do
+			local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+			c.ground = r and r.Position.Y or c.base
+			table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
+		end
+		local usualSink = percentile(offsets, 0.5) or 0
+		local yaws, sumC, sumS = {}, 0, 0
+		for _, c in copies do
+			local y = yawOf(c.inst:GetPivot())
+			table.insert(yaws, y)
+			sumC += math.cos(y)
+			sumS += math.sin(y)
+		end
+		local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8 -- the copies face every which way
+		local rng = Random.new((tonumber(opts.seed) or 1) + 17)
+		local function standAt(x, z, c)
+			local r = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+			if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
+				return nil
+			end
+			local ignore = table.clone(insts)
+			table.insert(ignore, r.Instance)
+			table.insert(ignore, workspace.Terrain)
+			ol.FilterDescendantsInstances = ignore
+			local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
+			for _, p in hits do
+				-- something is there already (a rock, a bench, a wall); a flower or a tuft of grass doesn't count
+				if p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5) then
+					return nil
+				end
+			end
+			return r.Position.Y
+		end
+		local result = {
+			kind = kind.name,
+			spacing = d,
+			typical = typical,
+			moves = {},
+			adds = {},
+			removes = {},
+			crowded = plan.crowded,
+			bad = plan.bad,
+			holes = plan.holes,
+		}
+		local final = {}
+		local moved, gone = {}, {}
+		for _, mv in plan.moves do
+			local c = copies[mv.i]
+			local y = standAt(mv.x, mv.z, c)
+			if y then
+				-- how deep it sits in the ground goes with it; for one breaking the rules its own reading isn't to be
+				-- trusted (standing on a road part, say), so it takes the kind's usual depth
+				local offset = c.bad and usualSink or math.clamp(c.base - c.ground, -c.h * 0.5, 2)
+				local shift = Vector3.new(mv.x - c.x, y + offset - c.base, mv.z - c.z)
+				table.insert(
+					result.moves,
+					{ inst = c.inst, cf = c.inst:GetPivot() + shift, from = Vector3.new(c.x, c.base, c.z), to = Vector3.new(mv.x, y, mv.z) }
+				)
+				moved[mv.i] = true
+				table.insert(final, { x = mv.x, z = mv.z })
+			end
+		end
+		for _, i in plan.removes do
+			gone[i] = true
+			table.insert(result.removes, copies[i].inst)
+		end
+		for i, c in copies do
+			if not moved[i] and not gone[i] then
+				table.insert(final, { x = c.x, z = c.z })
+			end
+		end
+		local sources = {}
+		for _, c in copies do
+			if not c.fixed and not c.bad then
+				table.insert(sources, c)
+			end
+		end
+		if #sources == 0 then
+			sources = copies
+		end
+		for _, ad in plan.adds do
+			local c = sources[rng:NextInteger(1, #sources)]
+			local y = standAt(ad.x, ad.z, c)
+			if y then
+				local pivot = c.inst:GetPivot()
+				local turn = turned and CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0) or CFrame.identity
+				local rot = turn * pivot.Rotation
+				-- where its pivot sits against its footprint, turned with it, then lifted onto the ground
+				local rel = pivot.Position - Vector3.new(c.x, c.base, c.z)
+				local at = Vector3.new(ad.x, y + usualSink, ad.z) + turn:VectorToWorldSpace(rel)
+				table.insert(result.adds, { src = c.inst, cf = CFrame.new(at) * rot, to = Vector3.new(ad.x, y, ad.z) })
+				table.insert(final, { x = ad.x, z = ad.z })
+			end
+		end
+		result.evenBefore = E.evenness(copies)
+		result.evenAfter = E.evenness(final)
+		return result
+	end
+
+	-- Carries out a plan: moves, additions and removals as one change, every touched copy kept in the snapshot
+	-- first (Restore original puts the map back as it was). Returns the copies added.
+	function E.layoutApply(plan)
+		local keep = {}
+		for _, mv in plan.moves do
+			table.insert(keep, mv.inst)
+		end
+		for _, inst in plan.removes do
+			table.insert(keep, inst)
+		end
+		E.snapshot(keep)
+		for _, mv in plan.moves do
+			if mv.inst.Parent then
+				mv.inst:PivotTo(mv.cf)
+				E.snapshotChanged(mv.inst)
+			end
+		end
+		local added = {}
+		for _, ad in plan.adds do
+			if ad.src.Parent then
+				local new = E.copyOf(ad.src)
+				if new then
+					new:SetAttribute(HAND, nil)
+					new:PivotTo(ad.cf)
+					new.Parent = ad.src.Parent
+					E.snapshotAdded(new)
+					table.insert(added, new)
+				end
+			end
+		end
+		for _, inst in plan.removes do
+			if inst.Parent then
+				E.snapshotChanged(inst, false)
+				inst:Destroy()
+			end
+		end
+		return added
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13957,7 +15153,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14638,7 +15834,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -14746,7 +15942,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -15731,7 +16927,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16056,7 +17252,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16503,8 +17699,9 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.MAT_CLASS = MAT_CLASS
 	I.hasKeyword = hasKeyword
+	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or

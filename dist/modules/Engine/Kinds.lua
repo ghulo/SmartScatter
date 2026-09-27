@@ -250,34 +250,53 @@ return function(E, I)
 		return added
 	end
 
-	-- a tool changed a kept copy (swapped it for `now`, or recoloured it in place: now == inst). Returns whether
-	-- the copy was in the snapshot.
+	-- a tool changed a kept copy: swapped it for `now`, moved or recoloured it in place (now nil: the same copy),
+	-- or took it out (now false). Returns whether the copy was in the snapshot.
 	function E.snapshotChanged(inst, now)
 		local e = entryOf(inst)
 		if not e then
 			return false
 		end
-		e.Now.Value = now or inst
-		index[inst] = nil
-		index[now or inst] = e
+		if now == false then
+			e.Now.Value = nil
+		else
+			e.Now.Value = now or inst
+			index[now or inst] = e
+		end
+		if now ~= nil then
+			index[inst] = nil
+		end
 		e:SetAttribute("SS_Changed", true)
 		return true
 	end
 
-	-- { saved = copies kept, changed = copies changed since, time = when it was started } or nil
+	-- a tool added a copy that wasn't in the map: Restore takes it out again
+	function E.snapshotAdded(inst)
+		local f = folder(true)
+		local e = Instance.new("Folder")
+		e.Name = inst.Name
+		local now = Instance.new("ObjectValue")
+		now.Name = "Now"
+		now.Value = inst
+		now.Parent = e
+		e:SetAttribute("SS_Added", true)
+		e:SetAttribute("SS_Changed", true)
+		e.Parent = f
+		index[inst] = e
+	end
+
+	-- { saved = copies kept, changed = copies changed (or added) since, time = when it was started } or nil
 	function E.snapshotInfo()
 		local f = folder(false)
 		if not f then
 			return nil
 		end
-		local changed = 0
-		local list = f:GetChildren()
-		for _, e in list do
-			if e:GetAttribute("SS_Changed") then
-				changed += 1
-			end
+		local saved, changed = 0, 0
+		for _, e in f:GetChildren() do
+			saved += e:GetAttribute("SS_Added") and 0 or 1
+			changed += e:GetAttribute("SS_Changed") and 1 or 0
 		end
-		return { saved = #list, changed = changed, time = f:GetAttribute("SS_Saved") }
+		return { saved = saved, changed = changed, time = f:GetAttribute("SS_Saved") }
 	end
 
 	-- puts every changed copy back as it was, where it was (the originals stay kept, so it can be done again).
@@ -287,7 +306,13 @@ return function(E, I)
 		local back, map = 0, {}
 		for _, e in entries() do
 			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
-			if orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
+			if e:GetAttribute("SS_Added") and now and (not only or only[now.Value]) then -- added since: out again
+				if now.Value and now.Value.Parent then
+					now.Value:Destroy()
+				end
+				e:Destroy()
+				back += 1
+			elseif orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
 				local was = now.Value
 				if was and was.Parent then
 					was:Destroy()

@@ -399,42 +399,92 @@ return function(App)
 		})
 	end
 
+	-- the one-object brush: its modes (Shift does the opposite of each), the brush size, and undoing it all
+	local LAYER_HINT = {
+		Place = "Puts copies down exactly where you brush, at the object's spacing.",
+		More = "More of it where you brush (up to three times as much).",
+		Less = "Less of it where you brush; twice clears it.",
+		Erase = "None of it where you brush, copies placed by hand too. It stays gone when the area rebuilds.",
+		Reset = "Back to normal where you brush: undoes More, Less and Erase there.",
+	}
 	local function buildLayerPaint(l, parent, more)
 		parent.add({
 			id = "layerpaint",
 			title = "Paint or place this object",
-			keys = "brush more less clear place pins",
+			keys = "brush more less erase reset place pins",
 			more = more,
 			build = function(b)
-				local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
-					return App.paintLayer == l and App.mode or nil
-				end, function(m)
-					App.setMode(m, l)
-				end, nil, nil, true)
-				seg.Parent = b
-				explain(
-					b,
-					"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
-				)
-				App.ui.refreshLayerBrush = refresh
-				if l.pins then
-					gap(b, 4)
-					button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
+				local labels, modeOf = {}, {}
+				for _, m in App.LAYER_ORDER do
+					if m ~= "None" then
+						table.insert(labels, App.LAYER_LABEL[m])
+						modeOf[App.LAYER_LABEL[m]] = m
+					end
+				end
+				local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+				local seg, refresh = segmented(labels, function()
+					return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
+				end, function(label)
+					App.setMode(modeOf[label], l)
+				end, nil, nil, true, nil, LAYER_HINT)
+				seg.Size = UDim2.new(1, -100, 1, 0)
+				seg.Parent = row
+				local erase, eraseLook = App.dangerButton("Erase", function()
+					App.setMode("None", l)
+				end, {
+					on = function()
+						return App.paintLayer == l and App.mode == "None"
+					end,
+				})
+				erase.AutomaticSize = Enum.AutomaticSize.None
+				erase.Size = UDim2.fromOffset(92, 30)
+				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
+				erase.Parent = row
+				hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
+				local what = App.para("", { Parent = b })
+				what.TextColor3 = P.dim
+				local function say()
+					local label = App.paintLayer == l and App.LAYER_LABEL[App.mode]
+					what.Text = label and (LAYER_HINT[label] .. " Shift: " .. string.lower(App.LAYER_LABEL[App.LAYER_OPPOSITE[App.mode]]) .. ".")
+						or "Pick one, then brush over the area in the viewport."
+				end
+				say()
+				App.ui.refreshLayerBrush = function()
+					refresh()
+					eraseLook()
+					say()
+				end
+				slider("Brush size", 4, 200, function()
+					return G.radius
+				end, function(v)
+					G.radius = v
+				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
+					b
+				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
+				if l.paint then
+					hintOn(
+						button("Reset all painting", nil, function()
+							l.paint = nil
+							if App.paintLayer == l then
+								recolorOverlay()
+							end
+							commit(l)
+							App.refreshObjects()
+						end, { Parent = buttonRow(b) }),
+						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+					)
+				end
+				if l.pins then -- what takes away for good, at the bottom, apart
+					gap(b, 2)
+					App.fadeLine(b, nil, 0.14)
+					local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
 						l.pins = nil
 						commit(l)
 						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
-				end
-				if l.paint then
-					gap(b, 4)
-					button("Reset painting", nil, function()
-						l.paint = nil
-						if App.paintLayer == l then
-							recolorOverlay()
-						end
-						commit(l)
-						App.refreshObjects()
-					end, { Parent = buttonRow(b) })
+					end, { confirm = "Click again to remove", full = true })
+					rm.Parent = b
+					hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
 				end
 			end,
 		})
@@ -1294,14 +1344,15 @@ return function(App)
 	-- single copies: take out the one that looks wrong, or bring them all back
 	local function fillRemoveCopies(b)
 		local fix = buttonRow(b)
-		local pick = button("", nil, function()
+		local pick, refresh = App.dangerButton("Remove single copies", function()
 			App.setMode("Remove")
-		end, { Parent = fix })
-		hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
-		local function refresh()
-			pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
-		end
-		refresh()
+		end, {
+			on = function()
+				return App.mode == "Remove"
+			end,
+		})
+		pick.Parent = fix
+		hintOn(pick, "Lit: click placed copies in the viewport to take them out; click here again when done. Generating again keeps them out.")
 		App.ui.refreshRemoveBtn = refresh
 		local n = App.area and Engine.removedCount(App.area) or 0
 		if n > 0 then

@@ -7,7 +7,7 @@
 
 return function(App)
 	local Engine, P, SANS = App.Engine, App.P, App.SANS
-	local label, chip, chipGrid, hintOn = App.label, App.chip, App.chipGrid, App.hintOn
+	local label, hintOn = App.label, App.hintOn
 
 	-- the object the "Paint one object" card works on (this session only; the first one that can be painted)
 	local picked
@@ -33,12 +33,45 @@ return function(App)
 		if not table.find(list, picked) then
 			picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 		end
-		label("Object", 13, P.text, SANS, { Parent = b })
-		local grid = chipGrid(b, 3, 30)
-		for i, l in list do
-			local c = chip(grid, l.inst.Name, function()
-				return picked == l
-			end, function()
+		-- the objects as rows: a small view of the model, its name, how many are placed; the picked one lit
+		for _, l in list do
+			local on = picked == l
+			local row = App.new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundColor3 = on and P.accentSoft or P.raised,
+				Size = UDim2.new(1, 0, 0, 48),
+				Parent = b,
+			}, { App.corner(10) })
+			local st = App.stroke(on and P.accentLine or P.line)
+			st.Parent = row
+			local th = App.thumbnail(l.inst, 38)
+			th.Position = UDim2.fromOffset(5, 5)
+			th.Parent = row
+			label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, on and P.accent or P.text, App.SANS_B, {
+				Position = UDim2.fromOffset(52, 7),
+				Size = UDim2.new(1, -60, 0, 18),
+				Parent = row,
+			})
+			local n = App.lastCounts[l]
+			local bits = { n and (App.num(n) .. " placed") or l.type }
+			if l.pins then
+				table.insert(bits, #l.pins .. " by hand")
+			end
+			if l.paint then
+				table.insert(bits, "painted")
+			end
+			label(table.concat(bits, " · "), 11, P.dim, SANS, { Position = UDim2.fromOffset(52, 25), Size = UDim2.new(1, -60, 0, 16), Parent = row })
+			if not on then
+				row.MouseEnter:Connect(function()
+					row.BackgroundColor3 = P.hover
+				end)
+				row.MouseLeave:Connect(function()
+					row.BackgroundColor3 = P.raised
+				end)
+			end
+			App.pressable(row, 0.985)
+			row.MouseButton1Click:Connect(function()
 				if picked ~= l then
 					if App.LAYER_MODES[App.mode] then -- the brush moves over to the new pick
 						App.setMode(App.mode, l)
@@ -47,8 +80,7 @@ return function(App)
 					App.rebuildAll()
 				end
 			end)
-			c.LayoutOrder = i
-			hintOn(c, "Brush " .. l.inst.Name .. ".")
+			hintOn(row, "Brush " .. l.inst.Name .. ".")
 		end
 		App.buildLayerPaint(picked, { -- its controls straight into this card
 			add = function(spec)
@@ -81,7 +113,7 @@ return function(App)
 				sub = kind == "Clear" and "Where nothing from any area may go"
 					or painted and string.format("%s studs² painted. Keep painting, or tune what fills it.", App.num(a.count * a.cell * a.cell))
 					or "Pick a tool, then paint the ground in the viewport",
-				keys = "paint ground brush lasso box polygon fill erase size shape reach selected parts",
+				keys = "paint ground brush lasso box polygon fill erase all delete size shape reach selected parts",
 				build = App.buildPaintTools,
 			})
 			App.ui.step1Card = card
@@ -92,7 +124,7 @@ return function(App)
 					id = "objectbrush",
 					title = "Paint one object",
 					sub = "More, less or none of it where you brush; or place copies exactly",
-					keys = "more less clear place pins object brush by hand",
+					keys = "more less erase reset place pins object brush by hand",
 					build = buildObjectBrush,
 				})
 			end
@@ -118,7 +150,7 @@ return function(App)
 					id = "tidy",
 					title = "Tidy the edge",
 					sub = "Fill holes, smooth, grow or shrink what's painted",
-					keys = "fill holes smooth grow shrink erase all paint cleanup",
+					keys = "fill holes smooth grow shrink cleanup",
 					more = true,
 					build = App.buildTidy,
 				})
