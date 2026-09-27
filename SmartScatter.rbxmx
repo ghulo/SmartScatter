@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 126
-local BUNDLED_VERSION = "9.62"
+local BUNDLED_BUILD = 127
+local BUNDLED_VERSION = "9.63"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -18358,18 +18358,25 @@ return function(E, I)
 		return rp, ex
 	end
 
-	-- Is a non-collidable part just decoration a ray should pass through: small, nearly invisible, or named like
-	-- greenery? A big one (an island, a platform, a cliff mesh) is ground. (Remembered per part.)
-	local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "grass", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
+	-- Is a non-collidable part just decoration a ray should pass through? Nearly invisible, or small, or middling and
+	-- named like foliage. A big one (40 studs or more: an island, a platform, a cliff mesh) is always ground, whatever
+	-- its name ("Grass" often names the top of an island). (Remembered per part.)
+	local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
 	local decorMemo = setmetatable({}, { __mode = "k" })
 	local function isDecor(p)
 		local v = decorMemo[p]
 		if v == nil then
 			local s = p.Size
-			v = p.Transparency >= 0.95
-				or math.max(s.X, s.Y, s.Z) < 20
-				or hasKeyword(p.Name, DECOR_WORDS)
-				or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+			local big = math.max(s.X, s.Y, s.Z)
+			if p.Transparency >= 0.95 then
+				v = true
+			elseif big >= 40 then
+				v = false
+			else
+				v = big < 20
+					or hasKeyword(p.Name, DECOR_WORDS)
+					or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+			end
 			decorMemo[p] = v
 		end
 		return v

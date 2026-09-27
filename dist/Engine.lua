@@ -201,16 +201,22 @@ rp.FilterDescendantsInstances = ex
 rp.RespectCanCollide = false
 return rp, ex
 end
-local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "grass", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
+local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
 local decorMemo = setmetatable({}, { __mode = "k" })
 local function isDecor(p)
 local v = decorMemo[p]
 if v == nil then
 local s = p.Size
-v = p.Transparency >= 0.95
-or math.max(s.X, s.Y, s.Z) < 20
+local big = math.max(s.X, s.Y, s.Z)
+if p.Transparency >= 0.95 then
+v = true
+elseif big >= 40 then
+v = false
+else
+v = big < 20
 or hasKeyword(p.Name, DECOR_WORDS)
 or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+end
 decorMemo[p] = v
 end
 return v
