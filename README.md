@@ -9,6 +9,8 @@ round bends, and everything updates live as you tweak it.
 - **Scatter areas** — paint with brush, lasso, box, polygon or smart fill, or fill the tops of selected parts
 - **Paths** — draw a curve for roads, fences, walls, tiled paths or rows of lamps; branches and junctions join cleanly
 - **Rules per object** — size, spacing, clumping, piles, slopes, surfaces, height bands, distance from roads/water/buildings
+- **Stamp** — put one copy down exactly: the real model shows under the mouse; drag to turn it, keys to size it or
+  pick the model; it stays exactly so every time the area is generated
 - **Keep-clear zones** — ground no area may place anything on (spawns, doorways)
 - **Map scan** — finds every repeated model in a finished map and groups the copies into kinds by shape (renamed,
   turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click
@@ -47,7 +49,7 @@ src/
     init.lua                entry: ORDER + runner
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
                             Lifecycle (undo, cleanup; runs last)
-    Viewport/               Overlay · Paint · Spline
+    Viewport/               Overlay · Paint · Grid · Spline · Shapes · Stamp · Focus
     Panel/                  Header (area menu) · AreaTools · ObjectTools · MapTools (the controls) · Shell (tabs, search,
                             bottom bar) · Tour
       Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature

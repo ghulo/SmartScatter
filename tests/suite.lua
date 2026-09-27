@@ -1231,6 +1231,41 @@ local ok, err = pcall(function()
 		a.layers[1].s.locked = false
 	end
 
+	-- stamps: one copy exactly as aimed (turn, size, model), even where the object's rules say no, and back in the very
+	-- same place every time the area is generated
+	do
+		local a = newArea("SS_Test_Stamp", { E.makeLayer(rock, "Rock") })
+		paintRect(a, -30, -30, 30, 30)
+		local _, _, _, an = run(a)
+		local l = a.layers[1]
+		l.s.surfaces = {} -- the rules allow nowhere: only the stamp can stand
+		local p = E.stampPin(O.X + 5, O.Z + 5, math.rad(30), 2, 1, 7)
+		local pose = E.stampPose(a, an, l, p)
+		local made = E.placeStamp(a, an, l, p, { walk = true, shadows = true, query = true })
+		local size = made and made:GetExtentsSize() or Vector3.zero
+		check(
+			"a stamp stands where it's aimed, at its size, even where the rules allow nothing",
+			pose ~= nil and made ~= nil and made:GetAttribute("SS_Pin") == true and math.abs(size.X - 10) < 0.3 and math.abs(size.Y - 6) < 0.3,
+			string.format("pose %s, copy %s, size %s", tostring(pose ~= nil), tostring(made ~= nil), tostring(size))
+		)
+		local at = made and made:GetPivot()
+		l.pins = { p }
+		local _, total = E.generate(a, an, 1, templates, {})
+		local again
+		for _, m in placed(a.folder) do
+			again = m
+		end
+		local same = again
+			and at
+			and (again:GetPivot().Position - at.Position).Magnitude < 0.01
+			and again:GetPivot().LookVector:Dot(at.LookVector) > 0.9999
+		check(
+			"generating puts a stamp back exactly as it was",
+			total == 1 and same == true,
+			string.format("%d placed, same %s", total or -1, tostring(same))
+		)
+	end
+
 	-- map scan: copies grouped by shape (renamed, turned and scaled still match), nested copies left inside theirs,
 	-- and the snapshot putting a changed copy back
 	do

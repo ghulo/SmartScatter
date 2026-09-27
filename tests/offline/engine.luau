@@ -532,6 +532,22 @@ do
 	check("a branch closes into a loop like the main curve", how == "closed" and br.closed == true and #br.pts == 4)
 end
 
+-- ── stamps: pins that keep their turn, size and model ──────────────────────────────────────
+do
+	local p = E.stampPin(10.123, -4.567, -math.pi / 2, 1.23456, 2, 77)
+	check(
+		"a stamp's pin keeps its spot, turn (0 to a full turn), size and model",
+		p[1] == 10.12 and p[2] == -4.57 and p[3] == 77 and near(p[4], 3 * math.pi / 2, 1e-3) and p[5] == 1.235 and p[6] == 2
+	)
+	local back = E.readPins({ p, { 1, 2, 3 }, { 1, 2 }, { 4, 5, 6, 0.5 } })
+	check(
+		"saved pins read back: stamps whole, plain pins as three numbers, broken ones dropped",
+		#back == 3 and back[1][6] == 2 and back[1][5] == 1.235 and back[2][4] == nil and back[3][4] == nil,
+		#back .. " pins"
+	)
+	check("a stamp's size stays sensible", E.stampPin(0, 0, 0, 0, 1, 1)[5] == 0.05 and E.stampPin(0, 0, 0, 99, 1, 1)[5] == 20)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

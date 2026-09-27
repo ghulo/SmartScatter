@@ -3,10 +3,13 @@
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
 	A pin's seed picks its model, size and turn, so it looks the same every time.
+	A stamp is a pin that also says its turn, size and model ({ x, z, seed, yaw, size, model }): the stamp tool puts it
+	exactly as shown, and no rule moves or refuses it; only the ground under it sets its height.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
 
 return function(E, I)
+	local Hash = I.Hash
 	local placeAt = I.placeAt
 	local scaleRange = I.scaleRange
 
@@ -80,15 +83,70 @@ return function(E, I)
 		return false
 	end
 
-	-- pins as saved: plain lists of three numbers (anything else is dropped)
+	-- pins as saved: plain lists of three numbers, or six for a stamp (anything else is dropped)
 	function E.readPins(list)
 		local out = {}
 		for _, p in type(list) == "table" and list or {} do
 			if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
-				table.insert(out, { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) })
+				local pin = { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) }
+				if tonumber(p[4]) and tonumber(p[5]) and tonumber(p[6]) then
+					pin[4], pin[5], pin[6] = tonumber(p[4]), tonumber(p[5]), tonumber(p[6])
+				end
+				table.insert(out, pin)
 			end
 		end
 		return #out > 0 and out or nil
+	end
+
+	-- a stamp's pin: at (x, z), turned yaw (radians), size k (1 = the model's own size, times its size in the mix),
+	-- model index vi of the object's models; seed: its colour variation
+	function E.stampPin(x, z, yaw, k, vi, seed)
+		local r = function(n, q)
+			return math.floor(n * q + 0.5) / q
+		end
+		return { r(x, 100), r(z, 100), seed, r(yaw % (math.pi * 2), 1000), r(math.clamp(k, 0.05, 20), 1000), vi }
+	end
+	-- how placing treats a pin: a stamp exactly as given
+	local function pinG(l, p)
+		if not p[4] then
+			return { pin = true }
+		end
+		local v = l.variants[p[6]] or l.variants[1]
+		return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
+	end
+	-- where the stamp would stand, without making it (the preview): { cf, sc, sink, v }, or nil where it can't (off
+	-- the area's scan, or no ground)
+	local function stampCtx(a, an)
+		return { an = an, area = a, seed = a.seed, hash = Hash.new(), parts = 0, clear = E.clearZones(a.folder) }
+	end
+	function E.stampPose(a, an, l, p)
+		local g = pinG(l, p)
+		g.dry = true
+		return placeAt(stampCtx(a, an), l, nil, p[1], p[2], Random.new(p[3]), g)
+	end
+	-- makes the stamp's copy now, into its object's folder (real models, whatever else is still a preview). Returns
+	-- the copy, or nil (in a keep-clear zone, or no ground)
+	function E.placeStamp(a, an, l, p, output)
+		E.ensureFolder(a)
+		local key, folder = E.layerKey(l), nil
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Key") == key then
+				folder = f
+			end
+		end
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = l.inst.Name
+			folder:SetAttribute("SS_Key", key)
+			folder.Parent = a.folder
+		end
+		local ctx = stampCtx(a, an)
+		ctx.output = output
+		ctx.parentFor = function()
+			return folder
+		end
+		local out = placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p))
+		return out and out.clone
 	end
 
 	-- Places the object's pins (those `wanted(x, z)` accepts: all of them, or the ones in a rebuilt patch). Each
@@ -98,7 +156,7 @@ return function(E, I)
 		local n = 0
 		for _, p in l.pins or {} do
 			if not wanted or wanted(p[1], p[2]) then
-				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), { pin = true }) then
+				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p)) then
 					n += 1
 				end
 			end

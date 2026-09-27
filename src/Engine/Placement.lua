@@ -390,6 +390,32 @@ return function(E, I)
 		return p
 	end
 
+	-- a copy made from its model: scaled by sc and stood at cf (its footprint's middle, or a lamp's pole, on the spot;
+	-- sunk by sink). Shared by emit and the stamp's preview, so the preview stands exactly where the copy will.
+	local function poseCopy(clone, l, v, sc, cf, sink, stretch)
+		local m = v.m
+		if clone:IsA("Model") then
+			if math.abs(sc - 1) > 1e-3 then
+				clone:ScaleTo(clone:GetScale() * sc)
+			end
+		else
+			clone.Size *= sc
+		end
+		if stretch and math.abs(stretch - 1) > 0.005 then
+			squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(l.s, m))
+		end
+		-- a line stands a lamp by its pole (the footprint's middle would be out along its arm)
+		local cx, cz = m.cx, m.cz
+		if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
+			overhangYaw(v)
+			if v._foot then
+				cx, cz = v._foot.X, v._foot.Y
+			end
+		end
+		clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+	end
+	E.poseCopy = poseCopy
+
 	-- makes one copy: clone, scale, place, tint, game-ready flags, tags; registers it for spacing. Nothing is made in a
 	-- keep-clear zone (returns nil). stretch (optional, < 1): squeeze the piece along its length to fit a bend
 	local function emit(ctx, l, v, sc, cf, rng, x, z, item, sink, gid, stacked, stretch, only, uprightPosts)
@@ -411,25 +437,7 @@ return function(E, I)
 				end
 			end
 		end
-		if clone:IsA("Model") then
-			if math.abs(sc - 1) > 1e-3 then
-				clone:ScaleTo(clone:GetScale() * sc)
-			end
-		else
-			clone.Size *= sc
-		end
-		if stretch and math.abs(stretch - 1) > 0.005 then
-			squeeze(clone, m, sc, math.min(stretch, 1.15), alongXOf(s, m))
-		end
-		-- a line stands a lamp by its pole (the footprint's middle would be out along its arm)
-		local cx, cz = m.cx, m.cz
-		if isLine(l) then -- a lamp stands on the line by its pole, whichever way it faces
-			overhangYaw(v)
-			if v._foot then
-				cx, cz = v._foot.X, v._foot.Y
-			end
-		end
-		clone:PivotTo(cf * CFrame.new(-cx * sc, -m.bottom * sc - sink, -cz * sc) * m.rel)
+		poseCopy(clone, l, v, sc, cf, sink, stretch)
 		if uprightPosts and math.abs(cf.RightVector.Y) + math.abs(cf.LookVector.Y) > 0.02 then
 			-- a piece tilted to follow a slope: its posts stand straight again (rails slope, posts don't lean)
 			local A = alongXOf(s, m) and cf.RightVector or cf.LookVector
@@ -682,20 +690,23 @@ return function(E, I)
 	end
 
 	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below,
-	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules) }
+	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules),
+	--   exact = true for a stamp (Engine/Pins: its spot, turn, size and model are given, and no rule moves or refuses
+	--   it; only the ground sets its height), dry = true to only work out where it would stand (the stamp's preview) }
 	local function placeAt(ctx, l, i, x, z, rng, g)
 		g = g or {}
 		local v = g.v or pickVariant(l, rng)
 		local an, s, m = ctx.an, l.s, v.m
+		local exact = g.exact
 		i = i or E.indexAt(an, x, z)
-		if not i or (not an.inM[i] and not g.line) then
+		if not i or (not an.inM[i] and not g.line and not exact) then
 			return nil
 		end -- lines come from the area's own edge
 		if g.line and E.isCleared(ctx.clear, x, z) then
 			return nil
 		end -- (the area's own cells already leave zones out)
 		local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-		if (g.member or g.pin) and not g.stackOn then
+		if (g.member or g.pin) and not g.stackOn and not exact then
 			-- a group member (or a copy pinned by hand) must still obey the layer's rules at its own spot
 			if score(l, an, i) <= 0 then
 				return nil
@@ -763,10 +774,10 @@ return function(E, I)
 			-- stacking: sits on top of the piece below, no ground checks
 			y = base.top
 		else
-			if not g.post and ctx.hash:conflicts(item) then
+			if not g.post and not exact and ctx.hash:conflicts(item) then
 				return nil
 			end -- posts sit on the joints of their own panels
-			if not g.line then
+			if not g.line and not exact then
 				local cr = l._core or 0
 				if not clearAt(an, i, x, z, "Water", s.keepWater + cr) then
 					return nil
@@ -783,10 +794,10 @@ return function(E, I)
 				return nil
 			end
 			-- (parts the area was filled from take anything, whatever they're made of: see the scan)
-			if not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
+			if not exact and not s.surfaces[(E.surfaceOf(hit.Instance, hit.Material))] and not (an and i and an.on[i]) then
 				return nil
 			end
-			if math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
+			if not exact and math.deg(math.acos(math.clamp(hit.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end
 			y = hit.Position.Y
@@ -802,7 +813,7 @@ return function(E, I)
 			return rng:NextNumber(0, math.pi * 2)
 		end
 
-		if l.type == "Building" and not base then
+		if l.type == "Building" and not base and not exact then -- (a stamped house settles like anything else, below)
 			if g.yaw then
 				yaw = g.yaw
 			elseif s.faceRoad and an.dist.Roads[i] < 90 then -- turn the front (-Z / LookVector) toward the nearest road
@@ -871,23 +882,23 @@ return function(E, I)
 
 		if item.hx then -- now it's turned: its real outline must fit where only its narrow side was tried
 			item.yaw = yaw
-			if not base and not g.post and ctx.hash:conflicts(item) then
+			if not base and not g.post and not exact and ctx.hash:conflicts(item) then
 				return nil
 			end
 		end
 
 		local up = (s.align > 0 and hit) and Vector3.yAxis:Lerp(hit.Normal, s.align).Unit or Vector3.yAxis
 		local cf = CFrame.new(x, y, z) * rotateUp(up) * CFrame.Angles(0, yaw, 0)
-		if s.tilt > 0 and not base and not (g.line and s.fit) then
+		if s.tilt > 0 and not base and not exact and not (g.line and s.fit) then
 			cf *= CFrame.Angles(math.rad(rng:NextNumber(-s.tilt, s.tilt)), 0, math.rad(rng:NextNumber(-s.tilt, s.tilt)))
 		end
-		if s.lean > 0 and not base and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
+		if s.lean > 0 and not base and not exact and not (g.line and s.fit) then -- all the same way, like a windswept stand of trees
 			local wd = math.rad(ctx.area.windDir or 0)
 			local axis = Vector3.yAxis:Cross(Vector3.new(math.sin(wd), 0, math.cos(wd))) -- turns "up" toward the wind
 			cf = CFrame.new(cf.Position) * CFrame.fromAxisAngle(axis, math.rad(s.lean) * rng:NextNumber(0.7, 1.3)) * cf.Rotation
 		end
 
-		if l.type ~= "Flower" and not base then -- don't clip into the user's own geometry
+		if l.type ~= "Flower" and not base and not exact then -- don't clip into the user's own geometry
 			local h = math.max(m.size.Y * sc - 1, 1)
 			local real = l.type == "Building" or g.line
 			local w = real and m.size.X * sc or math.max(1, item.r * CORE[l.type] * 2)
@@ -908,10 +919,14 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+		if g.dry then
+			return { cf = cf, sc = sc, sink = sink, v = v }
+		end
+		local made = emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+		if not made then
 			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
 		end
-		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
+		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil, clone = made }
 	end
 
 	local function place(ctx, l, i, rng, gid)
