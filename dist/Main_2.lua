@@ -1547,7 +1547,7 @@ if not App.probeParams then
 refreshParams()
 end
 local ray = mouse.UnitRay
-return workspace:Raycast(ray.Origin, ray.Direction * 5000, App.probeParams)
+return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 end
 local sizing
 local function updateGizmo(hit)
@@ -2894,7 +2894,7 @@ local function pointHit()
 local hit = mouseHit()
 local sp = App.area and App.area.spline
 if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-local down = workspace:Raycast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
+local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
 if down and down.Normal.Y >= 0.55 then
 return down
 end
@@ -2976,7 +2976,7 @@ if math.abs(denom) > 1e-4 then
 local t = (q.p - ray.Origin):Dot(nrm) / denom
 if t > 0 then
 q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
-local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
 q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 end
 end

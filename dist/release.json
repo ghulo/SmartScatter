@@ -1,6 +1,6 @@
 {
- "version": "9.61",
- "build": 125,
+ "version": "9.62",
+ "build": 126,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -80,15 +80,15 @@
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
-   "sum": 854411737
+   "sum": 598534354
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 251649863
+   "sum": 926852680
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
-   "sum": 19479266
+   "sum": 53868415
   },
   "Engine": {
    "path": "modules/Engine.lua",
@@ -112,15 +112,15 @@
   },
   "Engine/Layout": {
    "path": "modules/Engine/Layout.lua",
-   "sum": 646893270
+   "sum": 372593133
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
-   "sum": 927344638
+   "sum": 976650498
   },
   "Engine/Paths": {
    "path": "modules/Engine/Paths.lua",
-   "sum": 659544685
+   "sum": 154687590
   },
   "Engine/Pins": {
    "path": "modules/Engine/Pins.lua",
@@ -128,7 +128,7 @@
   },
   "Engine/Placement": {
    "path": "modules/Engine/Placement.lua",
-   "sum": 305267495
+   "sum": 942619173
   },
   "Engine/Planning": {
    "path": "modules/Engine/Planning.lua",
@@ -136,7 +136,7 @@
   },
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",
-   "sum": 627842251
+   "sum": 882814083
   },
   "Engine/Seasons": {
    "path": "modules/Engine/Seasons.lua",

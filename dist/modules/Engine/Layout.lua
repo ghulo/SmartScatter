@@ -498,7 +498,7 @@ return function(E, I)
 		ol.FilterDescendantsInstances = ignore
 		local offsets = {}
 		for _, c in copies do
-			local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+			local r = E.cast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
 			c.ground = r and r.Position.Y or c.base
 			table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
 		end
@@ -513,7 +513,7 @@ return function(E, I)
 		local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8 -- the copies face every which way
 		local rng = Random.new((tonumber(opts.seed) or 1) + 17)
 		local function standAt(x, z, c)
-			local r = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+			local r = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
 			if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end

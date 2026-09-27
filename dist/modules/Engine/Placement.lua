@@ -778,7 +778,7 @@ return function(E, I)
 					return nil
 				end
 			end
-			hit = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
+			hit = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
 			if not hit or hit.Material == Enum.Material.Water then
 				return nil
 			end
@@ -861,7 +861,7 @@ return function(E, I)
 			if s.align < 1 and not base and not flatAround(an, ix, iz, y, rr) then
 				for k = 0, 3 do
 					local a = k * math.pi / 2 + yaw
-					local h2 = workspace:Raycast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
+					local h2 = E.cast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
 					if h2 and h2.Position.Y < y then
 						y = math.max(h2.Position.Y, y - rr * 1.5)
 					end

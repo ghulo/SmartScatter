@@ -198,8 +198,42 @@ end
 local rp = RaycastParams.new()
 rp.FilterType = Enum.RaycastFilterType.Exclude
 rp.FilterDescendantsInstances = ex
-rp.RespectCanCollide = true
+rp.RespectCanCollide = false
 return rp, ex
+end
+local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "grass", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
+local decorMemo = setmetatable({}, { __mode = "k" })
+local function isDecor(p)
+local v = decorMemo[p]
+if v == nil then
+local s = p.Size
+v = p.Transparency >= 0.95
+or math.max(s.X, s.Y, s.Z) < 20
+or hasKeyword(p.Name, DECOR_WORDS)
+or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+decorMemo[p] = v
+end
+return v
+end
+function E.cast(origin, dir, rp)
+for _ = 1, 8 do
+local r = workspace:Raycast(origin, dir, rp)
+if not r then
+return nil
+end
+local p = r.Instance
+if p == workspace.Terrain or not p:IsA("BasePart") or p.CanCollide or not isDecor(p) then
+return r
+end
+rp:AddToFilter(p)
+local gone = (r.Position - origin).Magnitude
+local len = dir.Magnitude
+if gone >= len then
+return nil
+end
+origin, dir = r.Position, dir.Unit * (len - gone)
+end
+return nil
 end
 local function chamfer(src, nx, nz, G)
 local N = nx * nz
@@ -299,7 +333,7 @@ end
 for ix = 1, nx do
 local i = (iz - 1) * nx + ix
 local x, z = x0 + (ix - 0.5) * G, z0 + (iz - 0.5) * G
-local r = workspace:Raycast(Vector3.new(x, top, z), down, rp)
+local r = E.cast(Vector3.new(x, top, z), down, rp)
 local c = "None"
 if r then
 local explicit
@@ -314,7 +348,7 @@ local roof = roofMemo[p]
 if roof == nil then
 local lowest, from = r.Position.Y, r.Position
 for _ = 1, 8 do
-local r2 = workspace:Raycast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
+local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 if not r2 then
 break
 end
@@ -2148,9 +2182,9 @@ end
 return false
 end
 local function project(pos, up, rp)
-local hit = workspace:Raycast(pos + up * 4, -up * 12, rp) or workspace:Raycast(pos + up * 60, -up * 120, rp)
+local hit = E.cast(pos + up * 4, -up * 12, rp) or E.cast(pos + up * 60, -up * 120, rp)
 if hit and (pos - hit.Position):Dot(up) > 1.5 and insideSolid(pos + up * 0.5, rp) then
-local top = workspace:Raycast(pos + up * 60, -up * 120, rp)
+local top = E.cast(pos + up * 60, -up * 120, rp)
 if top and (top.Position - pos):Dot(up) > -1.5 then
 hit = top
 end
@@ -2388,7 +2422,7 @@ v = Vector3.new(v.X, 0, v.Z)
 return v.Magnitude > 0.05 and v.Unit or nil
 end
 local function ground(q)
-local hit = workspace:Raycast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
+local hit = E.cast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
 return hit and hit.Position or q
 end
 local cache = {}
@@ -3612,7 +3646,7 @@ if not s.surfaces.Road and not clearAt(an, i, x, z, "Roads", s.keepRoad + cr) th
 return nil
 end
 end
-hit = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
+hit = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
 if not hit or hit.Material == Enum.Material.Water then
 return nil
 end
@@ -3691,7 +3725,7 @@ local rr = math.max(item.r * CORE[l.type] * 0.6, 0.4)
 if s.align < 1 and not base and not flatAround(an, ix, iz, y, rr) then
 for k = 0, 3 do
 local a = k * math.pi / 2 + yaw
-local h2 = workspace:Raycast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
+local h2 = E.cast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
 if h2 and h2.Position.Y < y then
 y = math.max(h2.Position.Y, y - rr * 1.5)
 end
@@ -4253,7 +4287,7 @@ local score = 0
 for _, d in PROBES do
 for sgn = -1, 1, 2 do
 local q = pos + right * (d * sgn)
-local h = workspace:Raycast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
+local h = E.cast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
 if h then
 local c = h.Position.Y - pos.Y > 3 and "Building" or E.surfaceOf(h.Instance, h.Material)
 if c == "Road" then
@@ -6512,7 +6546,7 @@ table.insert(ignore, workspace.Terrain)
 ol.FilterDescendantsInstances = ignore
 local offsets = {}
 for _, c in copies do
-local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+local r = E.cast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
 c.ground = r and r.Position.Y or c.base
 table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
 end
@@ -6527,7 +6561,7 @@ end
 local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8
 local rng = Random.new((tonumber(opts.seed) or 1) + 17)
 local function standAt(x, z, c)
-local r = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+local r = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
 if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
 return nil
 end

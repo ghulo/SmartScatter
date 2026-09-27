@@ -221,8 +221,50 @@ return function(E, I)
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
 		rp.FilterDescendantsInstances = ex
-		rp.RespectCanCollide = true -- leaves and decorative non-collidable parts are ignored
+		-- non-collidable parts are seen too (a floating island's mesh, a platform, a water plane are ground even
+		-- with collisions off); decoration among them (leaves, flowers, effects) is passed through by E.cast
+		rp.RespectCanCollide = false
 		return rp, ex
+	end
+
+	-- Is a non-collidable part just decoration a ray should pass through: small, nearly invisible, or named like
+	-- greenery? A big one (an island, a platform, a cliff mesh) is ground. (Remembered per part.)
+	local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "grass", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
+	local decorMemo = setmetatable({}, { __mode = "k" })
+	local function isDecor(p)
+		local v = decorMemo[p]
+		if v == nil then
+			local s = p.Size
+			v = p.Transparency >= 0.95
+				or math.max(s.X, s.Y, s.Z) < 20
+				or hasKeyword(p.Name, DECOR_WORDS)
+				or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+			decorMemo[p] = v
+		end
+		return v
+	end
+	-- A ray for finding the ground (use it with E.rayParams): like workspace:Raycast, but it passes through
+	-- decoration with collisions off and keeps going, and remembers what it passed on the params, so later rays skip
+	-- it straight away.
+	function E.cast(origin, dir, rp)
+		for _ = 1, 8 do
+			local r = workspace:Raycast(origin, dir, rp)
+			if not r then
+				return nil
+			end
+			local p = r.Instance
+			if p == workspace.Terrain or not p:IsA("BasePart") or p.CanCollide or not isDecor(p) then
+				return r
+			end
+			rp:AddToFilter(p)
+			local gone = (r.Position - origin).Magnitude
+			local len = dir.Magnitude
+			if gone >= len then
+				return nil
+			end
+			origin, dir = r.Position, dir.Unit * (len - gone)
+		end
+		return nil
 	end
 
 	-- two-pass chamfer distance transform
@@ -328,7 +370,7 @@ return function(E, I)
 			for ix = 1, nx do
 				local i = (iz - 1) * nx + ix
 				local x, z = x0 + (ix - 0.5) * G, z0 + (iz - 0.5) * G
-				local r = workspace:Raycast(Vector3.new(x, top, z), down, rp)
+				local r = E.cast(Vector3.new(x, top, z), down, rp)
 				local c = "None"
 				if r then
 					local explicit
@@ -345,7 +387,7 @@ return function(E, I)
 							if roof == nil then
 								local lowest, from = r.Position.Y, r.Position
 								for _ = 1, 8 do
-									local r2 = workspace:Raycast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
+									local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 									if not r2 then
 										break
 									end

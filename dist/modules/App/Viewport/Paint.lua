@@ -188,7 +188,7 @@ return function(App)
 			refreshParams()
 		end
 		local ray = mouse.UnitRay
-		return workspace:Raycast(ray.Origin, ray.Direction * 5000, App.probeParams)
+		return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 	end
 
 	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from

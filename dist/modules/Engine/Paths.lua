@@ -143,11 +143,11 @@ return function(E, I)
 	local function project(pos, up, rp)
 		-- a short probe first (a spline on a wall or under a ledge should find its own surface, not the floor below),
 		-- then a tall one: on a steep hillside the ground beside the curve can be far above or below it
-		local hit = workspace:Raycast(pos + up * 4, -up * 12, rp) or workspace:Raycast(pos + up * 60, -up * 120, rp)
+		local hit = E.cast(pos + up * 4, -up * 12, rp) or E.cast(pos + up * 60, -up * 120, rp)
 		-- where the curve passes through solid ground (a smooth curve over a cliff or a steep hill), the short probe
 		-- starts inside it and finds the floor underneath; the surface we want is the one on top
 		if hit and (pos - hit.Position):Dot(up) > 1.5 and insideSolid(pos + up * 0.5, rp) then
-			local top = workspace:Raycast(pos + up * 60, -up * 120, rp)
+			local top = E.cast(pos + up * 60, -up * 120, rp)
 			if top and (top.Position - pos):Dot(up) > -1.5 then
 				hit = top
 			end
@@ -418,7 +418,7 @@ return function(E, I)
 					return v.Magnitude > 0.05 and v.Unit or nil
 				end
 				local function ground(q)
-					local hit = workspace:Raycast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
+					local hit = E.cast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
 					return hit and hit.Position or q
 				end
 				local cache = {}

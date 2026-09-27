@@ -1922,7 +1922,7 @@ refreshParams()
 end
 local c = App.area.cell
 local top = math.max(App.area.topY or 0, yHint or -math.huge) + 250
-local hit = workspace:Raycast(Vector3.new((cx + 0.5) * c, top, (cz + 0.5) * c), Vector3.new(0, -1500, 0), App.probeParams)
+local hit = Engine.cast(Vector3.new((cx + 0.5) * c, top, (cz + 0.5) * c), Vector3.new(0, -1500, 0), App.probeParams)
 info = { y = hit and hit.Position.Y or (yHint or App.area.topY or 0), cls = hit and (Engine.surfaceOf(hit.Instance, hit.Material)) or "None" }
 if not r then
 r = {}

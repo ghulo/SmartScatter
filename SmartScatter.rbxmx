@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 125
-local BUNDLED_VERSION = "9.61"
+local BUNDLED_BUILD = 126
+local BUNDLED_VERSION = "9.62"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -9380,7 +9380,7 @@ return function(App)
 		end
 		local c = App.area.cell
 		local top = math.max(App.area.topY or 0, yHint or -math.huge) + 250
-		local hit = workspace:Raycast(Vector3.new((cx + 0.5) * c, top, (cz + 0.5) * c), Vector3.new(0, -1500, 0), App.probeParams)
+		local hit = Engine.cast(Vector3.new((cx + 0.5) * c, top, (cz + 0.5) * c), Vector3.new(0, -1500, 0), App.probeParams)
 		info = { y = hit and hit.Position.Y or (yHint or App.area.topY or 0), cls = hit and (Engine.surfaceOf(hit.Instance, hit.Material)) or "None" }
 		if not r then
 			r = {}
@@ -9785,7 +9785,7 @@ return function(App)
 			refreshParams()
 		end
 		local ray = mouse.UnitRay
-		return workspace:Raycast(ray.Origin, ray.Direction * 5000, App.probeParams)
+		return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 	end
 
 	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
@@ -11079,7 +11079,7 @@ return function(App)
 		local hit = mouseHit()
 		local sp = App.area and App.area.spline
 		if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-			local down = workspace:Raycast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
+			local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
 			if down and down.Normal.Y >= 0.55 then
 				return down
 			end
@@ -11164,7 +11164,7 @@ return function(App)
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
 							-- raised off the ground: the curve keeps this height instead of snapping down
-							local below = workspace:Raycast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
 							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
@@ -14817,7 +14817,7 @@ return function(E, I)
 		ol.FilterDescendantsInstances = ignore
 		local offsets = {}
 		for _, c in copies do
-			local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+			local r = E.cast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
 			c.ground = r and r.Position.Y or c.base
 			table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
 		end
@@ -14832,7 +14832,7 @@ return function(E, I)
 		local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8 -- the copies face every which way
 		local rng = Random.new((tonumber(opts.seed) or 1) + 17)
 		local function standAt(x, z, c)
-			local r = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+			local r = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
 			if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end
@@ -15445,7 +15445,7 @@ return function(E, I)
 			for _, d in PROBES do
 				for sgn = -1, 1, 2 do
 					local q = pos + right * (d * sgn)
-					local h = workspace:Raycast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
+					local h = E.cast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), curRp)
 					if h then
 						-- something standing well above the path is a building, whatever it's made of (a concrete roof
 						-- isn't a road); otherwise the surface decides
@@ -16175,11 +16175,11 @@ return function(E, I)
 	local function project(pos, up, rp)
 		-- a short probe first (a spline on a wall or under a ledge should find its own surface, not the floor below),
 		-- then a tall one: on a steep hillside the ground beside the curve can be far above or below it
-		local hit = workspace:Raycast(pos + up * 4, -up * 12, rp) or workspace:Raycast(pos + up * 60, -up * 120, rp)
+		local hit = E.cast(pos + up * 4, -up * 12, rp) or E.cast(pos + up * 60, -up * 120, rp)
 		-- where the curve passes through solid ground (a smooth curve over a cliff or a steep hill), the short probe
 		-- starts inside it and finds the floor underneath; the surface we want is the one on top
 		if hit and (pos - hit.Position):Dot(up) > 1.5 and insideSolid(pos + up * 0.5, rp) then
-			local top = workspace:Raycast(pos + up * 60, -up * 120, rp)
+			local top = E.cast(pos + up * 60, -up * 120, rp)
 			if top and (top.Position - pos):Dot(up) > -1.5 then
 				hit = top
 			end
@@ -16450,7 +16450,7 @@ return function(E, I)
 					return v.Magnitude > 0.05 and v.Unit or nil
 				end
 				local function ground(q)
-					local hit = workspace:Raycast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
+					local hit = E.cast(q + Vector3.new(0, 60, 0), Vector3.new(0, -120, 0), rp)
 					return hit and hit.Position or q
 				end
 				local cache = {}
@@ -17599,7 +17599,7 @@ return function(E, I)
 					return nil
 				end
 			end
-			hit = workspace:Raycast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
+			hit = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), an.rp)
 			if not hit or hit.Material == Enum.Material.Water then
 				return nil
 			end
@@ -17682,7 +17682,7 @@ return function(E, I)
 			if s.align < 1 and not base and not flatAround(an, ix, iz, y, rr) then
 				for k = 0, 3 do
 					local a = k * math.pi / 2 + yaw
-					local h2 = workspace:Raycast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
+					local h2 = E.cast(Vector3.new(x + math.cos(a) * rr, an.top, z + math.sin(a) * rr), Vector3.new(0, -an.len, 0), an.rp)
 					if h2 and h2.Position.Y < y then
 						y = math.max(h2.Position.Y, y - rr * 1.5)
 					end
@@ -18352,8 +18352,50 @@ return function(E, I)
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
 		rp.FilterDescendantsInstances = ex
-		rp.RespectCanCollide = true -- leaves and decorative non-collidable parts are ignored
+		-- non-collidable parts are seen too (a floating island's mesh, a platform, a water plane are ground even
+		-- with collisions off); decoration among them (leaves, flowers, effects) is passed through by E.cast
+		rp.RespectCanCollide = false
 		return rp, ex
+	end
+
+	-- Is a non-collidable part just decoration a ray should pass through: small, nearly invisible, or named like
+	-- greenery? A big one (an island, a platform, a cliff mesh) is ground. (Remembered per part.)
+	local DECOR_WORDS = { "leaf", "leaves", "foliage", "canopy", "grass", "flower", "bush", "petal", "vine", "fx", "effect", "particle" }
+	local decorMemo = setmetatable({}, { __mode = "k" })
+	local function isDecor(p)
+		local v = decorMemo[p]
+		if v == nil then
+			local s = p.Size
+			v = p.Transparency >= 0.95
+				or math.max(s.X, s.Y, s.Z) < 20
+				or hasKeyword(p.Name, DECOR_WORDS)
+				or (p.Parent ~= nil and p.Parent ~= workspace and hasKeyword(p.Parent.Name, DECOR_WORDS))
+			decorMemo[p] = v
+		end
+		return v
+	end
+	-- A ray for finding the ground (use it with E.rayParams): like workspace:Raycast, but it passes through
+	-- decoration with collisions off and keeps going, and remembers what it passed on the params, so later rays skip
+	-- it straight away.
+	function E.cast(origin, dir, rp)
+		for _ = 1, 8 do
+			local r = workspace:Raycast(origin, dir, rp)
+			if not r then
+				return nil
+			end
+			local p = r.Instance
+			if p == workspace.Terrain or not p:IsA("BasePart") or p.CanCollide or not isDecor(p) then
+				return r
+			end
+			rp:AddToFilter(p)
+			local gone = (r.Position - origin).Magnitude
+			local len = dir.Magnitude
+			if gone >= len then
+				return nil
+			end
+			origin, dir = r.Position, dir.Unit * (len - gone)
+		end
+		return nil
 	end
 
 	-- two-pass chamfer distance transform
@@ -18459,7 +18501,7 @@ return function(E, I)
 			for ix = 1, nx do
 				local i = (iz - 1) * nx + ix
 				local x, z = x0 + (ix - 0.5) * G, z0 + (iz - 0.5) * G
-				local r = workspace:Raycast(Vector3.new(x, top, z), down, rp)
+				local r = E.cast(Vector3.new(x, top, z), down, rp)
 				local c = "None"
 				if r then
 					local explicit
@@ -18476,7 +18518,7 @@ return function(E, I)
 							if roof == nil then
 								local lowest, from = r.Position.Y, r.Position
 								for _ = 1, 8 do
-									local r2 = workspace:Raycast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
+									local r2 = E.cast(from - Vector3.new(0, 0.05, 0), Vector3.new(0, -300, 0), rp)
 									if not r2 then
 										break
 									end
