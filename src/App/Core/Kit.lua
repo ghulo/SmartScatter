@@ -853,6 +853,20 @@ return function(App)
 		elseif name == "plus" then
 			bar(0.5, 0.16, 0.5, 0.84)
 			bar(0.16, 0.5, 0.84, 0.5)
+		elseif name == "minus" then
+			bar(0.16, 0.5, 0.84, 0.5)
+		elseif name == "stamp" then -- a rubber stamp: a knob, its stem, the pad, and the mark it leaves
+			ring(0.5, 0.2, 0.12, true)
+			bar(0.5, 0.3, 0.5, 0.5)
+			rect(0.5, 0.6, 0.64, 0.16, true, 2)
+			bar(0.18, 0.84, 0.82, 0.84)
+		elseif name == "spray" then -- copies scattered where the brush goes
+			ring(0.5, 0.5, 0.38)
+			ring(0.36, 0.38, 0.07, true)
+			ring(0.62, 0.34, 0.07, true)
+			ring(0.52, 0.56, 0.07, true)
+			ring(0.34, 0.66, 0.07, true)
+			ring(0.68, 0.64, 0.07, true)
 		elseif name == "close" then
 			bar(0.22, 0.22, 0.78, 0.78)
 			bar(0.22, 0.78, 0.78, 0.22)
@@ -1272,6 +1286,92 @@ return function(App)
 		})
 	end
 
+	-- A grid of tool tiles: an icon and a name, and optionally a line under it saying what the tool does (so it reads
+	-- without hovering). The picked one glows in its colour; a tinted one (Erase: red) shows its colour even when not
+	-- picked, so it's never taken for another tool. tiles.add{ icon, text, sub?, color?, tinted?, hint?, on(), click() };
+	-- tiles.refresh() after anything that changes which is picked.
+	local function toolTiles(parent, cols, h)
+		local grid = chipGrid(parent, cols, h)
+		local tiles = { cells = {} }
+		function tiles.add(spec)
+			local color = spec.color or P.accent
+			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
+			local st = stroke(P.line)
+			st.Parent = b
+			local inner = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
+				new("UIListLayout", {
+					FillDirection = Enum.FillDirection.Horizontal,
+					HorizontalAlignment = spec.sub and Enum.HorizontalAlignment.Left or Enum.HorizontalAlignment.Center,
+					VerticalAlignment = Enum.VerticalAlignment.Center,
+					Padding = UDim.new(0, spec.sub and 8 or 6),
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}),
+				spec.sub and pad(10, 8, 0, 0) or nil,
+			})
+			local ic = icon(spec.icon, spec.sub and 16 or 14, P.dim)
+			ic.Parent = inner
+			local words = box({ Size = UDim2.new(1, -26, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, Parent = inner }, {
+				new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 1) }),
+			})
+			if not spec.sub then
+				words.Size, words.AutomaticSize = UDim2.fromOffset(0, 16), Enum.AutomaticSize.X
+			end
+			local t = label(spec.text, 12, P.dim, SANS_B, {
+				Size = spec.sub and UDim2.new(1, 0, 0, 16) or UDim2.fromOffset(0, 16),
+				AutomaticSize = not spec.sub and Enum.AutomaticSize.X or nil,
+				Parent = words,
+			})
+			local sub = spec.sub
+				and label(
+					spec.sub,
+					11,
+					P.faint,
+					SANS,
+					{ Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1, TextTruncate = Enum.TextTruncate.AtEnd, Parent = words }
+				)
+			if spec.hint then
+				hintOn(b, spec.hint)
+			end
+			pressable(b, 0.96)
+			local lit = glow(b, 8, 0.6, color)
+			local c = { hot = false }
+			function c.look()
+				local on = spec.on() == true
+				lit:set(on)
+				local idle = spec.tinted and color:Lerp(P.raised, c.hot and 0.8 or 0.9) or (c.hot and P.hover or P.raised)
+				b.BackgroundColor3 = on and color:Lerp(P.card, 0.8) or idle
+				st.Color = on and color:Lerp(P.card, 0.4) or (spec.tinted and color:Lerp(P.card, 0.6) or P.line)
+				local fg = on and color or (spec.tinted and color:Lerp(P.dim, 0.2) or (c.hot and P.text or P.dim))
+				setIconColor(ic, fg)
+				t.TextColor3 = fg
+				if sub then
+					sub.TextColor3 = on and color:Lerp(P.dim, 0.35) or P.faint
+				end
+			end
+			b.MouseEnter:Connect(function()
+				c.hot = true
+				c.look()
+			end)
+			b.MouseLeave:Connect(function()
+				c.hot = false
+				c.look()
+			end)
+			b.MouseButton1Click:Connect(function()
+				spec.click()
+				tiles.refresh()
+			end)
+			table.insert(tiles.cells, c)
+			c.look()
+			return c
+		end
+		function tiles.refresh()
+			for _, c in tiles.cells do
+				c.look()
+			end
+		end
+		return tiles
+	end
+
 	-- a page's own top line: back, then its title
 	local function pageHead(parent, backText, title, onBack)
 		local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
@@ -1425,5 +1525,6 @@ return function(App)
 	App.emptyState = emptyState
 	App.captureKey = captureKey
 	App.chipGrid = chipGrid
+	App.toolTiles = toolTiles
 	App.iconButton = iconButton
 end

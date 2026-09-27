@@ -50,7 +50,7 @@ src/
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
                             Lifecycle (undo, cleanup; runs last)
     Viewport/               Overlay · Paint · Grid · Spline · Shapes · Stamp · Focus
-    Panel/                  Header (area menu) · AreaTools · ObjectTools · MapTools (the controls) · Shell (tabs, search,
+    Panel/                  Header (area menu) · AreaTools · ObjectTools · HandTools · MapTools (the controls) · Shell (tabs, search,
                             bottom bar) · Tour
       Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature
 tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,

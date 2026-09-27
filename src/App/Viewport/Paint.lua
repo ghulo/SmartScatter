@@ -982,7 +982,7 @@ return function(App)
 		Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 		Fill = "Click the ground to fill everything connected of that surface.",
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
-		Place = "Drag to put copies down exactly where you brush. Shift erases it there instead. {size} resizes.",
+		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
