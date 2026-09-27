@@ -1972,6 +1972,22 @@ table.insert(a.removed[h], { copy:GetAttribute("SS_X") or 0, copy:GetAttribute("
 E.dropOutput(copy)
 return h
 end
+function E.dropWhere(a, test, only, withStamps)
+local n = 0
+for _, f in a.folder:GetChildren() do
+local key = f:GetAttribute("SS_Key")
+if key and (not only or key == only) then
+for _, d in f:GetDescendants() do
+local x, z = d:GetAttribute("SS_X"), d:GetAttribute("SS_Z")
+if x and z and d.Parent and (withStamps or not d:GetAttribute("SS_Stamp")) and test(x, z) then
+E.dropOutput(d)
+n += 1
+end
+end
+end
+end
+return n
+end
 function E.removedCount(a)
 local n = 0
 for _, list in a.removed or {} do
@@ -3514,6 +3530,9 @@ clone:SetAttribute("SS_R", item.r)
 if item.pin then
 clone:SetAttribute("SS_Pin", true)
 end
+if item.stamp then
+clone:SetAttribute("SS_Stamp", true)
+end
 if item.hx and item.yaw then
 clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 end
@@ -3745,6 +3764,7 @@ g = g.gid,
 fit = g.stretch ~= nil,
 lk = l._h,
 pin = g.pin,
+stamp = exact,
 }
 if not g.line and not g.stackOn then
 footprint(item, m, sc)

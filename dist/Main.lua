@@ -2511,14 +2511,11 @@ task.spawn(function()
 runGenerate(true, f ~= ALL and f or nil)
 end)
 end
-local function switchArea(folder)
-cancelJob()
-App.area = folder and Engine.loadArea(folder) or nil
-App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil
-App.expanded = nil
-App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
-App.paintLayer = nil
-if App.area then
+function App.countPlaced()
+App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
+if not App.area then
+return
+end
 for _, f in App.area.folder:GetChildren() do
 local key = f:GetAttribute("SS_Key")
 for _, l in App.area.layers do
@@ -2539,6 +2536,14 @@ end
 end
 end
 end
+local function switchArea(folder)
+cancelJob()
+App.area = folder and Engine.loadArea(folder) or nil
+App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil
+App.expanded = nil
+App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
+App.paintLayer = nil
+App.countPlaced()
 if App.setMode and App.mode ~= "Off" and (not App.area or App.area.locked) then
 App.setMode("Off")
 end
@@ -3171,6 +3176,14 @@ flushRows()
 App.analysisDirty = true
 if G.live and canGenerate() then
 runGenerate(false)
+else
+local gone = {}
+for _, cc in changed do
+if not Engine.hasCell(App.area, cc[1], cc[2]) then
+gone[App.cellKey(cc[1], cc[2])] = true
+end
+end
+App.dropErased(gone, {})
 end
 end
 if #changed == 0 then

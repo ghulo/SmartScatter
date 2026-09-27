@@ -839,6 +839,25 @@ return function(E, I)
 		E.dropOutput(copy)
 		return h
 	end
+	-- takes out at once the copies standing where test(x, z) says (ground just erased): only one object's (its layer
+	-- key), or every object's; stamps stay unless withStamps (they stand on their own, painted ground or not). Returns
+	-- how many went.
+	function E.dropWhere(a, test, only, withStamps)
+		local n = 0
+		for _, f in a.folder:GetChildren() do
+			local key = f:GetAttribute("SS_Key")
+			if key and (not only or key == only) then
+				for _, d in f:GetDescendants() do
+					local x, z = d:GetAttribute("SS_X"), d:GetAttribute("SS_Z")
+					if x and z and d.Parent and (withStamps or not d:GetAttribute("SS_Stamp")) and test(x, z) then
+						E.dropOutput(d)
+						n += 1
+					end
+				end
+			end
+		end
+		return n
+	end
 	function E.removedCount(a)
 		local n = 0
 		for _, list in a.removed or {} do

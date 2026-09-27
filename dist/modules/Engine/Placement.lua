@@ -501,6 +501,9 @@ return function(E, I)
 		if item.pin then -- put down by hand (Engine/Pins): removing it takes the pin away
 			clone:SetAttribute("SS_Pin", true)
 		end
+		if item.stamp then -- a stamp: erasing the ground under it leaves it (it stands on its own)
+			clone:SetAttribute("SS_Stamp", true)
+		end
 		if item.hx and item.yaw then -- its outline, for the next runs that keep it
 			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 		end
@@ -763,6 +766,7 @@ return function(E, I)
 			fit = g.stretch ~= nil,
 			lk = l._h,
 			pin = g.pin,
+			stamp = exact,
 		}
 		if not g.line and not g.stackOn then
 			footprint(item, m, sc)

@@ -1,6 +1,6 @@
 {
- "version": "9.71",
- "build": 135,
+ "version": "9.72",
+ "build": 136,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -12,7 +12,7 @@
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
-   "sum": 958141660
+   "sum": 295837523
   },
   "App/Core/History": {
    "path": "modules/App/Core/History.lua",
@@ -36,7 +36,7 @@
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
-   "sum": 415701448
+   "sum": 207026250
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
@@ -84,7 +84,7 @@
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 734598000
+   "sum": 703235781
   },
   "App/Viewport/Shapes": {
    "path": "modules/App/Viewport/Shapes.lua",
@@ -104,7 +104,7 @@
   },
   "Engine/Areas": {
    "path": "modules/Engine/Areas.lua",
-   "sum": 796134024
+   "sum": 475777556
   },
   "Engine/Assets": {
    "path": "modules/Engine/Assets.lua",
@@ -136,7 +136,7 @@
   },
   "Engine/Placement": {
    "path": "modules/Engine/Placement.lua",
-   "sum": 187051573
+   "sum": 86637725
   },
   "Engine/Planning": {
    "path": "modules/Engine/Planning.lua",

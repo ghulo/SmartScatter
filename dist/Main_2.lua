@@ -2418,6 +2418,12 @@ end,
 })
 local down, lastPos, strokeRec, strokeChanged = false, nil, nil, false
 local strokeTouched = {}
+local strokeErased = {}
+local strokeWiped = {}
+local function cellKey(cx, cz)
+return cx * 1000003 + cz
+end
+App.cellKey = cellKey
 local strokeBox
 local function touched(cx, cz)
 local c = App.area.cell
@@ -2658,6 +2664,9 @@ if on and not allow(cx, cz) then
 return false
 end
 Engine.setCell(App.area, cx, cz, on)
+if not on then
+strokeErased[cellKey(cx, cz)] = true
+end
 touched(cx, cz)
 if on then
 App.area.topY = (App.area.count <= 1) and info.y or math.max(App.area.topY, info.y)
@@ -2692,6 +2701,7 @@ placeStamp(pos)
 return
 elseif act == "None" then
 placeStamp(pos, true)
+table.insert(strokeWiped, { pos.X, pos.Z, G.radius, G.shape == "Square" })
 end
 local c, R = App.area.cell, G.radius
 local sq = G.shape == "Square"
@@ -2771,6 +2781,8 @@ for _, cc in changed do
 App.dirtyRows[cc[2]] = true
 if gestureOn then
 App.area.topY = math.max(App.area.topY, probe(cc[1], cc[2]).y)
+else
+strokeErased[cellKey(cc[1], cc[2])] = true
 end
 end
 if #changed > 0 then
@@ -2816,10 +2828,36 @@ end
 local function beginGesture(name)
 strokeChanged = false
 table.clear(strokeTouched)
+table.clear(strokeErased)
+table.clear(strokeWiped)
 strokeRec = beginRec(name)
 end
+local function dropErased(erased, wiped, l)
+local a, c, n = App.area, App.area.cell, 0
+if next(erased) then
+n += Engine.dropWhere(a, function(x, z)
+return erased[cellKey(math.floor(x / c), math.floor(z / c))] == true
+end)
+end
+if #wiped > 0 and l then
+n += Engine.dropWhere(a, function(x, z)
+for _, w in wiped do
+local dx, dz = x - w[1], z - w[2]
+if (w[4] and math.max(math.abs(dx), math.abs(dz)) or math.sqrt(dx * dx + dz * dz)) <= w[3] then
+return true
+end
+end
+return false
+end, Engine.layerKey(l), true)
+end
+if n > 0 then
+App.countPlaced()
+end
+end
+App.dropErased = dropErased
 local function finishGesture()
 local rec, changed, box = strokeRec, strokeChanged, strokeBox
+local erased, wiped = table.clone(strokeErased), table.clone(strokeWiped)
 strokeRec, strokeChanged, strokeBox = nil, false, nil
 down = false
 lastPos, shapePts, boxStart = nil, nil, nil
@@ -2836,6 +2874,8 @@ App.analysisDirty = true
 end
 if G.live and canGenerate() then
 runGenerate(false, layerPaint or nil, box)
+elseif App.area then
+dropErased(erased, wiped, layerPaint)
 end
 end
 if not changed then
