@@ -627,6 +627,21 @@ return function(App)
 		App.refreshObjects()
 	end
 
+	-- scrolls the page so obj (a card on it) is in view, near the top. After the rebuild has put the page back
+	-- where it was (that happens a frame later), so it isn't undone.
+	App.scrollIntoView = function(obj)
+		task.defer(function()
+			task.defer(function()
+				local sc = App.scroll
+				if not (sc and obj.Parent and obj:IsDescendantOf(sc)) then
+					return
+				end
+				local top = obj.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
+				tween(sc, MED, { CanvasPosition = Vector2.new(0, math.max(top - 10, 0)) })
+			end)
+		end)
+	end
+
 	local builtPage
 	App.rebuildAll = function()
 		if not TAB[G.page] then
