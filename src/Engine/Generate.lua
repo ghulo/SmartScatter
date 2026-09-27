@@ -12,6 +12,7 @@ return function(E, I)
 	local growGroup = I.growGroup
 	local place = I.place
 	local placeLine = I.placeLine
+	local placePins = I.placePins
 
 	-- Regenerates the area. Each layer has its own seeded randomness, so changing one layer never reshuffles
 	-- another. opts.from = a layer: keep every layer placed before it untouched and only rebuild it + later ones.
@@ -321,6 +322,8 @@ return function(E, I)
 					p = { layer = l, cand = cand, scores = scores, n = all > 0 and p.n * part / all or 0 }
 				end
 				local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
+				-- copies pinned by hand first, on their own random numbers: the rest of the layout draws as before
+				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
 				local got, t = 0, 0
 				if p.line then
 					got = placeLine(ctx, l, rng)
@@ -352,7 +355,7 @@ return function(E, I)
 						end
 					end
 				end
-				counts[l] = (partial[l] and counts[l] or 0) + got
+				counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 				total += counts[l]
 				base += p.line and 40 or math.max(p.n, 1)
 			end

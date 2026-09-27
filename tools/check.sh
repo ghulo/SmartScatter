@@ -1,13 +1,14 @@
 #!/bin/sh
 # Offline checks before any push: formatting, the module tree, compile at Studio's debug level (and its 200-local
-# limit), duplicate engine names, unknown globals. SS_TOOLS: the folder holding stylua, luau-compile, luau-analyze.
+# limit), duplicate engine names, unknown globals, unused imports, and the engine tests that need no Studio.
+# SS_TOOLS: the folder holding stylua, luau, luau-compile and luau-analyze.
 set -e
 cd "$(dirname "$0")/.."
 S=${SS_TOOLS:-$HOME/.local/bin}
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 MODULES=$(find src -name "*.lua" | sort)
-for f in $MODULES Loader.lua tests/suite.lua; do stylua --check --config-path stylua.toml "$f" >/dev/null || { echo "format: $f"; exit 1; }; done
+for f in $MODULES Loader.lua tests/suite.lua tests/offline/*.luau; do stylua --check --config-path stylua.toml "$f" >/dev/null || { echo "format: $f"; exit 1; }; done
 # every module listed in its entry's ORDER, and the flattened copies older loaders get
 python3 - "$T" <<'PY'
 import sys, pathlib
@@ -35,4 +36,6 @@ for f in src/Engine/*.lua; do
     if grep -q "^	local $n = I\.$n$" "$f"; then echo "unused import $n in $f"; exit 1; fi
   done || exit 1
 done
+# the engine's pure logic, run for real with the Luau runtime
+python3 tools/offline.py "$S/luau"
 echo "offline checks: ok ($(echo "$MODULES" | wc -l) modules)"

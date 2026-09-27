@@ -173,17 +173,47 @@ return function(E, I)
 			return smooth(math.clamp(0.5 + wave * 0.9, 0, 1))
 		end,
 	}
-	-- a.patches: strength 0-1 (0 = off); a.pattern: one of E.PATTERNS; a.patchSize: feature size in studs
+	-- the area's pattern at (x, z), 0-1 (1 = where things grow thickest). a.pattern: one of E.PATTERNS; a.patchSize:
+	-- its feature size in studs
+	function E.patternAt(a, x, z)
+		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
+		return fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
+	end
+	-- how much the pattern lets grow at (x, z): a.patches is its strength, 0-1 (0 = off, everything grows evenly)
 	local function patchAt(a, x, z)
 		local k = a.patches or 0
 		if k <= 0 then
 			return 1
 		end
-		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
-		local v = fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
-		return 1 - k + k * v
+		return 1 - k + k * E.patternAt(a, x, z)
 	end
 	E.patchAt = patchAt
+
+	-- Colour zones: the same pattern tints every object, so the thin, open parts of an area take on one mood (dry,
+	-- autumn…) and the thick parts keep their own colours. Each mood is the hue / saturation / brightness shift at full
+	-- strength, where nothing grows. a.zones: strength 0-1 (0 = off); a.zoneMood: one of E.ZONE_MOODS.
+	E.ZONE_MOODS = { "Autumn", "Dry", "Lush", "Frost" }
+	E.ZONE_HINT = {
+		Autumn = "Warmer, yellow and orange toward the open ground.",
+		Dry = "Faded and paler toward the open ground, like late summer.",
+		Lush = "Deeper and richer toward the open ground.",
+		Frost = "Cold and pale toward the open ground.",
+	}
+	local ZONE = {
+		Autumn = { -0.09, 0.08, 0.05 },
+		Dry = { -0.04, -0.28, 0.14 },
+		Lush = { 0.02, 0.18, -0.14 },
+		Frost = { 0.02, -0.4, 0.3 },
+	}
+	function E.zoneShift(a, x, z)
+		local k = a.zones or 0
+		if k <= 0 then
+			return nil
+		end
+		local mood = ZONE[a.zoneMood or "Autumn"] or ZONE.Autumn
+		local w = k * (1 - E.patternAt(a, x, z))
+		return mood[1] * w, mood[2] * w, mood[3] * w
+	end
 
 	-- the world x, z at the centre of ground cell i
 	function E.cellCentre(an, i)
@@ -202,6 +232,11 @@ return function(E, I)
 			if sc <= 0 then
 				return 0
 			end
+		end
+		local pref = l.s.slopePref or 0
+		if pref ~= 0 then -- how steep the ground is, from flat (0) to the steepest it may stand on (1)
+			local t = math.clamp(math.deg(math.acos(math.clamp(an.ny[i], -1, 1))) / math.max(l.s.maxSlope, 1), 0, 1)
+			sc *= pref > 0 and (1 - pref + pref * t) or (1 + pref * t)
 		end
 		local x, z = E.cellCentre(an, i)
 		sc *= patchAt(a, x, z)

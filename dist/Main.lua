@@ -209,8 +209,8 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" (paint one layer) · "Off"
-	local LAYER_MODES = { More = true, Less = true, Clear = true }
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" | "Place" (one layer) · "Off"
+	local LAYER_MODES = { More = "paint", Less = "paint", Clear = "paint", Place = "pins" }
 
 	local function num(n)
 		local str = tostring(math.floor(n + 0.5))
@@ -1866,7 +1866,7 @@ return function(App)
 			local v = j and App.heatFn(j) or 0
 			return v <= 0 and VIEW.less or VIEW.muted:Lerp(VIEW.accent, math.clamp(0.25 + v * 0.75, 0, 1))
 		end
-		if App.paintLayer and LAYER_MODES[App.mode] then
+		if App.paintLayer and LAYER_MODES[App.mode] == "paint" then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
 				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
@@ -1920,7 +1920,7 @@ return function(App)
 		table.sort(xs)
 		local c, parts, i = App.area.cell, {}, 1
 		local zone = App.kindOf(App.area) == "Clear"
-		local painting = App.paintLayer and LAYER_MODES[App.mode] -- per-object paint: no outline, just the amounts
+		local painting = App.paintLayer and LAYER_MODES[App.mode] == "paint" -- per-object paint: no outline, just the amounts
 		local function style(cx)
 			local col = cellColor(cx, cz, zone)
 			if not painting and onEdge(cx, cz) then
@@ -2530,7 +2530,7 @@ return function(App)
 		end
 	end
 
-	local function openAreaMenu()
+	local function openAreaMenu(pick)
 		closePopup()
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
 		catcher.MouseButton1Click:Connect(closePopup)
@@ -2566,6 +2566,19 @@ return function(App)
 				onClick()
 			end)
 			return b
+		end
+		if pick then
+			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
+			label(pick.title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
+			for _, f in Engine.listAreas() do
+				if f ~= (App.area and App.area.folder) and f:GetAttribute("SS_Kind") ~= "Clear" then
+					item(f.Name, function()
+						pick.onPick(f)
+					end)
+				end
+			end
+			item("Cancel", function() end, P.dim)
+			return
 		end
 		for _, f in Engine.listAreas() do
 			local b = item(f.Name, function()
@@ -2627,9 +2640,22 @@ return function(App)
 				App.rebuildAll()
 				App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
 			end, P.dim)
+			if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
+				item("Copy settings from…", function()
+					task.defer(openAreaMenu, {
+						title = "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM",
+						onPick = function(f)
+							local src = Engine.loadArea(f)
+							Engine.copyLook(src, App.area)
+							App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
+							App.rebuildAll()
+						end,
+					})
+				end, P.dim)
+			end
 			item("Bake to plain models", function()
 				local a = App.area
-				local n = 0
+				local n = Engine.roadOf(a) and 1 or 0
 				for _, f in a.folder:GetChildren() do
 					n += #f:GetChildren()
 				end
@@ -2830,7 +2856,9 @@ return function(App)
 		pick.MouseLeave:Connect(function()
 			pick.BackgroundColor3 = P.raised
 		end)
-		pick.MouseButton1Click:Connect(openAreaMenu)
+		pick.MouseButton1Click:Connect(function()
+			openAreaMenu()
+		end)
 		hintOn(pick, "Your areas and paths: switch, rename, lock, bake or delete.")
 		local plus = iconButton("plus", "New scatter area or path", function(b)
 			openNewMenu(b)
@@ -3197,24 +3225,34 @@ return function(App)
 				parent
 		end
 		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
-		label("Pattern", 13, P.text, SANS, { Parent = parent })
-		local patterns = chipGrid(parent, 3, 30)
-		for i, name in Engine.PATTERNS do
-			local c = chip(patterns, name, function()
-				return (App.area and App.area.pattern or "Groves") == name
-			end, function()
-				if App.area and App.area.pattern ~= name then
-					App.area.pattern = name
-					if (App.area.patches or 0) <= 0 then
-						App.area.patches = 0.6 -- picking a pattern means wanting to see it
+		local function areaChoice(key, title, options, hints, def, onPick)
+			label(title, 13, P.text, SANS, { Parent = parent })
+			local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
+			for i, name in options do
+				local c = chip(grid, name, function()
+					return (App.area and App.area[key] or def) == name
+				end, function()
+					if App.area and App.area[key] ~= name then
+						App.area[key] = name
+						if onPick then
+							onPick(App.area)
+						end
+						commit()
+						App.rebuildAll()
 					end
-					commit()
-					App.rebuildAll()
-				end
-			end)
-			c.LayoutOrder = i
-			hintOn(c, Engine.PATTERN_HINT[name])
+				end)
+				c.LayoutOrder = i
+				hintOn(c, hints[name])
+			end
 		end
+		local function showing(strengthKey, amount)
+			return function(a)
+				if (a[strengthKey] or 0) <= 0 then
+					a[strengthKey] = amount
+				end
+			end
+		end
+		areaChoice("pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
 		areaSlider(
 			"patches",
 			"Pattern strength",
@@ -3226,6 +3264,17 @@ return function(App)
 			0
 		)
 		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
+		areaChoice("zoneMood", "Colour zones", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
+		areaSlider(
+			"zones",
+			"Colour zone strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
+			0
+		)
 		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
 		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
 		local fLabel = label("", 13, P.text, SANS, { Size = UDim2.new(1, -110, 1, 0), Parent = fHead })
@@ -4191,15 +4240,26 @@ return function(App)
 	end
 
 	local function buildLayerPaint(l, parent)
-		section(parent, "layerpaint", "Paint this object", false, function(b)
-			local seg, refresh = segmented({ "More", "Less", "Clear" }, function()
+		section(parent, "layerpaint", "Paint or place this object", false, function(b)
+			local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
 				return App.paintLayer == l and App.mode or nil
 			end, function(m)
 				App.setMode(m, l)
 			end, nil, nil, true)
 			seg.Parent = b
-			explain(b, "Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting.")
+			explain(
+				b,
+				"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
+			)
 			App.ui.refreshLayerBrush = refresh
+			if l.pins then
+				gap(b, 4)
+				button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+					l.pins = nil
+					commit(l)
+					App.refreshObjects()
+				end, { Parent = buttonRow(b) })
+			end
 			if l.paint then
 				gap(b, 4)
 				button("Reset painting", nil, function()
@@ -4371,6 +4431,16 @@ return function(App)
 	local function buildSlope(parent, c)
 		section(parent, "terrain", "Slope", false, function(b)
 			c.S(b, "maxSlope", "Steepest", 0, 89, "%.0f°", 1, "Steepest ground this object can stand on.")
+			c.S(
+				b,
+				"slopePref",
+				"Prefers",
+				-1,
+				1,
+				"%+.0f%%",
+				0.05,
+				"Below 0: mostly on flat ground (trees in the valleys). Above 0: mostly on slopes (rocks and shrubs on hillsides). 0: anywhere."
+			)
 			c.S(b, "align", "Lean with the ground", 0, 1, "%.0f%%", 0.05, "0% stands straight up. 100% tilts with the slope.")
 		end)
 	end
@@ -4672,6 +4742,7 @@ return function(App)
 		App.refreshObjects()
 		commit()
 	end
+	App.addLayers = addLayers -- (the area menu's "Copy settings from…" adds objects the same way)
 
 	local function buildBiomes(parent, open)
 		section(parent, "biomes", "Start from a biome", open, function(b)
@@ -4709,6 +4780,72 @@ return function(App)
 		end)
 	end
 
+	local function buildReport(parent)
+		section(parent, "performance", "Performance", false, function(b)
+			explain(b, "See which objects cost the most parts, so you know what to simplify first.")
+			local out = col({ Parent = b }, { vlist(2) })
+			local function show()
+				out:ClearAllChildren()
+				vlist(2).Parent = out
+				local rows, total = Engine.report(App.area)
+				if total.parts == 0 then
+					para("Nothing placed yet.", { Parent = out })
+					return
+				end
+				for _, r in rows do
+					local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = out })
+					label(r.name, 12, P.text, SANS_M, { Size = UDim2.new(0.45, 0, 1, 0), Parent = row })
+					label(
+						r.copies > 0
+								and string.format(
+									"%s parts · %s per copy%s",
+									num(r.parts),
+									num(math.ceil(r.parts / r.copies)),
+									r.unique > 0 and (" · " .. r.unique .. " meshes") or ""
+								)
+							or (num(r.parts) .. " parts"),
+						12,
+						P.dim,
+						SANS,
+						{
+							Size = UDim2.new(0.55, 0, 1, 0),
+							Position = UDim2.fromScale(0.45, 0),
+							TextXAlignment = Enum.TextXAlignment.Right,
+							Parent = row,
+						}
+					)
+				end
+				local top = rows[1]
+				local share = top.parts / total.parts
+				para(
+					string.format("%s parts in all.", num(total.parts))
+						.. (
+							#rows > 1
+								and share >= 0.4
+								and string.format(
+									" %s is %d%% of them: a simpler model or a lower amount there helps most.",
+									top.name,
+									math.floor(share * 100 + 0.5)
+								)
+							or ""
+						),
+					{ Parent = out }
+				)
+			end
+			button("Check this area", nil, show, { Parent = buttonRow(b) })
+		end)
+	end
+
+	local codeBox
+	local function shareCode(code)
+		if not codeBox then
+			return
+		end
+		codeBox.Text = code
+		codeBox:CaptureFocus()
+		codeBox.SelectionStart, codeBox.CursorPosition = 1, #code + 1
+		App.status("The code is selected in the box: press Ctrl+C to copy it.")
+	end
 	local function buildPresets(parent)
 		section(parent, "presets", "Presets", false, function(b)
 			local list = Engine.listPresets()
@@ -4717,7 +4854,7 @@ return function(App)
 			end
 			for _, v in list do
 				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -150, 1, 0), Parent = row })
+				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -220, 1, 0), Parent = row })
 				local acts = box({
 					Size = UDim2.new(0, 0, 1, 0),
 					AutomaticSize = Enum.AutomaticSize.X,
@@ -4731,6 +4868,12 @@ return function(App)
 						addLayers(layers, v.Name, #lost > 0 and string.format("%d model%s not found in this place.", #lost, #lost == 1 and "" or "s"))
 					end, { Parent = acts }),
 					"Adds this preset's objects to the area (ones it already has are skipped)."
+				)
+				hintOn(
+					button("Share", nil, function()
+						shareCode(Engine.presetCode(v))
+					end, { Parent = acts }),
+					"Puts this preset's code in the box below: copy it and paste it into another place, or send it to a teammate."
 				)
 				button("Delete", "danger", function()
 					local rec = beginRec("Smart Scatter: Delete preset")
@@ -4771,6 +4914,36 @@ return function(App)
 					App.refreshObjects()
 				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = saveRow }),
 				"Saves this area's objects and all their settings under that name. Saving an existing name replaces it."
+			)
+			gap(b, 8)
+			label("Share code", 13, P.text, SANS, { Parent = b })
+			local codeRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+			codeBox = new("TextBox", {
+				Text = "",
+				PlaceholderText = "Paste a code here, or press Share on a preset",
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = P.text,
+				PlaceholderColor3 = P.faint,
+				BackgroundColor3 = P.field,
+				ClearTextOnFocus = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, -76, 1, 0),
+				Parent = codeRow,
+			}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+			hintOn(
+				button("Import", "accent", function()
+					local preset, err = Engine.importPresetCode(codeBox.Text)
+					if not preset then
+						App.status(err, "error")
+						return
+					end
+					codeBox.Text = ""
+					App.status(string.format("Imported %s. Press Use to add its objects to this area.", preset.Name))
+					App.refreshObjects()
+				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = codeRow }),
+				"Saves a pasted code as a preset. Models it needs are found in this place by where they sit or their name."
 			)
 		end)
 	end
@@ -4906,6 +5079,7 @@ return function(App)
 		gap(list, 4)
 		buildBiomes(list, #App.area.layers == 0)
 		buildPresets(list)
+		buildReport(list)
 	end
 
 	local function buildObjectsPage(parent)
@@ -5013,522 +5187,6 @@ return function(App)
 	end
 
 	App.buildObjectsPage = buildObjectsPage
-end
-end)()
--- #module Panel/Settings
-MODULES["Panel/Settings"] = (function()
---[[
-	Smart Scatter — Settings: the Settings page, the footer, toasts and the whole-panel rebuild.
-	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-
-return function(App)
-	local FAST, MED, tween, beginRec, endRec, Engine, track = App.FAST, App.MED, App.tween, App.beginRec, App.endRec, App.Engine, App.track
-	local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
-	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
-	local para, hintOn, slider, switch, switchRow = App.para, App.hintOn, App.slider, App.switch, App.switchRow
-	local button, buttonRow = App.button, App.buttonRow
-	local section, rebuildOverlay, saveArea, canGenerate = App.section, App.rebuildOverlay, App.saveArea, App.canGenerate
-	local runGenerate, requestLive, commit, thumbCache = App.runGenerate, App.requestLive, App.commit, App.thumbCache
-	local eachThumb, heading, buildHeader, buildArea = App.eachThumb, App.heading, App.buildHeader, App.buildArea
-
-	local applyTheme -- (below)
-	local function buildGlobal(parent)
-		App.pageHead(parent, App.area and App.area.folder.Name or "Back", "Settings", function()
-			App.goPage("Main")
-		end)
-		heading(parent, "Look", 14)
-		local swatches = App.chipGrid(parent, 5, 32)
-		for _, a in App.ACCENTS do
-			App.chip(swatches, a.name, function()
-				return G.accent == a.name
-			end, function()
-				if G.accent ~= a.name then
-					G.accent = a.name
-					saveG()
-					task.defer(applyTheme) -- after this click finishes (the page it's on is rebuilt)
-				end
-			end, Color3.fromHex(a.dark))
-		end
-		App.explain(parent, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		heading(parent, "Text size", 14)
-		App.segmented({ "Small", "Normal", "Large" }, function()
-			return App.TEXT_SIZES[G.textScale] or "Normal"
-		end, function(v)
-			for scale, name in App.TEXT_SIZES do
-				if name == v then
-					G.textScale = scale
-				end
-			end
-			saveG()
-			task.defer(App.rebuildAll) -- after this click finishes (the page it's on is rebuilt)
-		end).Parent =
-			parent
-		App.explain(parent, "How big the plugin's text is.")
-		heading(parent, "Viewport", 12)
-		switchRow("Show overlay", function()
-			return G.overlay
-		end, function(v)
-			G.overlay = v
-		end, function()
-			saveG()
-			rebuildOverlay()
-			App.drawSpline()
-		end, "Shows the painted area coloured by the surface under it, and the path.").Parent =
-			parent
-		box({ Size = UDim2.new(1, 0, 0, 10), Parent = parent })
-		section(parent, "output", "Game-ready output", true, function(b)
-			local function outSwitch(text, key, hint)
-				switchRow(text, function()
-					return G[key]
-				end, function(v)
-					G[key] = v
-				end, function()
-					saveG()
-					commit()
-				end, hint).Parent =
-					b
-			end
-			outSwitch("Walk through plants", "walk", "Flowers and bushes get no collision, so players never snag on them.")
-			outSwitch("No shadows on small stuff", "shadows", "Flowers and tiny parts skip shadows. Big win on lower-end devices.")
-			outSwitch("Flowers ignore clicks", "query", "Flowers won't block raycasts, clicks, tools or weapons.")
-			outSwitch(
-				"Streaming chunks",
-				"chunks",
-				"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
-			)
-			outSwitch(
-				"Preview as boxes",
-				"ghost",
-				"Places a see-through box per copy instead of the model. Much faster on big areas while you tune; turn it off for the real thing."
-			)
-			box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
-			App.ui.perf = para("", { Parent = b })
-		end)
-		section(parent, "shortcuts", "Shortcuts", false, function(b)
-			App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
-			local group
-			for _, a in App.KEYMAP do
-				if a.group ~= group then
-					group = a.group
-					label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
-				end
-				local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
-				label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
-				local key = button(App.keyText(a.id), nil, nil, {
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, 0, 0.5, 0),
-					AutomaticSize = Enum.AutomaticSize.None,
-					Size = UDim2.fromOffset(84, 26),
-					Font = App.SANS_B,
-					Parent = row,
-				})
-				local lit = App.glow(key, 8, 0.8)
-				key.MouseButton1Click:Connect(function()
-					if App.capturingKey then
-						return
-					end
-					App.capturingKey = true
-					key.Text = "Press a key"
-					lit:pulse(true)
-					App.captureKey(key, function(k)
-						App.capturingKey = false
-						if not k then
-							key.Text = App.keyText(a.id)
-							lit:pulse(false)
-							return
-						end
-						local moved = App.bindKey(a.id, k)
-						App.status(
-							moved and string.format("%s is now %s. %s moved to %s.", a.label, App.keyText(a.id), moved.label, App.keyText(moved.id))
-								or string.format("%s is now %s.", a.label, App.keyText(a.id))
-						)
-						App.rebuildAll() -- every hint that names a key shows the new one
-					end)
-				end)
-			end
-			local fixed = label(
-				"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
-				12,
-				P.faint,
-				SANS,
-				{ Parent = b }
-			)
-			fixed.TextWrapped, fixed.AutomaticSize, fixed.Size = true, Enum.AutomaticSize.Y, UDim2.new(1, 0, 0, 0)
-			box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
-			button("Reset all shortcuts", "ghost", function()
-				App.resetKeys()
-				App.status("Shortcuts are back to their defaults.")
-				App.rebuildAll()
-			end, { Parent = buttonRow(b) })
-		end)
-		box({ Size = UDim2.new(1, 0, 0, 12), Parent = parent })
-		hintOn(
-			button("Replay the tour", nil, function()
-				App.startTour()
-			end, { Parent = buttonRow(parent) }),
-			"A three-minute walk through everything: what it's for, areas, paths, objects and their rules, placing and finishing."
-		)
-		box({ Size = UDim2.new(1, 0, 0, 8), Parent = parent })
-		local about = box({ Size = UDim2.new(1, 0, 0, 40), Parent = parent }, { hlist(10) })
-		App.new("ImageLabel", { Image = App.LOGO.mark, BackgroundTransparency = 1, Size = UDim2.fromOffset(32, 32), Parent = about })
-		label("Smart Scatter  v" .. tostring(App.ctx.version or "dev") .. "  ·  made by Ghulo", 12, P.faint, SANS, {
-			Size = UDim2.new(1, -42, 1, 0),
-			Parent = about,
-		})
-	end
-
-	App.perfNote = function()
-		if G.ghost then
-			return "Boxes only: turn off Preview as boxes to place the real models.", false
-		end
-		local heavy = App.lastParts > 20000
-		return heavy and "That's heavy. Lower the amount or use simpler models." or App.lastParts > 8000 and "Getting heavy for phones." or "", heavy
-	end
-	App.refreshPerf = function()
-		if not App.ui.perf then
-			return
-		end
-		local note, heavy = App.perfNote()
-		App.ui.perf.Text = string.format("This area: %s objects, %s parts.  %s", num(App.lastTotal), num(App.lastParts), note)
-		App.ui.perf.TextColor3 = heavy and P.danger or P.dim
-	end
-
-	App.shuffle = function()
-		if not App.area then
-			return
-		end
-		local rec = beginRec("Smart Scatter: Shuffle")
-		App.area.seed = math.random(1, 999999)
-		saveArea()
-		endRec(rec)
-		runGenerate(true)
-	end
-
-	local function footHeight()
-		return G.live and 58 or 108
-	end
-	local function buildFooter(parent)
-		local h = footHeight()
-		local foot = box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.header,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.fromScale(0, 1),
-			Size = UDim2.new(1, 0, 0, h),
-			Parent = parent,
-		})
-		App.ui.foot = foot
-		App.fadeLine(foot, nil, 0.16)
-		local track = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 3, Parent = foot })
-		App.ui.progress = box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.accent,
-			Size = UDim2.fromScale(0, 1),
-			Visible = false,
-			ZIndex = 3,
-			Parent = track,
-		})
-		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
-		App.sheen(foot, 0.025, 40)
-		local inner = box({ Position = UDim2.fromOffset(14, 13), Size = UDim2.new(1, -28, 1, -23), Parent = foot })
-		local y = 0
-		if not G.live then
-			App.ui.genBtn = new("TextButton", {
-				Text = "Generate",
-				Font = SANS_B,
-				TextSize = 14,
-				TextColor3 = P.onAccent,
-				BackgroundColor3 = P.accent,
-				AutoButtonColor = false,
-				Size = UDim2.new(1, 0, 0, 40),
-				TextTruncate = Enum.TextTruncate.AtEnd,
-				Parent = inner,
-			}, { corner(10) })
-			App.shade(App.ui.genBtn, 0.12)
-			App.topLight(App.ui.genBtn, 0.35, 8)
-			App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
-			local press = new("UIScale", { Parent = App.ui.genBtn })
-			App.ui.genBar = box({
-				BackgroundTransparency = 0.82,
-				BackgroundColor3 = Color3.new(1, 1, 1),
-				Size = UDim2.fromScale(0, 1),
-				Visible = false,
-				Parent = App.ui.genBtn,
-			}, { corner(10) })
-			App.ui.genBtn.MouseEnter:Connect(function()
-				if canGenerate() then
-					tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
-				end
-			end)
-			App.ui.genBtn.MouseLeave:Connect(function()
-				tween(press, FAST, { Scale = 1 })
-				App.refreshCounts()
-			end)
-			App.ui.genBtn.MouseButton1Down:Connect(function()
-				if canGenerate() then
-					tween(press, FAST, { Scale = 0.98 })
-				end
-			end)
-			App.ui.genBtn.MouseButton1Up:Connect(function()
-				tween(press, MED, { Scale = 1 })
-			end)
-			App.ui.genBtn.MouseButton1Click:Connect(function()
-				if App.busy() then -- while generating the button stops it
-					App.cancelJob()
-					App.status("Stopped. Nothing was changed.")
-					return
-				end
-				if App.worldChanged() then -- read the ground again only if something under the area changed
-					App.analysisDirty = true
-				end
-				runGenerate(true)
-			end)
-			y = 50
-		end
-
-		local r = box({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, y), Parent = inner })
-		local sw, swGlow = switch(function()
-			return G.live
-		end, function(v)
-			G.live = v
-		end, function()
-			saveG()
-			if G.live then
-				commit()
-			end
-			task.defer(App.rebuildAll) -- the Generate button comes and goes with it
-		end)
-		sw.Position = UDim2.fromOffset(0, 4)
-		sw.Parent = r
-		App.ui.liveGlow = swGlow -- breathes while a job runs
-		label("Live update", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(46, 0), Size = UDim2.fromOffset(90, 30), Parent = r })
-		hintOn(sw, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
-		local links = box({
-			Size = UDim2.new(0, 0, 1, 0),
-			AutomaticSize = Enum.AutomaticSize.X,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.fromScale(1, 0),
-			Parent = r,
-		}, { hlist(8) })
-		hintOn(
-			button("Shuffle", nil, App.shuffle, { Parent = links }),
-			"A new random layout with the same settings. Ctrl+Z goes back to the last one."
-		)
-		hintOn(
-			button("Clear", "ghost", function()
-				if not App.area then
-					return
-				end
-				local rec = beginRec("Smart Scatter: Clear")
-				Engine.clearOutputs(App.area)
-				endRec(rec)
-				App.lastCounts, App.lastTotal = {}, 0
-				App.refreshCounts()
-				App.status("Cleared. The area and objects are kept.")
-			end, { Parent = links }),
-			"Removes everything placed in this area. The painted ground, path and objects stay; Generate brings it all back."
-		)
-	end
-
-	local running = false
-	App.showProgress = function(phase, progress)
-		local bar, btn = App.ui.progress, App.ui.genBtn
-		local on = phase ~= nil
-		if on ~= running then -- start or end: light effects switch once, not every tick
-			running = on
-			if bar then
-				bar.Visible = on
-				App.ui.progressSweep:play(on)
-			end
-			if App.ui.liveGlow then
-				App.ui.liveGlow:pulse(on)
-			end
-			if App.ui.genSweep then
-				App.ui.genSweep:play(on)
-			end
-			if btn and App.ui.genBar then
-				App.ui.genBar.Visible = on
-			end
-		end
-		if not on then
-			App.refreshCounts()
-			return
-		end
-		local p = math.clamp(progress or 0, 0.02, 1)
-		if bar then
-			bar.Size = UDim2.fromScale(p, 1)
-		end
-		if btn and App.ui.genBar then
-			App.ui.genBar.Size = UDim2.fromScale(p, 1)
-			btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor(p * 100 + 0.5))
-			btn.Font = SANS_B
-			btn.BackgroundColor3 = P.accent
-			btn.TextColor3 = P.onAccent
-		end
-	end
-
-	local flashToken = 0
-	App.flashDone = function(text)
-		local btn = App.ui.genBtn
-		if not btn then
-			return
-		end
-		flashToken += 1
-		local my = flashToken
-		btn.Text = text
-		task.delay(1.5, function()
-			if my == flashToken and not App.busy() then
-				App.refreshCounts()
-			end
-		end)
-	end
-
-	local toastToken = 0
-	App.status = function(msg, tone)
-		local t = App.ui.toast
-		if not t then
-			return
-		end
-		toastToken += 1
-		local my = toastToken
-		if msg == "" then
-			tween(t.group, FAST, { GroupTransparency = 1 })
-			return
-		end
-		local err = tone == "error"
-		t.text.Text = msg
-		t.dot.BackgroundColor3 = err and P.danger or P.accent
-		t.glow:set(err)
-		if t.group.GroupTransparency > 0.5 then -- appearing: rise into place
-			t.group.Position = UDim2.new(0.5, 0, 1, -footHeight() - 2)
-			tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -footHeight() - 10) })
-		end
-		task.delay((err and 7 or 3.5) + #msg * 0.02, function()
-			if my == toastToken and App.ui.toast == t then
-				tween(t.group, MED, { GroupTransparency = 1 })
-			end
-		end)
-	end
-	local function buildToast(parent)
-		local group = new("CanvasGroup", {
-			BackgroundTransparency = 1,
-			GroupTransparency = 1,
-			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -footHeight() - 10),
-			Size = UDim2.new(1, -24, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			ZIndex = 60,
-			Parent = parent,
-		})
-		local pill = col({
-			BackgroundTransparency = 0.04,
-			BackgroundColor3 = P.card,
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = UDim2.fromScale(0.5, 0),
-			Size = UDim2.new(1, -8, 0, 0),
-			ZIndex = 60,
-			Parent = group,
-		}, { corner(12), App.stroke(P.line), pad(34, 14, 9, 9) })
-		App.shade(pill, 0.06)
-		App.topLight(pill, 0.1, 12)
-		local dot = box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.accent,
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, -20, 0.5, 0),
-			Size = UDim2.fromOffset(8, 8),
-			ZIndex = 61,
-			Parent = pill,
-		}, { corner(4) })
-		local text = para("", { ZIndex = 61, Parent = pill })
-		text.TextColor3 = P.text
-		App.ui.toast = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
-	end
-
-	local builtPage
-	App.rebuildAll = function()
-		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
-		local turned = builtPage ~= nil and builtPage ~= G.page -- another page: it slides in
-		builtPage = G.page
-		if App.root then
-			App.root:Destroy()
-		end
-		eachThumb(function(vp)
-			vp:Destroy()
-		end)
-		table.clear(thumbCache)
-		App.ui = {}
-		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-		local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
-		App.scroll = new("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, -footHeight()),
-			CanvasSize = UDim2.new(),
-			BackgroundTransparency = 1,
-			AutomaticCanvasSize = Enum.AutomaticSize.Y,
-			ScrollBarThickness = 4,
-			ScrollBarImageColor3 = P.faint,
-			ScrollBarImageTransparency = 0.5,
-			VerticalScrollBarInset = Enum.ScrollBarInset.Always,
-			ScrollingDirection = Enum.ScrollingDirection.Y,
-			Parent = App.root,
-		}, { pad(14, 12, 8, 24), vlist(2) })
-		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
-		App.scroll.MouseEnter:Connect(function()
-			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
-		end)
-		App.scroll.MouseLeave:Connect(function()
-			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
-		end)
-		buildHeader(head)
-		box({ Size = UDim2.new(1, 0, 0, 10), Parent = head })
-		App.fadeLine(head, nil, 0.16)
-		App.sheen(App.root, 0.04, 140, 150)
-		App.halftone(App.root, 0.07, 4, 150)
-		local function fit()
-			local h = head.AbsoluteSize.Y
-			App.scroll.Position = UDim2.fromOffset(0, h)
-			App.scroll.Size = UDim2.new(1, 0, 1, -h - footHeight())
-		end
-		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-		fit()
-		if G.page == "Settings" then
-			buildGlobal(App.scroll)
-		elseif G.page == "Objects" and App.area then
-			App.buildObjectsPage(App.scroll)
-		else
-			buildArea(App.scroll)
-		end
-		buildFooter(App.root)
-		buildToast(App.root)
-		App.refreshScan()
-		App.refreshObjects()
-		if turned then
-			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
-			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
-		end
-		if App.tour and App.renderTour then
-			App.renderTour()
-		end
-		if keepScroll then
-			task.defer(function()
-				if App.scroll then
-					App.scroll.CanvasPosition = keepScroll
-				end
-			end)
-		end
-	end
-
-	function applyTheme()
-		makePalette()
-		App.rebuildAll()
-		rebuildOverlay()
-		if App.removeSplineViz then
-			App.removeSplineViz()
-			App.drawSpline()
-		end
-	end
-	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
 end)()
 

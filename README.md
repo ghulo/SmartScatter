@@ -39,9 +39,12 @@ src/
     Core/                   State · Kit (UI kit) · Generation (jobs, areas) · Lifecycle (undo, cleanup; runs last)
     Viewport/               Overlay · Paint · Spline
     Panel/                  Header · AreaPage · ObjectsPage · Settings · Tour
-tests/suite.lua           regression suite: builds its own world far away, checks every placement path, cleans up
-tools/                    tree.py (the module tree + flattening), check.sh, push.py / push_patch.py (dev pushes),
-                          loader_test.py, lint_dupes.py
+tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,
+                          cleans up
+tests/offline/            engine tests that need no Studio (patterns, spacing and footprints, the mask, curves), run
+                          by check.sh with the Luau runtime; roblox.luau stands in for the few Roblox types they use
+tools/                    tree.py (the module tree + flattening), check.sh, offline.py, push.py / push_patch.py
+                          (dev pushes), loader_test.py, lint_dupes.py
 ```
 
 In Studio the plugin is the same tree: the Loader Script with the `App` and `Engine` ModuleScripts (folders inside).
@@ -61,11 +64,11 @@ In Studio the plugin is the same tree: the Loader Script with the `App` and `Eng
 - A new module: create the file in its folder and add its path to that entry's `ORDER`, after what it uses.
   `tools/check.sh` fails if a file isn't listed, a listed file is missing, an import is unused or a global is unknown.
 
-Requirements: Python 3; for `tools/check.sh` also `stylua`, `luau-compile` and `luau-analyze` (set `SS_TOOLS` to the
-folder holding them).
+Requirements: Python 3; for `tools/check.sh` also `stylua`, `luau`, `luau-compile` and `luau-analyze` (set `SS_TOOLS`
+to the folder holding them).
 
 ```sh
-./tools/check.sh                 # format, module tree, compile and lint checks
+./tools/check.sh                 # format, module tree, compile, lint and offline engine tests
 python3 build.py 9.45 107        # version, build number -> SmartScatter.rbxmx and dist/
 ```
 

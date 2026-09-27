@@ -1049,40 +1049,14 @@ local ok, err = pcall(function()
 			and kind("Sign Post") == "Along"
 		check("names are matched as words", okNames, "palisade/streetlamp/fences are lines; campfire/trailhead are not")
 	end
-	-- 13b. every area pattern gives real variation, stays within 0-1, and the strength blends it in
-	do
-		local worst = {}
-		for _, name in E.PATTERNS do
-			local a = { patches = 1, pattern = name, patchSize = 40, seed = 4242, windDir = 30 }
-			local lo, hi, bad = math.huge, -math.huge, 0
-			for x = 0, 400, 7 do
-				for z = 0, 400, 7 do
-					local v = E.patchAt(a, x, z)
-					lo, hi = math.min(lo, v), math.max(hi, v)
-					if v < 0 or v > 1 or v ~= v then
-						bad += 1
-					end
-				end
-			end
-			if bad > 0 or hi - lo < 0.6 then
-				table.insert(worst, string.format("%s %.2f-%.2f (%d bad)", name, lo, hi, bad))
-			end
-		end
-		local half = E.patchAt({ patches = 0.5, pattern = "Islands", patchSize = 40, seed = 4242 }, 13, 29)
-		check(
-			"area patterns vary, stay in range and blend by strength",
-			#worst == 0 and half >= 0.5 and half <= 1,
-			#worst == 0 and (#E.PATTERNS .. " patterns ok") or table.concat(worst, ", ")
-		)
-	end
-	-- 13c. real footprints: long models keep their true outline, so they pack closer than their circle but never
+	-- 13b. real footprints: long models keep their true outline, so they pack closer than their circle but never
 	-- overlap
 	do
 		isolate()
 		local log = model("TestLog", { { Name = "Trunk", Size = Vector3.new(10, 1.5, 2), CFrame = CFrame.new(0, 0.75, 0) } })
 		table.insert(templates, log)
 		local l = E.makeLayer(log, "Rock")
-		l.s.density, l.s.spacing, l.s.cluster, l.s.tilt, l.s.align = 6, 1, 0, 0, 0
+		l.s.density, l.s.spacing, l.s.cluster, l.s.tilt, l.s.align = 40, 1, 0, 0, 0 -- crowded, so they must pack
 		l.s.scaleMin, l.s.scaleMax = 1, 1
 		local a = newArea("SS_Test_Logs", { l })
 		paintRect(a, -60, 60, 0, 120)
@@ -1121,11 +1095,73 @@ local ok, err = pcall(function()
 			string.format("%d logs, %d overlapping, closest %.1f studs apart (a circle would keep 10+)", #logs, overlaps, closest)
 		)
 	end
+	-- 13c. the object brush: a pin puts a copy on its exact spot every time, and removing that copy takes the pin
+	do
+		isolate()
+		local l = E.makeLayer(rock, "Rock")
+		l.s.density = 0.3
+		local a = newArea("SS_Test_Pins", { l })
+		paintRect(a, 100, -100, 160, -40)
+		l.pins = { { O.X + 130, O.Z - 70, 12345 } }
+		run(a)
+		local pinned
+		for _, m in placed(a.folder) do
+			if m:GetAttribute("SS_Pin") then
+				pinned = m
+			end
+		end
+		local onSpot = pinned
+			and math.abs(pinned:GetAttribute("SS_X") - (O.X + 130)) < 0.01
+			and math.abs(pinned:GetAttribute("SS_Z") - (O.Z - 70)) < 0.01
+		if pinned then
+			E.removeCopy(a, pinned)
+		end
+		check(
+			"a pinned copy lands on its spot, and removing it takes the pin",
+			onSpot and l.pins == nil,
+			tostring(onSpot) .. ", pins left: " .. tostring(l.pins and #l.pins)
+		)
+	end
+	-- 13d. colour zones tint copies by the area's pattern: different spots, different colours; off, all alike
+	do
+		isolate()
+		local l = E.makeLayer(rock, "Rock")
+		l.s.tint, l.s.vary, l.s.density = 0, false, 2
+		local a = newArea("SS_Test_Zones", { l })
+		paintRect(a, 100, -100, 200, 0)
+		a.zones, a.zoneMood, a.pattern, a.patchSize = 1, "Autumn", "Groves", 30
+		run(a)
+		local tints = {}
+		for _, m in placed(a.folder) do
+			tints[m:FindFirstChildWhichIsA("BasePart", true).Color:ToHex()] = true
+		end
+		local n = 0
+		for _ in tints do
+			n += 1
+		end
+		a.zones = 0
+		run(a)
+		local plain = {}
+		for _, m in placed(a.folder) do
+			plain[m:FindFirstChildWhichIsA("BasePart", true).Color:ToHex()] = true
+		end
+		local k = 0
+		for _ in plain do
+			k += 1
+		end
+		check("colour zones tint copies by the pattern", n > 3 and k == 1, string.format("%d colours with zones, %d without", n, k))
+	end
 	-- 14. removed copies stay gone, and a patch rebuild leaves everything outside the patch alone
 	do
 		local a = newArea("SS_Test_Patch", { E.makeLayer(rock, "Rock") })
 		paintRect(a, -60, -60, 60, 60)
 		local total, _, _, an = run(a)
+		local rows, sum = E.report(a)
+		check(
+			"the performance report counts what's placed",
+			#rows == 1 and rows[1].copies == total and sum.parts >= total and rows[1].parts == sum.parts,
+			string.format("%d rows, %d copies of %d, %d parts", #rows, rows[1] and rows[1].copies or 0, total, sum.parts)
+		)
 		local before = {}
 		for _, m in placed(a.folder) do
 			before[m] = true

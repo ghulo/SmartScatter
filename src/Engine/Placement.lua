@@ -327,9 +327,10 @@ return function(E, I)
 		return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
 	end
 	-- Recolours a copy's parts. Variation on: its own hue / saturation / brightness ranges, one shift for the copy or
-	-- one per part. Off: the simple colour shift (tint: brightness and a little hue). Reaches what gives a part its
-	-- look: its colour, a MeshPart's SurfaceAppearance (through its Color tint) and any decals or textures on it.
-	recolor = function(parts, s, rng)
+	-- one per part. Off: the simple colour shift (tint: brightness and a little hue). zone (optional): the area's
+	-- colour zone at the copy's spot { dh, ds, dv }, added on top (it draws no random numbers). Reaches what gives a
+	-- part its look: its colour, a MeshPart's SurfaceAppearance (through its Color tint) and any decals or textures.
+	recolor = function(parts, s, rng, zone)
 		local function roll()
 			if s.vary then
 				return rng:NextNumber(-s.hueVar, s.hueVar), rng:NextNumber(-s.satVar, s.satVar), rng:NextNumber(-s.valVar, s.valVar)
@@ -340,22 +341,27 @@ return function(E, I)
 			return nil
 		end
 		local dh, ds, dv = roll()
-		if not dh then
+		if not dh and not zone then
 			return
+		end
+		local zh, zs, zv = 0, 0, 0
+		if zone then
+			zh, zs, zv = zone[1], zone[2], zone[3]
 		end
 		local each = s.vary and s.perPart
 		for _, p in parts do
-			if each then
+			if each then -- (the copy's own roll above stays drawn, as always: existing layouts keep their colours)
 				dh, ds, dv = roll()
 			end
-			p.Color = shifted(p.Color, dh, ds, dv)
+			local h, sa, v = (dh or 0) + zh, (ds or 0) + zs, (dv or 0) + zv
+			p.Color = shifted(p.Color, h, sa, v)
 			for _, d in p:GetChildren() do
 				if d:IsA("SurfaceAppearance") then
 					pcall(function()
-						d.Color = shifted(d.Color, dh, ds, dv)
+						d.Color = shifted(d.Color, h, sa, v)
 					end) -- (older Studio builds have no SurfaceAppearance.Color)
 				elseif d:IsA("Decal") then -- (Texture is a Decal too)
-					d.Color3 = shifted(d.Color3, dh, ds, dv)
+					d.Color3 = shifted(d.Color3, h, sa, v)
 				end
 			end
 		end
@@ -454,7 +460,8 @@ return function(E, I)
 		if s.vary and s.dropDetails > 0 then
 			dropDetails(clone, s.dropDetails, rng)
 		end
-		recolor(partsOf(clone), s, rng)
+		local zh, zs, zv = E.zoneShift(ctx.area, x, z)
+		recolor(partsOf(clone), s, rng, zh and { zh, zs, zv } or nil)
 		local small = l.type == "Flower" or l.type == "Bush"
 		local parts = partsOf(clone)
 		ctx.parts += #parts
@@ -483,6 +490,9 @@ return function(E, I)
 		clone:SetAttribute("SS_X", x)
 		clone:SetAttribute("SS_Z", z)
 		clone:SetAttribute("SS_R", item.r)
+		if item.pin then -- put down by hand (Engine/Pins): removing it takes the pin away
+			clone:SetAttribute("SS_Pin", true)
+		end
 		if item.hx and item.yaw then -- its outline, for the next runs that keep it
 			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 		end
@@ -671,7 +681,8 @@ return function(E, I)
 		return true
 	end
 
-	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below }
+	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below,
+	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules) }
 	local function placeAt(ctx, l, i, x, z, rng, g)
 		g = g or {}
 		local v = g.v or pickVariant(l, rng)
@@ -684,8 +695,8 @@ return function(E, I)
 			return nil
 		end -- (the area's own cells already leave zones out)
 		local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-		if g.member and not g.stackOn then
-			-- a group member must still obey the layer's rules at its own spot
+		if (g.member or g.pin) and not g.stackOn then
+			-- a group member (or a copy pinned by hand) must still obey the layer's rules at its own spot
 			if score(l, an, i) <= 0 then
 				return nil
 			end
@@ -695,8 +706,8 @@ return function(E, I)
 		end
 
 		local keep = 0.5
-		if g.member or g.line then
-			-- followers go wherever the leader decided
+		if g.member or g.line or g.pin then
+			-- followers go wherever the leader decided, pins where they were put
 		else
 			if s.cluster > 0 then -- natural clumps
 				local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
@@ -740,6 +751,7 @@ return function(E, I)
 			g = g.gid,
 			fit = g.stretch ~= nil,
 			lk = l._h,
+			pin = g.pin,
 		}
 		if not g.line and not g.stackOn then
 			footprint(item, m, sc)
@@ -896,7 +908,9 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
+		end
 		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 	end
 

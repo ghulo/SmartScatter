@@ -86,7 +86,7 @@ return function(App)
 			local v = j and App.heatFn(j) or 0
 			return v <= 0 and VIEW.less or VIEW.muted:Lerp(VIEW.accent, math.clamp(0.25 + v * 0.75, 0, 1))
 		end
-		if App.paintLayer and LAYER_MODES[App.mode] then
+		if App.paintLayer and LAYER_MODES[App.mode] == "paint" then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
 				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
@@ -141,7 +141,7 @@ return function(App)
 		table.sort(xs)
 		local c, parts, i = App.area.cell, {}, 1
 		local zone = App.kindOf(App.area) == "Clear"
-		local painting = App.paintLayer and LAYER_MODES[App.mode] -- per-object paint: no outline, just the amounts
+		local painting = App.paintLayer and LAYER_MODES[App.mode] == "paint" -- per-object paint: no outline, just the amounts
 		-- a cell's look: its colour, and whether it's on the outline (brighter, more solid)
 		local function style(cx)
 			local col = cellColor(cx, cz, zone)

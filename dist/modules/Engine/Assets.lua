@@ -94,6 +94,7 @@ return function(E, I)
 			valVar = 0.15,
 			perPart = false,
 			dropDetails = 0,
+			slopePref = 0, -- -1 (flat ground) … 1 (steep ground): where on the slopes it'd rather grow (0 = anywhere)
 			edgeYoung = 0, -- 0-1: smaller copies toward the area's edge and its clearings, like a forest's young fringe
 			lean = 0, -- degrees: lean with the area's wind (its direction is the area's), a little more or less each
 			near = "",

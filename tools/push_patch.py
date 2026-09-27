@@ -3,8 +3,9 @@ lines that changed travel, so a one-line fix is one short snippet. For whole mod
 
 python3 tools/push_patch.py OUT_PREFIX VERSION BUILD MAXBYTES name=old.lua,new.lua [name=old.lua,new.lua ...]
 
-name is a module of the live copy (Engine, Main, Main_2… for a flattened copy; Tests for the suite). old is what the
-live copy holds now ("-" for a new module). Writes OUT_PREFIX_1.lua … (each adds line edits to _G.SS_ops[name]) and
+name is a module of the live copy by its path (Engine/Placement, App/Panel/ObjectsPage…; Engine, Main, Main_2… in a
+flattened copy; Tests for the suite). old is what the live copy holds now: a file, "-" for a new module, or "*" to
+replace whatever it holds without checking it. Writes OUT_PREFIX_1.lua … (each adds line edits to _G.SS_ops[name]) and
 OUT_PREFIX_final.lua (checks every base, applies, checks every result, then sets the modules and the Build attribute
 last so the plugin reloads once)."""
 import difflib
@@ -34,13 +35,13 @@ targets = []
 for arg in sys.argv[5:]:
     name, files = arg.split("=", 1)
     old, new = files.split(",")
-    a = "" if old == "-" else open(old).read()
+    a = "" if old in ("-", "*") else open(old).read()
     b = open(new).read()
-    targets.append((name, a, b))
+    targets.append((name, a, b, old == "*"))
 
 # every hunk, tagged with its module
 hunks = []
-for name, a, b in targets:
+for name, a, b, _ in targets:
     body = ops(a, b)[1:-1]  # "{...},\n{...}"
     if not body:
         continue
@@ -85,12 +86,26 @@ final = [
     ' for k=pos,#L do table.insert(out,L[k]) end return table.concat(out,"\\n") end',
     "local ops = _G.SS_ops or {}",
     "local results = {}",
+    "-- a module by its path in the live copy; make: create what's missing (folders on the way, the module itself)",
+    "local function at(path, make)",
+    " local node = src",
+    ' local names = string.split(path, "/")',
+    " for k, n in names do",
+    "  local c = node:FindFirstChild(n)",
+    "  if not c and make then",
+    '   c = Instance.new(k == #names and "ModuleScript" or "Folder") c.Name = n c.Archivable = false c.Parent = node',
+    "  end",
+    "  if not c then return nil end",
+    "  node = c",
+    " end",
+    " return node",
+    "end",
 ]
-for name, a, b in targets:
+for name, a, b, blind in targets:
     la, ha = ck(a)
     lb, hb = ck(b)
     final += [
-        'do local m=src:FindFirstChild("%s") local s0=m and m.Source or ""' % name,
+        'do local m=at("%s") local s0=%s' % (name, '""' if blind else 'm and m.Source or ""'),
         ' if #s0~=%d or ck(s0)~=%d then return "%s base mismatch "..#s0 end' % (la, ha, name),
         ' if #(ops["%s"] or {})~=%d then return "%s ops count "..#(ops["%s"] or {}) end' % (name, counts.get(name, 0), name, name),
         ' local s1=ap(s0,ops["%s"] or {})' % name,
@@ -99,9 +114,7 @@ for name, a, b in targets:
     ]
 final += [
     "for name,s1 in results do",
-    " local m=src:FindFirstChild(name)",
-    ' if not m then m=Instance.new("ModuleScript") m.Name=name m.Archivable=false m.Parent=src end',
-    " m.Source=s1",
+    " at(name, true).Source=s1",
     "end",
     'src:SetAttribute("Version","%s") src:SetAttribute("Build",%s)' % (ver, build),
     "_G.SS_ops=nil",

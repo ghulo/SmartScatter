@@ -222,9 +222,10 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" (paint one layer) · "Off"
-	local LAYER_MODES = { More = true, Less = true, Clear = true }
-	-- App.paintLayer: the layer being painted with More / Less / Clear
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" | "Place" (one layer) · "Off"
+	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
+	local LAYER_MODES = { More = "paint", Less = "paint", Clear = "paint", Place = "pins" }
+	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)
 		local str = tostring(math.floor(n + 0.5))

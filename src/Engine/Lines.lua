@@ -617,7 +617,9 @@ return function(E, I)
 				nil,
 				s.fit and s.orient == "Upright"
 			)
-			got += 1
+			if clone then -- (none is made in a keep-clear zone)
+				got += 1
+			end
 			if not s.fit then
 				mine:add(probe)
 			end
@@ -723,21 +725,24 @@ return function(E, I)
 								cs = s.clearance,
 								g = gid,
 							}
-							emit(
-								ctx,
-								l,
-								pv,
-								sc,
-								frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
-								rng,
-								pos.X,
-								pos.Z,
-								item,
-								s.sink * pv.m.size.Y * sc,
-								gid,
-								false
-							)
-							got += 1
+							if
+								emit(
+									ctx,
+									l,
+									pv,
+									sc,
+									frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
+									rng,
+									pos.X,
+									pos.Z,
+									item,
+									s.sink * pv.m.size.Y * sc,
+									gid,
+									false
+								)
+							then
+								got += 1
+							end
 						end
 					end
 					local placed = {}

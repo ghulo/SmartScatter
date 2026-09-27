@@ -1,6 +1,6 @@
 {
- "version": "9.47",
- "build": 109,
+ "version": "9.48",
+ "build": 112,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -20,19 +20,19 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 828658596
+   "sum": 954693944
   },
   "App/Panel/AreaPage": {
    "path": "modules/App/Panel/AreaPage.lua",
-   "sum": 431444368
+   "sum": 993696141
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
-   "sum": 742635435
+   "sum": 637053465
   },
   "App/Panel/ObjectsPage": {
    "path": "modules/App/Panel/ObjectsPage.lua",
-   "sum": 900460710
+   "sum": 504392856
   },
   "App/Panel/Settings": {
    "path": "modules/App/Panel/Settings.lua",
@@ -44,11 +44,11 @@
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
-   "sum": 676844626
+   "sum": 479431000
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 999227905
+   "sum": 505405852
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
@@ -56,35 +56,39 @@
   },
   "Engine": {
    "path": "modules/Engine.lua",
-   "sum": 803350049
+   "sum": 772857173
   },
   "Engine/Areas": {
    "path": "modules/Engine/Areas.lua",
-   "sum": 168473297
+   "sum": 802055984
   },
   "Engine/Assets": {
    "path": "modules/Engine/Assets.lua",
-   "sum": 618482042
+   "sum": 652969643
   },
   "Engine/Generate": {
    "path": "modules/Engine/Generate.lua",
-   "sum": 451493447
+   "sum": 84172933
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
-   "sum": 471069847
+   "sum": 927344638
   },
   "Engine/Paths": {
    "path": "modules/Engine/Paths.lua",
    "sum": 659544685
   },
+  "Engine/Pins": {
+   "path": "modules/Engine/Pins.lua",
+   "sum": 656086391
+  },
   "Engine/Placement": {
    "path": "modules/Engine/Placement.lua",
-   "sum": 603846972
+   "sum": 305267495
   },
   "Engine/Planning": {
    "path": "modules/Engine/Planning.lua",
-   "sum": 222215329
+   "sum": 448043932
   },
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",

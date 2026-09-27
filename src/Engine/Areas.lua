@@ -205,6 +205,7 @@ return function(E, I)
 				s = l.s,
 				v = v,
 				pm = withPaint ~= false and encodePaint(l.paint) or nil,
+				pn = withPaint ~= false and l.pins or nil, -- copies put down by hand (Engine/Pins); like painting, an area's own
 				post = l.post and pathOf(l.post.inst) or l.missingPost,
 			})
 		end
@@ -241,6 +242,7 @@ return function(E, I)
 				local l = vlist[1] and E.makeLayer(vlist[1].inst, d.t, d.s, vlist)
 				if l then
 					l.paint = decodePaint(d.pm)
+					l.pins = E.readPins(d.pn)
 					l.missing = #missing > 0 and missing or nil
 					local post = type(d.post) == "table" and findModel(d.post, index)
 					if post then
@@ -296,6 +298,9 @@ return function(E, I)
 		return t
 	end
 	function E.savePreset(name, layers)
+		return E.savePresetJSON(name, E.layersToJSON(layers, false)) -- painting belongs to an area, not to a preset
+	end
+	function E.savePresetJSON(name, json)
 		local ss = game:GetService("ServerStorage")
 		local f = ss:FindFirstChild(PRESETS)
 		if not f then
@@ -308,9 +313,80 @@ return function(E, I)
 			v = Instance.new("StringValue")
 		end
 		v.Name = name
-		v.Value = E.layersToJSON(layers, false) -- painting belongs to an area, not to a preset
+		v.Value = json
 		v.Parent = f
 		return v
+	end
+
+	-- the settings that shape a whole area, apart from its ground and its objects ("Copy settings from…")
+	E.AREA_LOOK = { "edge", "size", "patches", "pattern", "patchSize", "zones", "zoneMood", "windDir" }
+	function E.copyLook(from, to)
+		for _, k in E.AREA_LOOK do
+			to[k] = from[k]
+		end
+	end
+
+	-- Share codes: a preset as one line of text, to paste into another place or send to a teammate. There its models
+	-- are found where they sit (or by name); any that aren't come in as lost objects with their settings kept.
+	local CODE = "SmartScatter/1 " -- the format's name and version; a later format gets a new number
+	function E.presetCode(preset)
+		return CODE .. HttpService:JSONEncode({ n = preset.Name, l = preset.Value })
+	end
+	-- a pasted code, saved as a preset; returns it, or nil and what's wrong with the code
+	function E.importPresetCode(text)
+		local code = string.match(text or "", "^%s*(.-)%s*$")
+		if string.sub(code, 1, #CODE) ~= CODE then
+			return nil, "That isn't a Smart Scatter preset code."
+		end
+		local ok, d = pcall(HttpService.JSONDecode, HttpService, string.sub(code, #CODE + 1))
+		local okL, layers = pcall(HttpService.JSONDecode, HttpService, ok and type(d) == "table" and d.l or "")
+		if not (ok and type(d) == "table" and type(d.n) == "string" and okL and type(layers) == "table") then
+			return nil, "The code is cut off or changed. Copy all of it and paste it again."
+		end
+		local name = string.sub(string.match(d.n, "^%s*(.-)%s*$"), 1, 60)
+		return E.savePresetJSON(name ~= "" and name or "Shared preset", d.l)
+	end
+
+	-- What an area costs the game, object by object: copies, parts, mesh parts and how many different meshes (fewer
+	-- is lighter: Roblox draws copies of one mesh together). Rows are heaviest first; the road, if any, is one of them.
+	function E.report(a)
+		local rows, total = {}, { copies = 0, parts = 0 }
+		local function measure(name, root)
+			local row, meshIds = { name = name, copies = 0, parts = 0, meshes = 0, unique = 0 }, {}
+			for _, d in root:GetDescendants() do
+				if d:IsA("BasePart") then
+					row.parts += 1
+					if d:IsA("MeshPart") then
+						row.meshes += 1
+						if not meshIds[d.MeshId] then
+							meshIds[d.MeshId] = true
+							row.unique += 1
+						end
+					end
+				end
+				if d:GetAttribute("SS_Type") then
+					row.copies += 1
+				end
+			end
+			if row.parts > 0 then
+				table.insert(rows, row)
+				total.copies += row.copies
+				total.parts += row.parts
+			end
+		end
+		for _, f in a.folder:GetChildren() do
+			if f:IsA("Folder") or f:IsA("Model") then
+				measure(f.Name, f)
+			end
+		end
+		local road = E.roadOf(a)
+		if road then
+			measure("Road", road)
+		end
+		table.sort(rows, function(x, y)
+			return x.parts > y.parts
+		end)
+		return rows, total
 	end
 
 	-- bake: the area's output becomes plain models (no tags or attributes), and the area lets go of them
@@ -338,6 +414,15 @@ return function(E, I)
 			dst.Parent = out
 			layerFolder.Parent = nil
 		end
+		local road = E.roadOf(a) -- a path's road goes with it, no longer rebuilt from the curve
+		if road then
+			local link = road:FindFirstChild("Area")
+			if link then
+				link:Destroy()
+			end
+			road.Name = "Road"
+			road.Parent = out
+		end
 		out.Parent = workspace
 		return out, n
 	end
@@ -355,6 +440,8 @@ return function(E, I)
 			patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
 			patchSize = folder:GetAttribute("SS_PatchSize") or 60,
 			pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
+			zones = folder:GetAttribute("SS_Zones") or 0, -- colour zones' strength (0 = off)
+			zoneMood = folder:GetAttribute("SS_ZoneMood") or "Autumn", -- their colour (E.ZONE_MOODS)
 			windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
 			layers = {},
 		}
@@ -631,6 +718,8 @@ return function(E, I)
 		f:SetAttribute("SS_Patches", (a.patches or 0) > 0 and a.patches or nil)
 		f:SetAttribute("SS_PatchSize", (a.patchSize and a.patchSize ~= 60) and a.patchSize or nil)
 		f:SetAttribute("SS_Pattern", (a.pattern and a.pattern ~= "Groves") and a.pattern or nil)
+		f:SetAttribute("SS_Zones", (a.zones or 0) > 0 and a.zones or nil)
+		f:SetAttribute("SS_ZoneMood", (a.zoneMood and a.zoneMood ~= "Autumn") and a.zoneMood or nil)
 		f:SetAttribute("SS_Wind", (a.windDir or 0) ~= 0 and a.windDir or nil)
 		f:SetAttribute("SS_Mask", encodeMask(a.rows))
 		local sp = a.spline
@@ -714,6 +803,15 @@ return function(E, I)
 		local h = copy:GetAttribute("SS_L")
 		if not h then
 			return nil
+		end
+		if copy:GetAttribute("SS_Pin") then -- put down by hand: its pin goes, so it isn't put back
+			for _, l in a.layers do
+				if l._h == h then
+					E.unpin(l, copy:GetAttribute("SS_X") or 0, copy:GetAttribute("SS_Z") or 0)
+				end
+			end
+			E.dropOutput(copy)
+			return h
 		end
 		a.removed = a.removed or {}
 		a.removed[h] = a.removed[h] or {}

@@ -381,15 +381,26 @@ return function(App)
 	end
 
 	local function buildLayerPaint(l, parent)
-		section(parent, "layerpaint", "Paint this object", false, function(b)
-			local seg, refresh = segmented({ "More", "Less", "Clear" }, function()
+		section(parent, "layerpaint", "Paint or place this object", false, function(b)
+			local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
 				return App.paintLayer == l and App.mode or nil
 			end, function(m)
 				App.setMode(m, l)
 			end, nil, nil, true)
 			seg.Parent = b
-			explain(b, "Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting.")
+			explain(
+				b,
+				"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
+			)
 			App.ui.refreshLayerBrush = refresh
+			if l.pins then
+				gap(b, 4)
+				button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+					l.pins = nil
+					commit(l)
+					App.refreshObjects()
+				end, { Parent = buttonRow(b) })
+			end
 			if l.paint then
 				gap(b, 4)
 				button("Reset painting", nil, function()
@@ -563,6 +574,16 @@ return function(App)
 	local function buildSlope(parent, c)
 		section(parent, "terrain", "Slope", false, function(b)
 			c.S(b, "maxSlope", "Steepest", 0, 89, "%.0f°", 1, "Steepest ground this object can stand on.")
+			c.S(
+				b,
+				"slopePref",
+				"Prefers",
+				-1,
+				1,
+				"%+.0f%%",
+				0.05,
+				"Below 0: mostly on flat ground (trees in the valleys). Above 0: mostly on slopes (rocks and shrubs on hillsides). 0: anywhere."
+			)
 			c.S(b, "align", "Lean with the ground", 0, 1, "%.0f%%", 0.05, "0% stands straight up. 100% tilts with the slope.")
 		end)
 	end
@@ -875,6 +896,7 @@ return function(App)
 		App.refreshObjects()
 		commit()
 	end
+	App.addLayers = addLayers -- (the area menu's "Copy settings from…" adds objects the same way)
 
 	-- biomes: a ready set of objects made from the models already in the place (picked by their names)
 	local function buildBiomes(parent, open)
@@ -914,6 +936,74 @@ return function(App)
 	end
 
 	-- presets: named sets of objects saved with the place, reusable in any area
+	-- Performance: what the area costs, object by object. Worked out on request (it walks every placed part).
+	local function buildReport(parent)
+		section(parent, "performance", "Performance", false, function(b)
+			explain(b, "See which objects cost the most parts, so you know what to simplify first.")
+			local out = col({ Parent = b }, { vlist(2) })
+			local function show()
+				out:ClearAllChildren()
+				vlist(2).Parent = out
+				local rows, total = Engine.report(App.area)
+				if total.parts == 0 then
+					para("Nothing placed yet.", { Parent = out })
+					return
+				end
+				for _, r in rows do
+					local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = out })
+					label(r.name, 12, P.text, SANS_M, { Size = UDim2.new(0.45, 0, 1, 0), Parent = row })
+					label(
+						r.copies > 0
+								and string.format(
+									"%s parts · %s per copy%s",
+									num(r.parts),
+									num(math.ceil(r.parts / r.copies)),
+									r.unique > 0 and (" · " .. r.unique .. " meshes") or ""
+								)
+							or (num(r.parts) .. " parts"),
+						12,
+						P.dim,
+						SANS,
+						{
+							Size = UDim2.new(0.55, 0, 1, 0),
+							Position = UDim2.fromScale(0.45, 0),
+							TextXAlignment = Enum.TextXAlignment.Right,
+							Parent = row,
+						}
+					)
+				end
+				local top = rows[1]
+				local share = top.parts / total.parts
+				para(
+					string.format("%s parts in all.", num(total.parts))
+						.. (
+							#rows > 1
+								and share >= 0.4
+								and string.format(
+									" %s is %d%% of them: a simpler model or a lower amount there helps most.",
+									top.name,
+									math.floor(share * 100 + 0.5)
+								)
+							or ""
+						),
+					{ Parent = out }
+				)
+			end
+			button("Check this area", nil, show, { Parent = buttonRow(b) })
+		end)
+	end
+
+	-- the share code box of the Presets section (rebuilt with it) and how a code gets there: selected, ready to copy
+	local codeBox
+	local function shareCode(code)
+		if not codeBox then
+			return
+		end
+		codeBox.Text = code
+		codeBox:CaptureFocus()
+		codeBox.SelectionStart, codeBox.CursorPosition = 1, #code + 1
+		App.status("The code is selected in the box: press Ctrl+C to copy it.")
+	end
 	local function buildPresets(parent)
 		section(parent, "presets", "Presets", false, function(b)
 			local list = Engine.listPresets()
@@ -922,7 +1012,7 @@ return function(App)
 			end
 			for _, v in list do
 				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -150, 1, 0), Parent = row })
+				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -220, 1, 0), Parent = row })
 				local acts = box({
 					Size = UDim2.new(0, 0, 1, 0),
 					AutomaticSize = Enum.AutomaticSize.X,
@@ -936,6 +1026,12 @@ return function(App)
 						addLayers(layers, v.Name, #lost > 0 and string.format("%d model%s not found in this place.", #lost, #lost == 1 and "" or "s"))
 					end, { Parent = acts }),
 					"Adds this preset's objects to the area (ones it already has are skipped)."
+				)
+				hintOn(
+					button("Share", nil, function()
+						shareCode(Engine.presetCode(v))
+					end, { Parent = acts }),
+					"Puts this preset's code in the box below: copy it and paste it into another place, or send it to a teammate."
 				)
 				button("Delete", "danger", function()
 					local rec = beginRec("Smart Scatter: Delete preset")
@@ -976,6 +1072,37 @@ return function(App)
 					App.refreshObjects()
 				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = saveRow }),
 				"Saves this area's objects and all their settings under that name. Saving an existing name replaces it."
+			)
+			-- share codes: a preset as text, to copy out, or pasted in from another place
+			gap(b, 8)
+			label("Share code", 13, P.text, SANS, { Parent = b })
+			local codeRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+			codeBox = new("TextBox", {
+				Text = "",
+				PlaceholderText = "Paste a code here, or press Share on a preset",
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = P.text,
+				PlaceholderColor3 = P.faint,
+				BackgroundColor3 = P.field,
+				ClearTextOnFocus = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, -76, 1, 0),
+				Parent = codeRow,
+			}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+			hintOn(
+				button("Import", "accent", function()
+					local preset, err = Engine.importPresetCode(codeBox.Text)
+					if not preset then
+						App.status(err, "error")
+						return
+					end
+					codeBox.Text = ""
+					App.status(string.format("Imported %s. Press Use to add its objects to this area.", preset.Name))
+					App.refreshObjects()
+				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = codeRow }),
+				"Saves a pasted code as a preset. Models it needs are found in this place by where they sit or their name."
 			)
 		end)
 	end
@@ -1113,6 +1240,7 @@ return function(App)
 		gap(list, 4)
 		buildBiomes(list, #App.area.layers == 0)
 		buildPresets(list)
+		buildReport(list)
 	end
 
 	-- the page: the list, or one object's settings when one is open

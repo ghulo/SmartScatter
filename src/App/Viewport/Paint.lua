@@ -131,7 +131,7 @@ return function(App)
 		if App.mode == "Clear" then
 			return VIEW.muted
 		end
-		if App.mode == "Less" then
+		if App.mode == "Less" or (App.mode == "Place" and erasing()) then
 			return P.danger
 		end
 		if LAYER_MODES[App.mode] then
@@ -274,7 +274,33 @@ return function(App)
 		return true
 	end
 
+	-- the object brush (mode Place): puts copies of the object down where it's dragged (Engine/Pins), Shift takes
+	-- them away; the stroke's patch is rebuilt when it ends
+	local pinRng = Random.new(os.time())
+	local function placeStamp(pos)
+		local l, R = App.paintLayer, G.radius
+		if not l then
+			return
+		end
+		local changed
+		if gestureOn then
+			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
+		else
+			changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
+		end
+		if changed then
+			local c = App.area.cell
+			touched(math.floor((pos.X - R) / c), math.floor((pos.Z - R) / c))
+			touched(math.floor((pos.X + R) / c), math.floor((pos.Z + R) / c))
+			strokeChanged = true
+		end
+	end
+
 	local function stamp(pos)
+		if App.mode == "Place" then
+			placeStamp(pos)
+			return
+		end
 		local c, R = App.area.cell, G.radius
 		local sq = G.shape == "Square"
 		for cx = math.floor((pos.X - R) / c), math.floor((pos.X + R) / c) do
@@ -851,6 +877,7 @@ return function(App)
 		More = "Brush where you want more of this layer.",
 		Less = "Brush where you want less. Twice removes it there.",
 		Clear = "Brush to undo your painting for this layer.",
+		Place = "Drag to put copies down where you brush. Hold Shift to take them away. {size} resizes.",
 		Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 	}
 	-- a mode's hint, with the keys it names as they're bound ({size} → F, or whatever the user picked)

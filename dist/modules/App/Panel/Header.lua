@@ -22,7 +22,9 @@ return function(App)
 		end
 	end
 
-	local function openAreaMenu()
+	-- the area menu: switch area, rename, lock, bake, delete. pick (optional): { title, onPick(folder) } lists the
+	-- other areas instead, to choose one (the source for "Copy settings from…")
+	local function openAreaMenu(pick)
 		closePopup()
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
 		catcher.MouseButton1Click:Connect(closePopup)
@@ -58,6 +60,19 @@ return function(App)
 				onClick()
 			end)
 			return b
+		end
+		if pick then
+			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
+			label(pick.title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
+			for _, f in Engine.listAreas() do
+				if f ~= (App.area and App.area.folder) and f:GetAttribute("SS_Kind") ~= "Clear" then
+					item(f.Name, function()
+						pick.onPick(f)
+					end)
+				end
+			end
+			item("Cancel", function() end, P.dim)
+			return
 		end
 		for _, f in Engine.listAreas() do
 			local b = item(f.Name, function()
@@ -119,9 +134,24 @@ return function(App)
 				App.rebuildAll()
 				App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
 			end, P.dim)
+			if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
+				item("Copy settings from…", function()
+					task.defer(openAreaMenu, {
+						title = "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM",
+						onPick = function(f)
+							-- the look replaces this area's; objects are added (ones it has are kept as they are).
+							-- One undo step: adding the objects saves the area with the new look.
+							local src = Engine.loadArea(f)
+							Engine.copyLook(src, App.area)
+							App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
+							App.rebuildAll()
+						end,
+					})
+				end, P.dim)
+			end
 			item("Bake to plain models", function()
 				local a = App.area
-				local n = 0
+				local n = Engine.roadOf(a) and 1 or 0
 				for _, f in a.folder:GetChildren() do
 					n += #f:GetChildren()
 				end
@@ -329,7 +359,9 @@ return function(App)
 		pick.MouseLeave:Connect(function()
 			pick.BackgroundColor3 = P.raised
 		end)
-		pick.MouseButton1Click:Connect(openAreaMenu)
+		pick.MouseButton1Click:Connect(function()
+			openAreaMenu()
+		end)
 		hintOn(pick, "Your areas and paths: switch, rename, lock, bake or delete.")
 		local plus = iconButton("plus", "New scatter area or path", function(b)
 			openNewMenu(b)

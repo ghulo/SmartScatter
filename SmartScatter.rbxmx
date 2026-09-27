@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX26"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX27"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 109
-local BUNDLED_VERSION = "9.47"
+local BUNDLED_BUILD = 112
+local BUNDLED_VERSION = "9.48"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -2754,9 +2754,10 @@ return function(App)
 
 	App.analysisDirty = true
 	App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" (paint one layer) · "Off"
-	local LAYER_MODES = { More = true, Less = true, Clear = true }
-	-- App.paintLayer: the layer being painted with More / Less / Clear
+	App.mode = "Off" -- "Paint" | "Erase" (area) · "More" | "Less" | "Clear" | "Place" (one layer) · "Off"
+	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
+	local LAYER_MODES = { More = "paint", Less = "paint", Clear = "paint", Place = "pins" }
+	-- App.paintLayer: the layer being painted or placed
 
 	local function num(n)
 		local str = tostring(math.floor(n + 0.5))
@@ -3111,24 +3112,36 @@ return function(App)
 		end
 		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
 		-- patterns: the noise every object in the area thickens and thins with (Engine.PATTERNS)
-		label("Pattern", 13, P.text, SANS, { Parent = parent })
-		local patterns = chipGrid(parent, 3, 30)
-		for i, name in Engine.PATTERNS do
-			local c = chip(patterns, name, function()
-				return (App.area and App.area.pattern or "Groves") == name
-			end, function()
-				if App.area and App.area.pattern ~= name then
-					App.area.pattern = name
-					if (App.area.patches or 0) <= 0 then
-						App.area.patches = 0.6 -- picking a pattern means wanting to see it
+		-- a choice of the whole area, as chips: key's value is one of options (hints: a tooltip for each)
+		local function areaChoice(key, title, options, hints, def, onPick)
+			label(title, 13, P.text, SANS, { Parent = parent })
+			local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
+			for i, name in options do
+				local c = chip(grid, name, function()
+					return (App.area and App.area[key] or def) == name
+				end, function()
+					if App.area and App.area[key] ~= name then
+						App.area[key] = name
+						if onPick then
+							onPick(App.area)
+						end
+						commit()
+						App.rebuildAll()
 					end
-					commit()
-					App.rebuildAll()
-				end
-			end)
-			c.LayoutOrder = i
-			hintOn(c, Engine.PATTERN_HINT[name])
+				end)
+				c.LayoutOrder = i
+				hintOn(c, hints[name])
+			end
 		end
+		-- picking a pattern or a mood means wanting to see it: a strength left at 0 comes on
+		local function showing(strengthKey, amount)
+			return function(a)
+				if (a[strengthKey] or 0) <= 0 then
+					a[strengthKey] = amount
+				end
+			end
+		end
+		areaChoice("pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
 		areaSlider(
 			"patches",
 			"Pattern strength",
@@ -3140,6 +3153,17 @@ return function(App)
 			0
 		)
 		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
+		areaChoice("zoneMood", "Colour zones", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
+		areaSlider(
+			"zones",
+			"Colour zone strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
+			0
+		)
 		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
 		-- surface filter
 		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
@@ -3771,7 +3795,9 @@ return function(App)
 		end
 	end
 
-	local function openAreaMenu()
+	-- the area menu: switch area, rename, lock, bake, delete. pick (optional): { title, onPick(folder) } lists the
+	-- other areas instead, to choose one (the source for "Copy settings from…")
+	local function openAreaMenu(pick)
 		closePopup()
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
 		catcher.MouseButton1Click:Connect(closePopup)
@@ -3807,6 +3833,19 @@ return function(App)
 				onClick()
 			end)
 			return b
+		end
+		if pick then
+			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
+			label(pick.title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
+			for _, f in Engine.listAreas() do
+				if f ~= (App.area and App.area.folder) and f:GetAttribute("SS_Kind") ~= "Clear" then
+					item(f.Name, function()
+						pick.onPick(f)
+					end)
+				end
+			end
+			item("Cancel", function() end, P.dim)
+			return
 		end
 		for _, f in Engine.listAreas() do
 			local b = item(f.Name, function()
@@ -3868,9 +3907,24 @@ return function(App)
 				App.rebuildAll()
 				App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
 			end, P.dim)
+			if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
+				item("Copy settings from…", function()
+					task.defer(openAreaMenu, {
+						title = "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM",
+						onPick = function(f)
+							-- the look replaces this area's; objects are added (ones it has are kept as they are).
+							-- One undo step: adding the objects saves the area with the new look.
+							local src = Engine.loadArea(f)
+							Engine.copyLook(src, App.area)
+							App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
+							App.rebuildAll()
+						end,
+					})
+				end, P.dim)
+			end
 			item("Bake to plain models", function()
 				local a = App.area
-				local n = 0
+				local n = Engine.roadOf(a) and 1 or 0
 				for _, f in a.folder:GetChildren() do
 					n += #f:GetChildren()
 				end
@@ -4078,7 +4132,9 @@ return function(App)
 		pick.MouseLeave:Connect(function()
 			pick.BackgroundColor3 = P.raised
 		end)
-		pick.MouseButton1Click:Connect(openAreaMenu)
+		pick.MouseButton1Click:Connect(function()
+			openAreaMenu()
+		end)
 		hintOn(pick, "Your areas and paths: switch, rename, lock, bake or delete.")
 		local plus = iconButton("plus", "New scatter area or path", function(b)
 			openNewMenu(b)
@@ -4621,15 +4677,26 @@ return function(App)
 	end
 
 	local function buildLayerPaint(l, parent)
-		section(parent, "layerpaint", "Paint this object", false, function(b)
-			local seg, refresh = segmented({ "More", "Less", "Clear" }, function()
+		section(parent, "layerpaint", "Paint or place this object", false, function(b)
+			local seg, refresh = segmented({ "More", "Less", "Clear", "Place" }, function()
 				return App.paintLayer == l and App.mode or nil
 			end, function(m)
 				App.setMode(m, l)
 			end, nil, nil, true)
 			seg.Parent = b
-			explain(b, "Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting.")
+			explain(
+				b,
+				"Brush over the area: More adds, Less thins out (twice removes), Clear undoes your painting. Place puts copies down right where you brush; Shift takes them away."
+			)
 			App.ui.refreshLayerBrush = refresh
+			if l.pins then
+				gap(b, 4)
+				button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
+					l.pins = nil
+					commit(l)
+					App.refreshObjects()
+				end, { Parent = buttonRow(b) })
+			end
 			if l.paint then
 				gap(b, 4)
 				button("Reset painting", nil, function()
@@ -4803,6 +4870,16 @@ return function(App)
 	local function buildSlope(parent, c)
 		section(parent, "terrain", "Slope", false, function(b)
 			c.S(b, "maxSlope", "Steepest", 0, 89, "%.0f°", 1, "Steepest ground this object can stand on.")
+			c.S(
+				b,
+				"slopePref",
+				"Prefers",
+				-1,
+				1,
+				"%+.0f%%",
+				0.05,
+				"Below 0: mostly on flat ground (trees in the valleys). Above 0: mostly on slopes (rocks and shrubs on hillsides). 0: anywhere."
+			)
 			c.S(b, "align", "Lean with the ground", 0, 1, "%.0f%%", 0.05, "0% stands straight up. 100% tilts with the slope.")
 		end)
 	end
@@ -5115,6 +5192,7 @@ return function(App)
 		App.refreshObjects()
 		commit()
 	end
+	App.addLayers = addLayers -- (the area menu's "Copy settings from…" adds objects the same way)
 
 	-- biomes: a ready set of objects made from the models already in the place (picked by their names)
 	local function buildBiomes(parent, open)
@@ -5154,6 +5232,74 @@ return function(App)
 	end
 
 	-- presets: named sets of objects saved with the place, reusable in any area
+	-- Performance: what the area costs, object by object. Worked out on request (it walks every placed part).
+	local function buildReport(parent)
+		section(parent, "performance", "Performance", false, function(b)
+			explain(b, "See which objects cost the most parts, so you know what to simplify first.")
+			local out = col({ Parent = b }, { vlist(2) })
+			local function show()
+				out:ClearAllChildren()
+				vlist(2).Parent = out
+				local rows, total = Engine.report(App.area)
+				if total.parts == 0 then
+					para("Nothing placed yet.", { Parent = out })
+					return
+				end
+				for _, r in rows do
+					local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = out })
+					label(r.name, 12, P.text, SANS_M, { Size = UDim2.new(0.45, 0, 1, 0), Parent = row })
+					label(
+						r.copies > 0
+								and string.format(
+									"%s parts · %s per copy%s",
+									num(r.parts),
+									num(math.ceil(r.parts / r.copies)),
+									r.unique > 0 and (" · " .. r.unique .. " meshes") or ""
+								)
+							or (num(r.parts) .. " parts"),
+						12,
+						P.dim,
+						SANS,
+						{
+							Size = UDim2.new(0.55, 0, 1, 0),
+							Position = UDim2.fromScale(0.45, 0),
+							TextXAlignment = Enum.TextXAlignment.Right,
+							Parent = row,
+						}
+					)
+				end
+				local top = rows[1]
+				local share = top.parts / total.parts
+				para(
+					string.format("%s parts in all.", num(total.parts))
+						.. (
+							#rows > 1
+								and share >= 0.4
+								and string.format(
+									" %s is %d%% of them: a simpler model or a lower amount there helps most.",
+									top.name,
+									math.floor(share * 100 + 0.5)
+								)
+							or ""
+						),
+					{ Parent = out }
+				)
+			end
+			button("Check this area", nil, show, { Parent = buttonRow(b) })
+		end)
+	end
+
+	-- the share code box of the Presets section (rebuilt with it) and how a code gets there: selected, ready to copy
+	local codeBox
+	local function shareCode(code)
+		if not codeBox then
+			return
+		end
+		codeBox.Text = code
+		codeBox:CaptureFocus()
+		codeBox.SelectionStart, codeBox.CursorPosition = 1, #code + 1
+		App.status("The code is selected in the box: press Ctrl+C to copy it.")
+	end
 	local function buildPresets(parent)
 		section(parent, "presets", "Presets", false, function(b)
 			local list = Engine.listPresets()
@@ -5162,7 +5308,7 @@ return function(App)
 			end
 			for _, v in list do
 				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -150, 1, 0), Parent = row })
+				label(v.Name, 13, P.text, SANS_M, { Size = UDim2.new(1, -220, 1, 0), Parent = row })
 				local acts = box({
 					Size = UDim2.new(0, 0, 1, 0),
 					AutomaticSize = Enum.AutomaticSize.X,
@@ -5176,6 +5322,12 @@ return function(App)
 						addLayers(layers, v.Name, #lost > 0 and string.format("%d model%s not found in this place.", #lost, #lost == 1 and "" or "s"))
 					end, { Parent = acts }),
 					"Adds this preset's objects to the area (ones it already has are skipped)."
+				)
+				hintOn(
+					button("Share", nil, function()
+						shareCode(Engine.presetCode(v))
+					end, { Parent = acts }),
+					"Puts this preset's code in the box below: copy it and paste it into another place, or send it to a teammate."
 				)
 				button("Delete", "danger", function()
 					local rec = beginRec("Smart Scatter: Delete preset")
@@ -5216,6 +5368,37 @@ return function(App)
 					App.refreshObjects()
 				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = saveRow }),
 				"Saves this area's objects and all their settings under that name. Saving an existing name replaces it."
+			)
+			-- share codes: a preset as text, to copy out, or pasted in from another place
+			gap(b, 8)
+			label("Share code", 13, P.text, SANS, { Parent = b })
+			local codeRow = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
+			codeBox = new("TextBox", {
+				Text = "",
+				PlaceholderText = "Paste a code here, or press Share on a preset",
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = P.text,
+				PlaceholderColor3 = P.faint,
+				BackgroundColor3 = P.field,
+				ClearTextOnFocus = false,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, -76, 1, 0),
+				Parent = codeRow,
+			}, { corner(8), stroke(P.line), pad(8, 8, 0, 0) })
+			hintOn(
+				button("Import", "accent", function()
+					local preset, err = Engine.importPresetCode(codeBox.Text)
+					if not preset then
+						App.status(err, "error")
+						return
+					end
+					codeBox.Text = ""
+					App.status(string.format("Imported %s. Press Use to add its objects to this area.", preset.Name))
+					App.refreshObjects()
+				end, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Parent = codeRow }),
+				"Saves a pasted code as a preset. Models it needs are found in this place by where they sit or their name."
 			)
 		end)
 	end
@@ -5353,6 +5536,7 @@ return function(App)
 		gap(list, 4)
 		buildBiomes(list, #App.area.layers == 0)
 		buildPresets(list)
+		buildReport(list)
 	end
 
 	-- the page: the list, or one object's settings when one is open
@@ -6509,7 +6693,7 @@ return function(App)
 			local v = j and App.heatFn(j) or 0
 			return v <= 0 and VIEW.less or VIEW.muted:Lerp(VIEW.accent, math.clamp(0.25 + v * 0.75, 0, 1))
 		end
-		if App.paintLayer and LAYER_MODES[App.mode] then
+		if App.paintLayer and LAYER_MODES[App.mode] == "paint" then
 			local v = Engine.paintValue(App.paintLayer, cx, cz)
 			if v > 1.001 then
 				return VIEW.muted:Lerp(VIEW.accent, math.clamp(0.35 + (v - 1) * 0.35, 0, 1))
@@ -6564,7 +6748,7 @@ return function(App)
 		table.sort(xs)
 		local c, parts, i = App.area.cell, {}, 1
 		local zone = App.kindOf(App.area) == "Clear"
-		local painting = App.paintLayer and LAYER_MODES[App.mode] -- per-object paint: no outline, just the amounts
+		local painting = App.paintLayer and LAYER_MODES[App.mode] == "paint" -- per-object paint: no outline, just the amounts
 		-- a cell's look: its colour, and whether it's on the outline (brighter, more solid)
 		local function style(cx)
 			local col = cellColor(cx, cz, zone)
@@ -6822,7 +7006,7 @@ return function(App)
 		if App.mode == "Clear" then
 			return VIEW.muted
 		end
-		if App.mode == "Less" then
+		if App.mode == "Less" or (App.mode == "Place" and erasing()) then
 			return P.danger
 		end
 		if LAYER_MODES[App.mode] then
@@ -6965,7 +7149,33 @@ return function(App)
 		return true
 	end
 
+	-- the object brush (mode Place): puts copies of the object down where it's dragged (Engine/Pins), Shift takes
+	-- them away; the stroke's patch is rebuilt when it ends
+	local pinRng = Random.new(os.time())
+	local function placeStamp(pos)
+		local l, R = App.paintLayer, G.radius
+		if not l then
+			return
+		end
+		local changed
+		if gestureOn then
+			changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
+		else
+			changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
+		end
+		if changed then
+			local c = App.area.cell
+			touched(math.floor((pos.X - R) / c), math.floor((pos.Z - R) / c))
+			touched(math.floor((pos.X + R) / c), math.floor((pos.Z + R) / c))
+			strokeChanged = true
+		end
+	end
+
 	local function stamp(pos)
+		if App.mode == "Place" then
+			placeStamp(pos)
+			return
+		end
 		local c, R = App.area.cell, G.radius
 		local sq = G.shape == "Square"
 		for cx = math.floor((pos.X - R) / c), math.floor((pos.X + R) / c) do
@@ -7542,6 +7752,7 @@ return function(App)
 		More = "Brush where you want more of this layer.",
 		Less = "Brush where you want less. Twice removes it there.",
 		Clear = "Brush to undo your painting for this layer.",
+		Place = "Drag to put copies down where you brush. Hold Shift to take them away. {size} resizes.",
 		Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
 	}
 	-- a mode's hint, with the keys it names as they're bound ({size} → F, or whatever the user picked)
@@ -8617,7 +8828,7 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Upright placement: a model's "up" is how it stands in the world, never its pivot rotation.
@@ -8628,7 +8839,7 @@ end
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Generate" }
+local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate" }
 
 local function module(name) -- (a flattened release swaps this line for its own table of modules)
 	return require(script:FindFirstChild(name))
@@ -8852,6 +9063,7 @@ return function(E, I)
 				s = l.s,
 				v = v,
 				pm = withPaint ~= false and encodePaint(l.paint) or nil,
+				pn = withPaint ~= false and l.pins or nil, -- copies put down by hand (Engine/Pins); like painting, an area's own
 				post = l.post and pathOf(l.post.inst) or l.missingPost,
 			})
 		end
@@ -8888,6 +9100,7 @@ return function(E, I)
 				local l = vlist[1] and E.makeLayer(vlist[1].inst, d.t, d.s, vlist)
 				if l then
 					l.paint = decodePaint(d.pm)
+					l.pins = E.readPins(d.pn)
 					l.missing = #missing > 0 and missing or nil
 					local post = type(d.post) == "table" and findModel(d.post, index)
 					if post then
@@ -8943,6 +9156,9 @@ return function(E, I)
 		return t
 	end
 	function E.savePreset(name, layers)
+		return E.savePresetJSON(name, E.layersToJSON(layers, false)) -- painting belongs to an area, not to a preset
+	end
+	function E.savePresetJSON(name, json)
 		local ss = game:GetService("ServerStorage")
 		local f = ss:FindFirstChild(PRESETS)
 		if not f then
@@ -8955,9 +9171,80 @@ return function(E, I)
 			v = Instance.new("StringValue")
 		end
 		v.Name = name
-		v.Value = E.layersToJSON(layers, false) -- painting belongs to an area, not to a preset
+		v.Value = json
 		v.Parent = f
 		return v
+	end
+
+	-- the settings that shape a whole area, apart from its ground and its objects ("Copy settings from…")
+	E.AREA_LOOK = { "edge", "size", "patches", "pattern", "patchSize", "zones", "zoneMood", "windDir" }
+	function E.copyLook(from, to)
+		for _, k in E.AREA_LOOK do
+			to[k] = from[k]
+		end
+	end
+
+	-- Share codes: a preset as one line of text, to paste into another place or send to a teammate. There its models
+	-- are found where they sit (or by name); any that aren't come in as lost objects with their settings kept.
+	local CODE = "SmartScatter/1 " -- the format's name and version; a later format gets a new number
+	function E.presetCode(preset)
+		return CODE .. HttpService:JSONEncode({ n = preset.Name, l = preset.Value })
+	end
+	-- a pasted code, saved as a preset; returns it, or nil and what's wrong with the code
+	function E.importPresetCode(text)
+		local code = string.match(text or "", "^%s*(.-)%s*$")
+		if string.sub(code, 1, #CODE) ~= CODE then
+			return nil, "That isn't a Smart Scatter preset code."
+		end
+		local ok, d = pcall(HttpService.JSONDecode, HttpService, string.sub(code, #CODE + 1))
+		local okL, layers = pcall(HttpService.JSONDecode, HttpService, ok and type(d) == "table" and d.l or "")
+		if not (ok and type(d) == "table" and type(d.n) == "string" and okL and type(layers) == "table") then
+			return nil, "The code is cut off or changed. Copy all of it and paste it again."
+		end
+		local name = string.sub(string.match(d.n, "^%s*(.-)%s*$"), 1, 60)
+		return E.savePresetJSON(name ~= "" and name or "Shared preset", d.l)
+	end
+
+	-- What an area costs the game, object by object: copies, parts, mesh parts and how many different meshes (fewer
+	-- is lighter: Roblox draws copies of one mesh together). Rows are heaviest first; the road, if any, is one of them.
+	function E.report(a)
+		local rows, total = {}, { copies = 0, parts = 0 }
+		local function measure(name, root)
+			local row, meshIds = { name = name, copies = 0, parts = 0, meshes = 0, unique = 0 }, {}
+			for _, d in root:GetDescendants() do
+				if d:IsA("BasePart") then
+					row.parts += 1
+					if d:IsA("MeshPart") then
+						row.meshes += 1
+						if not meshIds[d.MeshId] then
+							meshIds[d.MeshId] = true
+							row.unique += 1
+						end
+					end
+				end
+				if d:GetAttribute("SS_Type") then
+					row.copies += 1
+				end
+			end
+			if row.parts > 0 then
+				table.insert(rows, row)
+				total.copies += row.copies
+				total.parts += row.parts
+			end
+		end
+		for _, f in a.folder:GetChildren() do
+			if f:IsA("Folder") or f:IsA("Model") then
+				measure(f.Name, f)
+			end
+		end
+		local road = E.roadOf(a)
+		if road then
+			measure("Road", road)
+		end
+		table.sort(rows, function(x, y)
+			return x.parts > y.parts
+		end)
+		return rows, total
 	end
 
 	-- bake: the area's output becomes plain models (no tags or attributes), and the area lets go of them
@@ -8985,6 +9272,15 @@ return function(E, I)
 			dst.Parent = out
 			layerFolder.Parent = nil
 		end
+		local road = E.roadOf(a) -- a path's road goes with it, no longer rebuilt from the curve
+		if road then
+			local link = road:FindFirstChild("Area")
+			if link then
+				link:Destroy()
+			end
+			road.Name = "Road"
+			road.Parent = out
+		end
 		out.Parent = workspace
 		return out, n
 	end
@@ -9002,6 +9298,8 @@ return function(E, I)
 			patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
 			patchSize = folder:GetAttribute("SS_PatchSize") or 60,
 			pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
+			zones = folder:GetAttribute("SS_Zones") or 0, -- colour zones' strength (0 = off)
+			zoneMood = folder:GetAttribute("SS_ZoneMood") or "Autumn", -- their colour (E.ZONE_MOODS)
 			windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
 			layers = {},
 		}
@@ -9278,6 +9576,8 @@ return function(E, I)
 		f:SetAttribute("SS_Patches", (a.patches or 0) > 0 and a.patches or nil)
 		f:SetAttribute("SS_PatchSize", (a.patchSize and a.patchSize ~= 60) and a.patchSize or nil)
 		f:SetAttribute("SS_Pattern", (a.pattern and a.pattern ~= "Groves") and a.pattern or nil)
+		f:SetAttribute("SS_Zones", (a.zones or 0) > 0 and a.zones or nil)
+		f:SetAttribute("SS_ZoneMood", (a.zoneMood and a.zoneMood ~= "Autumn") and a.zoneMood or nil)
 		f:SetAttribute("SS_Wind", (a.windDir or 0) ~= 0 and a.windDir or nil)
 		f:SetAttribute("SS_Mask", encodeMask(a.rows))
 		local sp = a.spline
@@ -9361,6 +9661,15 @@ return function(E, I)
 		local h = copy:GetAttribute("SS_L")
 		if not h then
 			return nil
+		end
+		if copy:GetAttribute("SS_Pin") then -- put down by hand: its pin goes, so it isn't put back
+			for _, l in a.layers do
+				if l._h == h then
+					E.unpin(l, copy:GetAttribute("SS_X") or 0, copy:GetAttribute("SS_Z") or 0)
+				end
+			end
+			E.dropOutput(copy)
+			return h
 		end
 		a.removed = a.removed or {}
 		a.removed[h] = a.removed[h] or {}
@@ -9590,6 +9899,7 @@ return function(E, I)
 			valVar = 0.15,
 			perPart = false,
 			dropDetails = 0,
+			slopePref = 0, -- -1 (flat ground) … 1 (steep ground): where on the slopes it'd rather grow (0 = anywhere)
 			edgeYoung = 0, -- 0-1: smaller copies toward the area's edge and its clearings, like a forest's young fringe
 			lean = 0, -- degrees: lean with the area's wind (its direction is the area's), a little more or less each
 			near = "",
@@ -10307,6 +10617,7 @@ return function(E, I)
 	local growGroup = I.growGroup
 	local place = I.place
 	local placeLine = I.placeLine
+	local placePins = I.placePins
 
 	-- Regenerates the area. Each layer has its own seeded randomness, so changing one layer never reshuffles
 	-- another. opts.from = a layer: keep every layer placed before it untouched and only rebuild it + later ones.
@@ -10616,6 +10927,8 @@ return function(E, I)
 					p = { layer = l, cand = cand, scores = scores, n = all > 0 and p.n * part / all or 0 }
 				end
 				local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
+				-- copies pinned by hand first, on their own random numbers: the rest of the layout draws as before
+				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
 				local got, t = 0, 0
 				if p.line then
 					got = placeLine(ctx, l, rng)
@@ -10647,7 +10960,7 @@ return function(E, I)
 						end
 					end
 				end
-				counts[l] = (partial[l] and counts[l] or 0) + got
+				counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 				total += counts[l]
 				base += p.line and 40 or math.max(p.n, 1)
 			end
@@ -11348,7 +11661,9 @@ return function(E, I)
 				nil,
 				s.fit and s.orient == "Upright"
 			)
-			got += 1
+			if clone then -- (none is made in a keep-clear zone)
+				got += 1
+			end
 			if not s.fit then
 				mine:add(probe)
 			end
@@ -11454,21 +11769,24 @@ return function(E, I)
 								cs = s.clearance,
 								g = gid,
 							}
-							emit(
-								ctx,
-								l,
-								pv,
-								sc,
-								frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
-								rng,
-								pos.X,
-								pos.Z,
-								item,
-								s.sink * pv.m.size.Y * sc,
-								gid,
-								false
-							)
-							got += 1
+							if
+								emit(
+									ctx,
+									l,
+									pv,
+									sc,
+									frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
+									rng,
+									pos.X,
+									pos.Z,
+									item,
+									s.sink * pv.m.size.Y * sc,
+									gid,
+									false
+								)
+							then
+								got += 1
+							end
 						end
 					end
 					local placed = {}
@@ -12483,7 +12801,115 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
+	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
+	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
+	A pin's seed picks its model, size and turn, so it looks the same every time.
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E, I)
+	local placeAt = I.placeAt
+	local scaleRange = I.scaleRange
+
+	-- how far apart two pins of an object stay: its usual spacing, at its average size
+	local function pinSpacing(l)
+		local lo, hi = scaleRange(l)
+		return math.max(l.m.radius * (lo + hi) / 2 * l.s.spacing * 2, 1)
+	end
+	E.pinSpacing = pinSpacing
+
+	local function roomFor(l, x, z, gap)
+		for _, p in l.pins or {} do
+			local dx, dz = p[1] - x, p[2] - z
+			if dx * dx + dz * dz < gap * gap then
+				return false
+			end
+		end
+		return true
+	end
+
+	-- One dab of the brush at (x, z), radius R: drops pins on the area's painted ground, as many as the brush has
+	-- room for at the object's spacing, never closer than that to another pin. rng: where in the brush they land.
+	-- Returns the pins added.
+	function E.brushPins(a, l, x, z, R, rng)
+		l._size = a.size or 1 -- ("Size of everything", as generating sets it)
+		local gap = pinSpacing(l)
+		local want = math.clamp(math.floor(R * R / (gap * gap) * 0.9), 1, 40)
+		local added = {}
+		for _ = 1, want * 4 do
+			if #added >= want then
+				break
+			end
+			local ang, d = rng:NextNumber() * math.pi * 2, math.sqrt(rng:NextNumber()) * R
+			local px, pz = x + math.cos(ang) * d, z + math.sin(ang) * d
+			if E.hasCell(a, math.floor(px / a.cell), math.floor(pz / a.cell)) and roomFor(l, px, pz, gap) then
+				local pin = { math.floor(px * 100 + 0.5) / 100, math.floor(pz * 100 + 0.5) / 100, rng:NextInteger(1, 2 ^ 30) }
+				l.pins = l.pins or {}
+				table.insert(l.pins, pin)
+				table.insert(added, pin)
+			end
+		end
+		return added
+	end
+
+	-- removes the object's pins within R of (x, z); returns how many
+	function E.erasePins(l, x, z, R)
+		local n, keep = 0, {}
+		for _, p in l.pins or {} do
+			local dx, dz = p[1] - x, p[2] - z
+			if dx * dx + dz * dz <= R * R then
+				n += 1
+			else
+				table.insert(keep, p)
+			end
+		end
+		l.pins = #keep > 0 and keep or nil
+		return n
+	end
+
+	-- the pin a placed copy came from, taken off its object (a pinned copy removed by hand stays gone)
+	function E.unpin(l, x, z)
+		for k, p in l.pins or {} do
+			if math.abs(p[1] - x) < 0.05 and math.abs(p[2] - z) < 0.05 then
+				table.remove(l.pins, k)
+				if #l.pins == 0 then
+					l.pins = nil
+				end
+				return true
+			end
+		end
+		return false
+	end
+
+	-- pins as saved: plain lists of three numbers (anything else is dropped)
+	function E.readPins(list)
+		local out = {}
+		for _, p in type(list) == "table" and list or {} do
+			if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
+				table.insert(out, { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) })
+			end
+		end
+		return #out > 0 and out or nil
+	end
+
+	-- Places the object's pins (those `wanted(x, z)` accepts: all of them, or the ones in a rebuilt patch). Each
+	-- uses its own random numbers, so the object's other copies draw theirs exactly as they would without pins.
+	-- Returns how many were placed.
+	function I.placePins(ctx, l, wanted)
+		local n = 0
+		for _, p in l.pins or {} do
+			if not wanted or wanted(p[1], p[2]) then
+				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), { pin = true }) then
+					n += 1
+				end
+			end
+		end
+		return n
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -12812,9 +13238,10 @@ return function(E, I)
 		return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
 	end
 	-- Recolours a copy's parts. Variation on: its own hue / saturation / brightness ranges, one shift for the copy or
-	-- one per part. Off: the simple colour shift (tint: brightness and a little hue). Reaches what gives a part its
-	-- look: its colour, a MeshPart's SurfaceAppearance (through its Color tint) and any decals or textures on it.
-	recolor = function(parts, s, rng)
+	-- one per part. Off: the simple colour shift (tint: brightness and a little hue). zone (optional): the area's
+	-- colour zone at the copy's spot { dh, ds, dv }, added on top (it draws no random numbers). Reaches what gives a
+	-- part its look: its colour, a MeshPart's SurfaceAppearance (through its Color tint) and any decals or textures.
+	recolor = function(parts, s, rng, zone)
 		local function roll()
 			if s.vary then
 				return rng:NextNumber(-s.hueVar, s.hueVar), rng:NextNumber(-s.satVar, s.satVar), rng:NextNumber(-s.valVar, s.valVar)
@@ -12825,22 +13252,27 @@ return function(E, I)
 			return nil
 		end
 		local dh, ds, dv = roll()
-		if not dh then
+		if not dh and not zone then
 			return
+		end
+		local zh, zs, zv = 0, 0, 0
+		if zone then
+			zh, zs, zv = zone[1], zone[2], zone[3]
 		end
 		local each = s.vary and s.perPart
 		for _, p in parts do
-			if each then
+			if each then -- (the copy's own roll above stays drawn, as always: existing layouts keep their colours)
 				dh, ds, dv = roll()
 			end
-			p.Color = shifted(p.Color, dh, ds, dv)
+			local h, sa, v = (dh or 0) + zh, (ds or 0) + zs, (dv or 0) + zv
+			p.Color = shifted(p.Color, h, sa, v)
 			for _, d in p:GetChildren() do
 				if d:IsA("SurfaceAppearance") then
 					pcall(function()
-						d.Color = shifted(d.Color, dh, ds, dv)
+						d.Color = shifted(d.Color, h, sa, v)
 					end) -- (older Studio builds have no SurfaceAppearance.Color)
 				elseif d:IsA("Decal") then -- (Texture is a Decal too)
-					d.Color3 = shifted(d.Color3, dh, ds, dv)
+					d.Color3 = shifted(d.Color3, h, sa, v)
 				end
 			end
 		end
@@ -12939,7 +13371,8 @@ return function(E, I)
 		if s.vary and s.dropDetails > 0 then
 			dropDetails(clone, s.dropDetails, rng)
 		end
-		recolor(partsOf(clone), s, rng)
+		local zh, zs, zv = E.zoneShift(ctx.area, x, z)
+		recolor(partsOf(clone), s, rng, zh and { zh, zs, zv } or nil)
 		local small = l.type == "Flower" or l.type == "Bush"
 		local parts = partsOf(clone)
 		ctx.parts += #parts
@@ -12968,6 +13401,9 @@ return function(E, I)
 		clone:SetAttribute("SS_X", x)
 		clone:SetAttribute("SS_Z", z)
 		clone:SetAttribute("SS_R", item.r)
+		if item.pin then -- put down by hand (Engine/Pins): removing it takes the pin away
+			clone:SetAttribute("SS_Pin", true)
+		end
 		if item.hx and item.yaw then -- its outline, for the next runs that keep it
 			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 		end
@@ -13156,7 +13592,8 @@ return function(E, I)
 		return true
 	end
 
-	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below }
+	-- g (optional): { v = variant, sc = scale, member = true, gid = group id, stackOn = info of the piece below,
+	--   pin = true for a copy put down by hand (its spot is given: no clumping or other chance rules) }
 	local function placeAt(ctx, l, i, x, z, rng, g)
 		g = g or {}
 		local v = g.v or pickVariant(l, rng)
@@ -13169,8 +13606,8 @@ return function(E, I)
 			return nil
 		end -- (the area's own cells already leave zones out)
 		local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-		if g.member and not g.stackOn then
-			-- a group member must still obey the layer's rules at its own spot
+		if (g.member or g.pin) and not g.stackOn then
+			-- a group member (or a copy pinned by hand) must still obey the layer's rules at its own spot
 			if score(l, an, i) <= 0 then
 				return nil
 			end
@@ -13180,8 +13617,8 @@ return function(E, I)
 		end
 
 		local keep = 0.5
-		if g.member or g.line then
-			-- followers go wherever the leader decided
+		if g.member or g.line or g.pin then
+			-- followers go wherever the leader decided, pins where they were put
 		else
 			if s.cluster > 0 then -- natural clumps
 				local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
@@ -13225,6 +13662,7 @@ return function(E, I)
 			g = g.gid,
 			fit = g.stretch ~= nil,
 			lk = l._h,
+			pin = g.pin,
 		}
 		if not g.line and not g.stackOn then
 			footprint(item, m, sc)
@@ -13381,7 +13819,9 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
+		end
 		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 	end
 
@@ -13454,7 +13894,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13629,17 +14069,47 @@ return function(E, I)
 			return smooth(math.clamp(0.5 + wave * 0.9, 0, 1))
 		end,
 	}
-	-- a.patches: strength 0-1 (0 = off); a.pattern: one of E.PATTERNS; a.patchSize: feature size in studs
+	-- the area's pattern at (x, z), 0-1 (1 = where things grow thickest). a.pattern: one of E.PATTERNS; a.patchSize:
+	-- its feature size in studs
+	function E.patternAt(a, x, z)
+		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
+		return fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
+	end
+	-- how much the pattern lets grow at (x, z): a.patches is its strength, 0-1 (0 = off, everything grows evenly)
 	local function patchAt(a, x, z)
 		local k = a.patches or 0
 		if k <= 0 then
 			return 1
 		end
-		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
-		local v = fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
-		return 1 - k + k * v
+		return 1 - k + k * E.patternAt(a, x, z)
 	end
 	E.patchAt = patchAt
+
+	-- Colour zones: the same pattern tints every object, so the thin, open parts of an area take on one mood (dry,
+	-- autumn…) and the thick parts keep their own colours. Each mood is the hue / saturation / brightness shift at full
+	-- strength, where nothing grows. a.zones: strength 0-1 (0 = off); a.zoneMood: one of E.ZONE_MOODS.
+	E.ZONE_MOODS = { "Autumn", "Dry", "Lush", "Frost" }
+	E.ZONE_HINT = {
+		Autumn = "Warmer, yellow and orange toward the open ground.",
+		Dry = "Faded and paler toward the open ground, like late summer.",
+		Lush = "Deeper and richer toward the open ground.",
+		Frost = "Cold and pale toward the open ground.",
+	}
+	local ZONE = {
+		Autumn = { -0.09, 0.08, 0.05 },
+		Dry = { -0.04, -0.28, 0.14 },
+		Lush = { 0.02, 0.18, -0.14 },
+		Frost = { 0.02, -0.4, 0.3 },
+	}
+	function E.zoneShift(a, x, z)
+		local k = a.zones or 0
+		if k <= 0 then
+			return nil
+		end
+		local mood = ZONE[a.zoneMood or "Autumn"] or ZONE.Autumn
+		local w = k * (1 - E.patternAt(a, x, z))
+		return mood[1] * w, mood[2] * w, mood[3] * w
+	end
 
 	-- the world x, z at the centre of ground cell i
 	function E.cellCentre(an, i)
@@ -13658,6 +14128,11 @@ return function(E, I)
 			if sc <= 0 then
 				return 0
 			end
+		end
+		local pref = l.s.slopePref or 0
+		if pref ~= 0 then -- how steep the ground is, from flat (0) to the steepest it may stand on (1)
+			local t = math.clamp(math.deg(math.acos(math.clamp(an.ny[i], -1, 1))) / math.max(l.s.maxSlope, 1), 0, 1)
+			sc *= pref > 0 and (1 - pref + pref * t) or (1 + pref * t)
 		end
 		local x, z = E.cellCentre(an, i)
 		sc *= patchAt(a, x, z)
@@ -13744,7 +14219,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]

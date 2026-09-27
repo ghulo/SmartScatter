@@ -516,6 +516,7 @@ return function(E, I)
 			valVar = 0.15,
 			perPart = false,
 			dropDetails = 0,
+			slopePref = 0, -- -1 (flat ground) … 1 (steep ground): where on the slopes it'd rather grow (0 = anywhere)
 			edgeYoung = 0, -- 0-1: smaller copies toward the area's edge and its clearings, like a forest's young fringe
 			lean = 0, -- degrees: lean with the area's wind (its direction is the area's), a little more or less each
 			near = "",
@@ -1377,6 +1378,7 @@ return function(E, I)
 				s = l.s,
 				v = v,
 				pm = withPaint ~= false and encodePaint(l.paint) or nil,
+				pn = withPaint ~= false and l.pins or nil, -- copies put down by hand (Engine/Pins); like painting, an area's own
 				post = l.post and pathOf(l.post.inst) or l.missingPost,
 			})
 		end
@@ -1412,6 +1414,7 @@ return function(E, I)
 				local l = vlist[1] and E.makeLayer(vlist[1].inst, d.t, d.s, vlist)
 				if l then
 					l.paint = decodePaint(d.pm)
+					l.pins = E.readPins(d.pn)
 					l.missing = #missing > 0 and missing or nil
 					local post = type(d.post) == "table" and findModel(d.post, index)
 					if post then
@@ -1463,6 +1466,9 @@ return function(E, I)
 		return t
 	end
 	function E.savePreset(name, layers)
+		return E.savePresetJSON(name, E.layersToJSON(layers, false)) -- painting belongs to an area, not to a preset
+	end
+	function E.savePresetJSON(name, json)
 		local ss = game:GetService("ServerStorage")
 		local f = ss:FindFirstChild(PRESETS)
 		if not f then
@@ -1475,9 +1481,74 @@ return function(E, I)
 			v = Instance.new("StringValue")
 		end
 		v.Name = name
-		v.Value = E.layersToJSON(layers, false) -- painting belongs to an area, not to a preset
+		v.Value = json
 		v.Parent = f
 		return v
+	end
+
+	E.AREA_LOOK = { "edge", "size", "patches", "pattern", "patchSize", "zones", "zoneMood", "windDir" }
+	function E.copyLook(from, to)
+		for _, k in E.AREA_LOOK do
+			to[k] = from[k]
+		end
+	end
+
+	local CODE = "SmartScatter/1 " -- the format's name and version; a later format gets a new number
+	function E.presetCode(preset)
+		return CODE .. HttpService:JSONEncode({ n = preset.Name, l = preset.Value })
+	end
+	function E.importPresetCode(text)
+		local code = string.match(text or "", "^%s*(.-)%s*$")
+		if string.sub(code, 1, #CODE) ~= CODE then
+			return nil, "That isn't a Smart Scatter preset code."
+		end
+		local ok, d = pcall(HttpService.JSONDecode, HttpService, string.sub(code, #CODE + 1))
+		local okL, layers = pcall(HttpService.JSONDecode, HttpService, ok and type(d) == "table" and d.l or "")
+		if not (ok and type(d) == "table" and type(d.n) == "string" and okL and type(layers) == "table") then
+			return nil, "The code is cut off or changed. Copy all of it and paste it again."
+		end
+		local name = string.sub(string.match(d.n, "^%s*(.-)%s*$"), 1, 60)
+		return E.savePresetJSON(name ~= "" and name or "Shared preset", d.l)
+	end
+
+	function E.report(a)
+		local rows, total = {}, { copies = 0, parts = 0 }
+		local function measure(name, root)
+			local row, meshIds = { name = name, copies = 0, parts = 0, meshes = 0, unique = 0 }, {}
+			for _, d in root:GetDescendants() do
+				if d:IsA("BasePart") then
+					row.parts += 1
+					if d:IsA("MeshPart") then
+						row.meshes += 1
+						if not meshIds[d.MeshId] then
+							meshIds[d.MeshId] = true
+							row.unique += 1
+						end
+					end
+				end
+				if d:GetAttribute("SS_Type") then
+					row.copies += 1
+				end
+			end
+			if row.parts > 0 then
+				table.insert(rows, row)
+				total.copies += row.copies
+				total.parts += row.parts
+			end
+		end
+		for _, f in a.folder:GetChildren() do
+			if f:IsA("Folder") or f:IsA("Model") then
+				measure(f.Name, f)
+			end
+		end
+		local road = E.roadOf(a)
+		if road then
+			measure("Road", road)
+		end
+		table.sort(rows, function(x, y)
+			return x.parts > y.parts
+		end)
+		return rows, total
 	end
 
 	function E.bake(a, name)
@@ -1504,6 +1575,15 @@ return function(E, I)
 			dst.Parent = out
 			layerFolder.Parent = nil
 		end
+		local road = E.roadOf(a) -- a path's road goes with it, no longer rebuilt from the curve
+		if road then
+			local link = road:FindFirstChild("Area")
+			if link then
+				link:Destroy()
+			end
+			road.Name = "Road"
+			road.Parent = out
+		end
 		out.Parent = workspace
 		return out, n
 	end
@@ -1521,6 +1601,8 @@ return function(E, I)
 			patches = folder:GetAttribute("SS_Patches") or 0, -- groves and clearings shared by all objects (0 = off)
 			patchSize = folder:GetAttribute("SS_PatchSize") or 60,
 			pattern = folder:GetAttribute("SS_Pattern") or "Groves", -- which noise the patches follow (E.PATTERNS)
+			zones = folder:GetAttribute("SS_Zones") or 0, -- colour zones' strength (0 = off)
+			zoneMood = folder:GetAttribute("SS_ZoneMood") or "Autumn", -- their colour (E.ZONE_MOODS)
 			windDir = folder:GetAttribute("SS_Wind") or 0, -- the way leaning objects lean (degrees, 0 = +Z)
 			layers = {},
 		}
@@ -1787,6 +1869,8 @@ return function(E, I)
 		f:SetAttribute("SS_Patches", (a.patches or 0) > 0 and a.patches or nil)
 		f:SetAttribute("SS_PatchSize", (a.patchSize and a.patchSize ~= 60) and a.patchSize or nil)
 		f:SetAttribute("SS_Pattern", (a.pattern and a.pattern ~= "Groves") and a.pattern or nil)
+		f:SetAttribute("SS_Zones", (a.zones or 0) > 0 and a.zones or nil)
+		f:SetAttribute("SS_ZoneMood", (a.zoneMood and a.zoneMood ~= "Autumn") and a.zoneMood or nil)
 		f:SetAttribute("SS_Wind", (a.windDir or 0) ~= 0 and a.windDir or nil)
 		f:SetAttribute("SS_Mask", encodeMask(a.rows))
 		local sp = a.spline
@@ -1867,6 +1951,15 @@ return function(E, I)
 		local h = copy:GetAttribute("SS_L")
 		if not h then
 			return nil
+		end
+		if copy:GetAttribute("SS_Pin") then -- put down by hand: its pin goes, so it isn't put back
+			for _, l in a.layers do
+				if l._h == h then
+					E.unpin(l, copy:GetAttribute("SS_X") or 0, copy:GetAttribute("SS_Z") or 0)
+				end
+			end
+			E.dropOutput(copy)
+			return h
 		end
 		a.removed = a.removed or {}
 		a.removed[h] = a.removed[h] or {}
@@ -2785,16 +2878,41 @@ return function(E, I)
 			return smooth(math.clamp(0.5 + wave * 0.9, 0, 1))
 		end,
 	}
+	function E.patternAt(a, x, z)
+		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
+		return fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
+	end
 	local function patchAt(a, x, z)
 		local k = a.patches or 0
 		if k <= 0 then
 			return 1
 		end
-		local fn = PATTERN[a.pattern or "Groves"] or PATTERN.Groves
-		local v = fn(x, z, math.max(a.patchSize or 60, 8), (a.seed % 991) * 0.37, a)
-		return 1 - k + k * v
+		return 1 - k + k * E.patternAt(a, x, z)
 	end
 	E.patchAt = patchAt
+
+	E.ZONE_MOODS = { "Autumn", "Dry", "Lush", "Frost" }
+	E.ZONE_HINT = {
+		Autumn = "Warmer, yellow and orange toward the open ground.",
+		Dry = "Faded and paler toward the open ground, like late summer.",
+		Lush = "Deeper and richer toward the open ground.",
+		Frost = "Cold and pale toward the open ground.",
+	}
+	local ZONE = {
+		Autumn = { -0.09, 0.08, 0.05 },
+		Dry = { -0.04, -0.28, 0.14 },
+		Lush = { 0.02, 0.18, -0.14 },
+		Frost = { 0.02, -0.4, 0.3 },
+	}
+	function E.zoneShift(a, x, z)
+		local k = a.zones or 0
+		if k <= 0 then
+			return nil
+		end
+		local mood = ZONE[a.zoneMood or "Autumn"] or ZONE.Autumn
+		local w = k * (1 - E.patternAt(a, x, z))
+		return mood[1] * w, mood[2] * w, mood[3] * w
+	end
 
 	function E.cellCentre(an, i)
 		return an.x0 + ((i - 1) % an.nx + 0.5) * an.G, an.z0 + ((i - 1) // an.nx + 0.5) * an.G
@@ -2810,6 +2928,11 @@ return function(E, I)
 			if sc <= 0 then
 				return 0
 			end
+		end
+		local pref = l.s.slopePref or 0
+		if pref ~= 0 then -- how steep the ground is, from flat (0) to the steepest it may stand on (1)
+			local t = math.clamp(math.deg(math.acos(math.clamp(an.ny[i], -1, 1))) / math.max(l.s.maxSlope, 1), 0, 1)
+			sc *= pref > 0 and (1 - pref + pref * t) or (1 + pref * t)
 		end
 		local x, z = E.cellCentre(an, i)
 		sc *= patchAt(a, x, z)
@@ -3190,7 +3313,7 @@ return function(E, I)
 		local h, s, v = c:ToHSV()
 		return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
 	end
-	recolor = function(parts, s, rng)
+	recolor = function(parts, s, rng, zone)
 		local function roll()
 			if s.vary then
 				return rng:NextNumber(-s.hueVar, s.hueVar), rng:NextNumber(-s.satVar, s.satVar), rng:NextNumber(-s.valVar, s.valVar)
@@ -3201,22 +3324,27 @@ return function(E, I)
 			return nil
 		end
 		local dh, ds, dv = roll()
-		if not dh then
+		if not dh and not zone then
 			return
+		end
+		local zh, zs, zv = 0, 0, 0
+		if zone then
+			zh, zs, zv = zone[1], zone[2], zone[3]
 		end
 		local each = s.vary and s.perPart
 		for _, p in parts do
-			if each then
+			if each then -- (the copy's own roll above stays drawn, as always: existing layouts keep their colours)
 				dh, ds, dv = roll()
 			end
-			p.Color = shifted(p.Color, dh, ds, dv)
+			local h, sa, v = (dh or 0) + zh, (ds or 0) + zs, (dv or 0) + zv
+			p.Color = shifted(p.Color, h, sa, v)
 			for _, d in p:GetChildren() do
 				if d:IsA("SurfaceAppearance") then
 					pcall(function()
-						d.Color = shifted(d.Color, dh, ds, dv)
+						d.Color = shifted(d.Color, h, sa, v)
 					end) -- (older Studio builds have no SurfaceAppearance.Color)
 				elseif d:IsA("Decal") then -- (Texture is a Decal too)
-					d.Color3 = shifted(d.Color3, dh, ds, dv)
+					d.Color3 = shifted(d.Color3, h, sa, v)
 				end
 			end
 		end
@@ -3307,7 +3435,8 @@ return function(E, I)
 		if s.vary and s.dropDetails > 0 then
 			dropDetails(clone, s.dropDetails, rng)
 		end
-		recolor(partsOf(clone), s, rng)
+		local zh, zs, zv = E.zoneShift(ctx.area, x, z)
+		recolor(partsOf(clone), s, rng, zh and { zh, zs, zv } or nil)
 		local small = l.type == "Flower" or l.type == "Bush"
 		local parts = partsOf(clone)
 		ctx.parts += #parts
@@ -3335,6 +3464,9 @@ return function(E, I)
 		clone:SetAttribute("SS_X", x)
 		clone:SetAttribute("SS_Z", z)
 		clone:SetAttribute("SS_R", item.r)
+		if item.pin then -- put down by hand (Engine/Pins): removing it takes the pin away
+			clone:SetAttribute("SS_Pin", true)
+		end
 		if item.hx and item.yaw then -- its outline, for the next runs that keep it
 			clone:SetAttribute("SS_Fp", Vector3.new(item.hx, item.yaw, item.hz))
 		end
@@ -3518,7 +3650,7 @@ return function(E, I)
 			return nil
 		end -- (the area's own cells already leave zones out)
 		local ix, iz = (i - 1) % an.nx, (i - 1) // an.nx
-		if g.member and not g.stackOn then
+		if (g.member or g.pin) and not g.stackOn then
 			if score(l, an, i) <= 0 then
 				return nil
 			end
@@ -3528,7 +3660,7 @@ return function(E, I)
 		end
 
 		local keep = 0.5
-		if g.member or g.line then
+		if g.member or g.line or g.pin then
 		else
 			if s.cluster > 0 then -- natural clumps
 				local f = (m.radius * 8 + 10) * math.max(s.clumpSize, 0.1)
@@ -3571,6 +3703,7 @@ return function(E, I)
 			g = g.gid,
 			fit = g.stretch ~= nil,
 			lk = l._h,
+			pin = g.pin,
 		}
 		if not g.line and not g.stackOn then
 			footprint(item, m, sc)
@@ -3723,7 +3856,9 @@ return function(E, I)
 		end
 
 		local sink = base and 0 or s.sink * m.size.Y * sc
-		emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch)
+		if not emit(ctx, l, v, sc, cf, rng, x, z, item, sink, g.gid, base ~= nil, g.stretch) then
+			return nil -- not made after all (a keep-clear zone): it mustn't count as placed
+		end
 		return { x = x, z = z, r = item.r, sc = sc, v = v, top = y - sink + m.size.Y * sc, stacked = base ~= nil }
 	end
 
@@ -4369,7 +4504,9 @@ return function(E, I)
 				nil,
 				s.fit and s.orient == "Upright"
 			)
-			got += 1
+			if clone then -- (none is made in a keep-clear zone)
+				got += 1
+			end
 			if not s.fit then
 				mine:add(probe)
 			end
@@ -4474,21 +4611,24 @@ return function(E, I)
 								cs = s.clearance,
 								g = gid,
 							}
-							emit(
-								ctx,
-								l,
-								pv,
-								sc,
-								frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
-								rng,
-								pos.X,
-								pos.Z,
-								item,
-								s.sink * pv.m.size.Y * sc,
-								gid,
-								false
-							)
-							got += 1
+							if
+								emit(
+									ctx,
+									l,
+									pv,
+									sc,
+									frame(pos, t, n.Magnitude > 1e-4 and n.Unit or Vector3.yAxis, side),
+									rng,
+									pos.X,
+									pos.Z,
+									item,
+									s.sink * pv.m.size.Y * sc,
+									gid,
+									false
+								)
+							then
+								got += 1
+							end
 						end
 					end
 					local placed = {}
@@ -4811,6 +4951,107 @@ return function(E, I)
 	I.placeLine = placeLine
 end
 end)()
+-- #module Pins
+MODULES["Pins"] = (function()
+--[[
+	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
+	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
+	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
+	A pin's seed picks its model, size and turn, so it looks the same every time.
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E, I)
+	local placeAt = I.placeAt
+	local scaleRange = I.scaleRange
+
+	local function pinSpacing(l)
+		local lo, hi = scaleRange(l)
+		return math.max(l.m.radius * (lo + hi) / 2 * l.s.spacing * 2, 1)
+	end
+	E.pinSpacing = pinSpacing
+
+	local function roomFor(l, x, z, gap)
+		for _, p in l.pins or {} do
+			local dx, dz = p[1] - x, p[2] - z
+			if dx * dx + dz * dz < gap * gap then
+				return false
+			end
+		end
+		return true
+	end
+
+	function E.brushPins(a, l, x, z, R, rng)
+		l._size = a.size or 1 -- ("Size of everything", as generating sets it)
+		local gap = pinSpacing(l)
+		local want = math.clamp(math.floor(R * R / (gap * gap) * 0.9), 1, 40)
+		local added = {}
+		for _ = 1, want * 4 do
+			if #added >= want then
+				break
+			end
+			local ang, d = rng:NextNumber() * math.pi * 2, math.sqrt(rng:NextNumber()) * R
+			local px, pz = x + math.cos(ang) * d, z + math.sin(ang) * d
+			if E.hasCell(a, math.floor(px / a.cell), math.floor(pz / a.cell)) and roomFor(l, px, pz, gap) then
+				local pin = { math.floor(px * 100 + 0.5) / 100, math.floor(pz * 100 + 0.5) / 100, rng:NextInteger(1, 2 ^ 30) }
+				l.pins = l.pins or {}
+				table.insert(l.pins, pin)
+				table.insert(added, pin)
+			end
+		end
+		return added
+	end
+
+	function E.erasePins(l, x, z, R)
+		local n, keep = 0, {}
+		for _, p in l.pins or {} do
+			local dx, dz = p[1] - x, p[2] - z
+			if dx * dx + dz * dz <= R * R then
+				n += 1
+			else
+				table.insert(keep, p)
+			end
+		end
+		l.pins = #keep > 0 and keep or nil
+		return n
+	end
+
+	function E.unpin(l, x, z)
+		for k, p in l.pins or {} do
+			if math.abs(p[1] - x) < 0.05 and math.abs(p[2] - z) < 0.05 then
+				table.remove(l.pins, k)
+				if #l.pins == 0 then
+					l.pins = nil
+				end
+				return true
+			end
+		end
+		return false
+	end
+
+	function E.readPins(list)
+		local out = {}
+		for _, p in type(list) == "table" and list or {} do
+			if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
+				table.insert(out, { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) })
+			end
+		end
+		return #out > 0 and out or nil
+	end
+
+	function I.placePins(ctx, l, wanted)
+		local n = 0
+		for _, p in l.pins or {} do
+			if not wanted or wanted(p[1], p[2]) then
+				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), { pin = true }) then
+					n += 1
+				end
+			end
+		end
+		return n
+	end
+end
+end)()
 -- #module Generate
 MODULES["Generate"] = (function()
 --[[
@@ -4827,6 +5068,7 @@ return function(E, I)
 	local growGroup = I.growGroup
 	local place = I.place
 	local placeLine = I.placeLine
+	local placePins = I.placePins
 
 	local function itemOf(inst)
 		local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
@@ -5116,6 +5358,7 @@ return function(E, I)
 					p = { layer = l, cand = cand, scores = scores, n = all > 0 and p.n * part / all or 0 }
 				end
 				local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
+				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
 				local got, t = 0, 0
 				if p.line then
 					got = placeLine(ctx, l, rng)
@@ -5147,7 +5390,7 @@ return function(E, I)
 						end
 					end
 				end
-				counts[l] = (partial[l] and counts[l] or 0) + got
+				counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 				total += counts[l]
 				base += p.line and 40 or math.max(p.n, 1)
 			end
@@ -5238,7 +5481,7 @@ end)()
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Generate" }
+local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate" }
 
 local function module(name)
 	return MODULES[name]

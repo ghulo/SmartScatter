@@ -216,24 +216,36 @@ return function(App)
 		end
 		areaSlider("edge", "Soft edges", 0, 48, "%.0f studs", 1, "Thins things out toward the border so the area fades into its surroundings.", 12)
 		-- patterns: the noise every object in the area thickens and thins with (Engine.PATTERNS)
-		label("Pattern", 13, P.text, SANS, { Parent = parent })
-		local patterns = chipGrid(parent, 3, 30)
-		for i, name in Engine.PATTERNS do
-			local c = chip(patterns, name, function()
-				return (App.area and App.area.pattern or "Groves") == name
-			end, function()
-				if App.area and App.area.pattern ~= name then
-					App.area.pattern = name
-					if (App.area.patches or 0) <= 0 then
-						App.area.patches = 0.6 -- picking a pattern means wanting to see it
+		-- a choice of the whole area, as chips: key's value is one of options (hints: a tooltip for each)
+		local function areaChoice(key, title, options, hints, def, onPick)
+			label(title, 13, P.text, SANS, { Parent = parent })
+			local grid = chipGrid(parent, #options > 4 and 3 or 4, 30)
+			for i, name in options do
+				local c = chip(grid, name, function()
+					return (App.area and App.area[key] or def) == name
+				end, function()
+					if App.area and App.area[key] ~= name then
+						App.area[key] = name
+						if onPick then
+							onPick(App.area)
+						end
+						commit()
+						App.rebuildAll()
 					end
-					commit()
-					App.rebuildAll()
-				end
-			end)
-			c.LayoutOrder = i
-			hintOn(c, Engine.PATTERN_HINT[name])
+				end)
+				c.LayoutOrder = i
+				hintOn(c, hints[name])
+			end
 		end
+		-- picking a pattern or a mood means wanting to see it: a strength left at 0 comes on
+		local function showing(strengthKey, amount)
+			return function(a)
+				if (a[strengthKey] or 0) <= 0 then
+					a[strengthKey] = amount
+				end
+			end
+		end
+		areaChoice("pattern", "Pattern", Engine.PATTERNS, Engine.PATTERN_HINT, "Groves", showing("patches", 0.6))
 		areaSlider(
 			"patches",
 			"Pattern strength",
@@ -245,6 +257,17 @@ return function(App)
 			0
 		)
 		areaSlider("patchSize", "Pattern size", 16, 240, "%.0f studs", 4, "How big the pattern's patches, spots or rows are.", 60)
+		areaChoice("zoneMood", "Colour zones", Engine.ZONE_MOODS, Engine.ZONE_HINT, "Autumn", showing("zones", 0.5))
+		areaSlider(
+			"zones",
+			"Colour zone strength",
+			0,
+			1,
+			"%.0f%%",
+			0.05,
+			"Tints every object by the pattern: the open, thin parts take on this mood, the thick parts keep their colours. 0% is off.",
+			0
+		)
 		areaSlider("windDir", "Wind direction", 0, 359, "%.0f°", 5, 'The way objects with "Lean with the wind" lean (0° leans toward +Z).', 0)
 		-- surface filter
 		local fHead = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
