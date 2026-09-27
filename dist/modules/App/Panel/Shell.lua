@@ -10,7 +10,7 @@ return function(App)
 	local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
-	local runGenerate, commit, thumbCache, eachThumb, buildHeader = App.runGenerate, App.commit, App.thumbCache, App.eachThumb, App.buildHeader
+	local runGenerate, commit, buildHeader = App.runGenerate, App.commit, App.buildHeader
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -608,10 +608,7 @@ return function(App)
 		end
 		App.ui = keep
 		App.hideTip()
-		eachThumb(function(vp)
-			vp:Destroy()
-		end)
-		table.clear(thumbCache)
+		App.pruneThumbs() -- (kept for the rows about to be built)
 		for _, ch in sc:GetChildren() do
 			if ch:IsA("GuiObject") then
 				ch:Destroy()
@@ -639,6 +636,7 @@ return function(App)
 		local turned = builtPage ~= nil and builtPage ~= G.page -- another tab: it slides in
 		builtPage = G.page
 		if App.root then
+			App.pruneThumbs() -- (out of the panel before it goes, to be reused)
 			App.root:Destroy()
 		end
 		App.ui = {}
@@ -702,6 +700,7 @@ return function(App)
 	-- a new accent, or Studio switched light / dark: the panel and everything drawn in the viewport take it on
 	local function applyTheme()
 		makePalette()
+		App.pruneThumbs(true) -- (their frames are in the old colours)
 		App.rebuildAll()
 		rebuildOverlay()
 		if App.removeSplineViz then

@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 117
-local BUNDLED_VERSION = "9.53"
+local BUNDLED_BUILD = 118
+local BUNDLED_VERSION = "9.54"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1070,6 +1070,28 @@ return function(App)
 			end
 		end
 	end
+	-- Thumbnails outlive a panel rebuild (a model's view is cloned once, not on every click): before the panel's
+	-- rows go, they're taken out of them; the ones whose model is gone are dropped, and all of them if there are
+	-- many. all: drop every one (a new theme: their colours come from it).
+	local function pruneThumbs(all)
+		local n = 0
+		for _ in thumbCache do
+			n += 1
+		end
+		for inst, bySize in thumbCache do
+			local drop = all or n > 150 or not inst.Parent
+			for _, vp in bySize do
+				if drop then
+					vp:Destroy()
+				else
+					vp.Parent = nil
+				end
+			end
+			if drop then
+				thumbCache[inst] = nil
+			end
+		end
+	end
 	local function thumbnail(inst, px)
 		px = px or 36
 		thumbCache[inst] = thumbCache[inst] or {}
@@ -1121,6 +1143,7 @@ return function(App)
 	App.thumbCache = thumbCache
 	App.eachThumb = eachThumb
 	App.thumbnail = thumbnail
+	App.pruneThumbs = pruneThumbs
 end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX3"><Properties><string name="Name">Kit</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Kit: UI kit: layout helpers, labels, links, sliders, switches, segmented controls, chips, icons.
@@ -4401,12 +4424,22 @@ return function(App)
 		return out
 	end
 
-	local function runScan()
+	-- again: after a change to the map (a swap, a restore), the same scan over the same place, quietly
+	local lastRoots, lastScanned = nil, false
+	local runScan
+	local function scanAgain()
+		if lastScanned then
+			runScan(lastRoots or false, true)
+		end
+	end
+	-- roots: where to look (nil: as the card says, the selection or the whole map; false: the whole map)
+	function runScan(roots, quiet)
 		if scanning then
 			return
 		end
-		local roots
-		if G.scanSelection then
+		if roots == false then
+			roots = nil
+		elseif roots == nil and G.scanSelection then
 			roots = {}
 			for _, s in Selection:Get() do
 				table.insert(roots, s)
@@ -4416,9 +4449,17 @@ return function(App)
 				return
 			end
 		end
+		for _, r in roots or {} do
+			if not r.Parent then -- (a scanned folder that's gone since)
+				return
+			end
+		end
 		scanning = true
+		lastRoots, lastScanned = roots, true
 		App.rebuildAll()
-		App.status("Scanning the map…")
+		if not quiet then
+			App.status("Scanning the map…")
+		end
 		task.spawn(function()
 			local ok, kinds = pcall(Engine.scanKinds, { roots = roots, pause = task.wait })
 			scanning = false
@@ -4433,7 +4474,9 @@ return function(App)
 			for _, k in kinds do
 				copies += k.count
 			end
-			App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+			if not quiet then
+				App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+			end
 			App.rebuildAll()
 		end)
 	end
@@ -4500,7 +4543,9 @@ return function(App)
 			saveG()
 		end, "On: scans only inside the models and folders selected in the Explorer. Off: the whole Workspace.").Parent =
 			b
-		local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), runScan)
+		local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), function()
+			runScan()
+		end)
 		go.Parent = b
 		hintOn(
 			go,
@@ -4600,8 +4645,8 @@ return function(App)
 		end
 		-- the kind
 		local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-		local th = App.thumbnail(k.copies[1].inst, 30)
-		th.Position = UDim2.fromOffset(0, 3)
+		local th = App.thumbnail(k.copies[1].inst, 32) -- (not 30: that one is in the kind's row in the scan list)
+		th.Position = UDim2.fromOffset(0, 2)
 		th.Parent = head
 		label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
 		label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
@@ -4762,7 +4807,7 @@ return function(App)
 							num(#done + #(swap.preview or {}))
 						)
 					)
-					App.kinds = nil -- the map changed: scan again to see its kinds now
+					scanAgain() -- the map changed: the list shows its kinds as they are now
 					swap.key, swap.preview, swap.ref = nil, nil, nil
 				end
 				App.rebuildAll()
@@ -5319,7 +5364,7 @@ return function(App)
 				local rec = beginRec("Smart Scatter: Restore original")
 				local back = Engine.restoreSnapshot()
 				endRec(rec, back == 0)
-				App.kinds = nil -- the copies in the map are new instances now
+				scanAgain() -- the copies in the map are new instances now
 				App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
 				App.rebuildAll()
 			end, { Parent = row })
@@ -5366,7 +5411,7 @@ return function(App)
 	local hintOn, slider, switch, switchRow, segmented = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented
 	local recolorOverlay, rebuildOverlay, canGenerate, requestLive, commit =
 		App.recolorOverlay, App.rebuildOverlay, App.canGenerate, App.requestLive, App.commit
-	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
+	local newArea, thumbnail = App.newArea, App.thumbnail
 	local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 	local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
 
@@ -6752,11 +6797,15 @@ return function(App)
 		end
 		local boxes = App.ui.live or {}
 		if #boxes > 0 then
-			eachThumb(function(vp) -- thumbnails are reused: take them out before the rows they sit in go
-				vp.Parent = nil
-			end)
 			table.clear(rowRefs)
 			for _, lb in boxes do
+				-- thumbnails are reused: take the ones in these rows out before the rows go (only these: others on
+				-- the page, like the object brush's rows, stay where they are)
+				for _, d in lb.holder:GetDescendants() do
+					if d:IsA("ViewportFrame") then
+						d.Parent = nil
+					end
+				end
 				for _, ch in lb.holder:GetChildren() do
 					if ch:IsA("GuiObject") then
 						ch:Destroy()
@@ -6844,7 +6893,7 @@ return function(App)
 	local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
-	local runGenerate, commit, thumbCache, eachThumb, buildHeader = App.runGenerate, App.commit, App.thumbCache, App.eachThumb, App.buildHeader
+	local runGenerate, commit, buildHeader = App.runGenerate, App.commit, App.buildHeader
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -7442,10 +7491,7 @@ return function(App)
 		end
 		App.ui = keep
 		App.hideTip()
-		eachThumb(function(vp)
-			vp:Destroy()
-		end)
-		table.clear(thumbCache)
+		App.pruneThumbs() -- (kept for the rows about to be built)
 		for _, ch in sc:GetChildren() do
 			if ch:IsA("GuiObject") then
 				ch:Destroy()
@@ -7473,6 +7519,7 @@ return function(App)
 		local turned = builtPage ~= nil and builtPage ~= G.page -- another tab: it slides in
 		builtPage = G.page
 		if App.root then
+			App.pruneThumbs() -- (out of the panel before it goes, to be reused)
 			App.root:Destroy()
 		end
 		App.ui = {}
@@ -7536,6 +7583,7 @@ return function(App)
 	-- a new accent, or Studio switched light / dark: the panel and everything drawn in the viewport take it on
 	local function applyTheme()
 		makePalette()
+		App.pruneThumbs(true) -- (their frames are in the old colours)
 		App.rebuildAll()
 		rebuildOverlay()
 		if App.removeSplineViz then
@@ -13042,6 +13090,7 @@ end
 
 return function(E, I)
 	local STEP = 40 -- a side is known to 1/40 of the copy's longest side: tells shapes apart, forgives float error
+	local MAX_PARTS = 400 -- a model with more parts than this is a container (a map, a district), not a copy
 	local SNAPSHOT = "SmartScatter Snapshot"
 
 	--------------------------------------------------------------------------------
@@ -13128,16 +13177,22 @@ return function(E, I)
 	function E.scanKinds(opts)
 		opts = opts or {}
 		local roots = opts.roots or { workspace }
-		-- every candidate's key, and how many share it
-		local keyOf, sizeOf, count, seen = {}, {}, {}, 0
+		-- every candidate's key, and how many share it. Worked out from the bottom up, counting parts on the way, so
+		-- a container too big to be a copy (a whole map, a region: over MAX_PARTS parts) is never measured, only
+		-- looked inside
+		local keyOf, sizeOf, partsOf, count, seen = {}, {}, {}, {}, 0
 		local function visit(inst)
 			if skipped(inst) then
-				return
+				return 0
 			end
-			if inst:IsA("Model") or (inst:IsA("BasePart") and shapedPart(inst)) then
+			local n = inst:IsA("BasePart") and 1 or 0
+			for _, c in inst:GetChildren() do
+				n += visit(c)
+			end
+			if n > 0 and n <= MAX_PARTS and (inst:IsA("Model") or (inst:IsA("BasePart") and shapedPart(inst))) then
 				local key, size = E.keyOf(inst)
 				if key then
-					keyOf[inst], sizeOf[inst] = key, size
+					keyOf[inst], sizeOf[inst], partsOf[inst] = key, size, n
 					count[key] = (count[key] or 0) + 1
 				end
 			end
@@ -13145,9 +13200,7 @@ return function(E, I)
 			if opts.pause and seen % 3000 == 0 then
 				opts.pause()
 			end
-			for _, c in inst:GetChildren() do
-				visit(c)
-			end
+			return n
 		end
 		for _, r in roots do
 			visit(r)
@@ -13162,7 +13215,7 @@ return function(E, I)
 			if key and count[key] >= 2 then
 				local k = byKey[key]
 				if not k then
-					k = { key = key, copies = {}, names = {}, parts = #describe(inst) }
+					k = { key = key, copies = {}, names = {}, parts = partsOf[inst] }
 					byKey[key] = k
 					table.insert(list, k)
 				end
@@ -14033,8 +14086,12 @@ return function(E, I)
 
 		-- where each move and addition really stands: on the ground, clear of anything else, a spot at a time
 		local rp = an.rp
+		-- the overlap check leaves out the kind's own copies (set once: it's a long list) and the terrain
 		local ol = OverlapParams.new()
 		ol.FilterType = Enum.RaycastFilterType.Exclude
+		local ignore = table.clone(insts)
+		table.insert(ignore, workspace.Terrain)
+		ol.FilterDescendantsInstances = ignore
 		local offsets = {}
 		for _, c in copies do
 			local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
@@ -14056,14 +14113,12 @@ return function(E, I)
 			if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end
-			local ignore = table.clone(insts)
-			table.insert(ignore, r.Instance)
-			table.insert(ignore, workspace.Terrain)
-			ol.FilterDescendantsInstances = ignore
 			local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
 			for _, p in hits do
-				-- something is there already (a rock, a bench, a wall); a flower or a tuft of grass doesn't count
-				if p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5) then
+				-- something is there already (a rock, a bench, a wall); a flower or a tuft of grass doesn't count, nor
+				-- does the ground: the part it stands on, or a neighbouring tile of it (its middle below the surface)
+				local ground = p == r.Instance or p.Position.Y < r.Position.Y
+				if not ground and (p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5)) then
 					return nil
 				end
 			end
@@ -17876,7 +17931,8 @@ return function(E, I)
 
 	-- is it greenery? its material, its colour (clearly green) or its name
 	local LEAF_WORDS = { "leaf", "leaves", "foliage", "bush", "shrub", "grass", "canopy", "needle", "pine", "fern", "hedge", "ivy", "moss" }
-	local function isFoliage(p, c)
+	-- names: [name] = whether it names greenery (a map repeats the same few names thousands of times)
+	local function isFoliage(p, c, names)
 		if p.Material == Enum.Material.Grass or p.Material == Enum.Material.LeafyGrass then
 			return true
 		end
@@ -17884,7 +17940,15 @@ return function(E, I)
 		if h > 0.17 and h < 0.45 and s > 0.25 and v > 0.12 then
 			return true
 		end
-		return hasKeyword(p.Name, LEAF_WORDS) or (p.Parent and hasKeyword(p.Parent.Name, LEAF_WORDS))
+		local function leafy(name)
+			local k = names[name]
+			if k == nil then
+				k = hasKeyword(name, LEAF_WORDS)
+				names[name] = k
+			end
+			return k
+		end
+		return leafy(p.Name) or (p.Parent ~= nil and leafy(p.Parent.Name))
 	end
 	-- does snow settle on it: a roof, or a flat slab facing up
 	local function isTop(p)
@@ -17896,11 +17960,17 @@ return function(E, I)
 		return (p:IsA("WedgePart") and up > 0.5) or (up > 0.9 and s.Y <= math.min(s.X, s.Z) * 0.5)
 	end
 	-- a number 0-1 that's the same for every part of one copy, and differs between copies
-	local function pickOf(p)
+	-- picks: [model] = its number, worked out once for all its parts
+	local function pickOf(p, picks)
 		local unit = p.Parent and p.Parent:IsA("Model") and p.Parent or p
-		local pos = unit:GetPivot().Position
-		local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
-		return n - math.floor(n)
+		local v = picks[unit]
+		if not v then
+			local pos = unit:GetPivot().Position
+			local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
+			v = n - math.floor(n)
+			picks[unit] = v
+		end
+		return v
 	end
 
 	--------------------------------------------------------------------------------
@@ -17925,12 +17995,18 @@ return function(E, I)
 		end
 		return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil
 	end
-	-- sets a colour property, keeping the first value it ever had as the original
+	-- sets a colour property, keeping the first value it ever had as the original. Returns whether it changed
+	-- (a colour the season leaves as it is gets no attribute at all)
 	local function setKept(obj, prop, to)
-		if obj:GetAttribute(ORIG) == nil then
+		local kept = obj:GetAttribute(ORIG) ~= nil
+		if not kept and obj[prop] == to then
+			return false
+		end
+		if not kept then
 			obj:SetAttribute(ORIG, obj[prop])
 		end
 		obj[prop] = to
+		return true
 	end
 	local function original(obj, prop)
 		local o = obj:GetAttribute(ORIG)
@@ -18003,11 +18079,12 @@ return function(E, I)
 			return strength * (1 - patchy + patchy * E.patternAt(noise, pos.X, pos.Z))
 		end
 		local n, seen = 0, 0
+		local names, picks = {}, {}
 		local function recolor(p)
 			local base = original(p, "Color")
 			local amount = amountAt(p.Position)
-			local kind = { foliage = isFoliage(p, base), top = season == "Snow" and isTop(p), pick = pickOf(p) }
-			setKept(p, "Color", E.seasonColor(base, season, amount, kind))
+			local kind = { foliage = isFoliage(p, base, names), top = season == "Snow" and isTop(p), pick = pickOf(p, picks) }
+			local changed = setKept(p, "Color", E.seasonColor(base, season, amount, kind))
 			for _, d in p:GetChildren() do
 				if d:IsA("SurfaceAppearance") then
 					pcall(function() -- (older Studio builds have no SurfaceAppearance.Color)
@@ -18017,7 +18094,7 @@ return function(E, I)
 					setKept(d, "Color3", E.seasonColor(original(d, "Color3"), season, amount, kind))
 				end
 			end
-			n += 1
+			n += changed and 1 or 0
 		end
 		local function visit(inst)
 			if skipped(inst) then

@@ -2511,6 +2511,25 @@ fn(vp)
 end
 end
 end
+local function pruneThumbs(all)
+local n = 0
+for _ in thumbCache do
+n += 1
+end
+for inst, bySize in thumbCache do
+local drop = all or n > 150 or not inst.Parent
+for _, vp in bySize do
+if drop then
+vp:Destroy()
+else
+vp.Parent = nil
+end
+end
+if drop then
+thumbCache[inst] = nil
+end
+end
+end
 local function thumbnail(inst, px)
 px = px or 36
 thumbCache[inst] = thumbCache[inst] or {}
@@ -2560,6 +2579,7 @@ App.deleteArea = deleteArea
 App.thumbCache = thumbCache
 App.eachThumb = eachThumb
 App.thumbnail = thumbnail
+App.pruneThumbs = pruneThumbs
 end
 end)()
 -- #module Panel/Header
@@ -3844,7 +3864,7 @@ local pad, vlist, hlist, box, col, label, para = App.pad, App.vlist, App.hlist, 
 local hintOn, slider, switch, switchRow, segmented = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented
 local recolorOverlay, rebuildOverlay, canGenerate, requestLive, commit =
 App.recolorOverlay, App.rebuildOverlay, App.canGenerate, App.requestLive, App.commit
-local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
+local newArea, thumbnail = App.newArea, App.thumbnail
 local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
 local rowRefs = {}
@@ -5167,11 +5187,13 @@ App.saveArea()
 end
 local boxes = App.ui.live or {}
 if #boxes > 0 then
-eachThumb(function(vp)
-vp.Parent = nil
-end)
 table.clear(rowRefs)
 for _, lb in boxes do
+for _, d in lb.holder:GetDescendants() do
+if d:IsA("ViewportFrame") then
+d.Parent = nil
+end
+end
 for _, ch in lb.holder:GetChildren() do
 if ch:IsA("GuiObject") then
 ch:Destroy()
@@ -5270,12 +5292,20 @@ end
 end
 return out
 end
-local function runScan()
+local lastRoots, lastScanned = nil, false
+local runScan
+local function scanAgain()
+if lastScanned then
+runScan(lastRoots or false, true)
+end
+end
+function runScan(roots, quiet)
 if scanning then
 return
 end
-local roots
-if G.scanSelection then
+if roots == false then
+roots = nil
+elseif roots == nil and G.scanSelection then
 roots = {}
 for _, s in Selection:Get() do
 table.insert(roots, s)
@@ -5285,9 +5315,17 @@ App.status("Select the models or folders to scan in the Explorer first, or turn 
 return
 end
 end
+for _, r in roots or {} do
+if not r.Parent then
+return
+end
+end
 scanning = true
+lastRoots, lastScanned = roots, true
 App.rebuildAll()
+if not quiet then
 App.status("Scanning the map…")
+end
 task.spawn(function()
 local ok, kinds = pcall(Engine.scanKinds, { roots = roots, pause = task.wait })
 scanning = false
@@ -5302,7 +5340,9 @@ local copies = 0
 for _, k in kinds do
 copies += k.count
 end
+if not quiet then
 App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+end
 App.rebuildAll()
 end)
 end
@@ -5364,7 +5404,9 @@ end, function()
 saveG()
 end, "On: scans only inside the models and folders selected in the Explorer. Off: the whole Workspace.").Parent =
 b
-local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), runScan)
+local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), function()
+runScan()
+end)
 go.Parent = b
 hintOn(
 go,
@@ -5457,8 +5499,8 @@ or "Scan the map first, then press Swap on a kind."
 return
 end
 local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
-local th = App.thumbnail(k.copies[1].inst, 30)
-th.Position = UDim2.fromOffset(0, 3)
+local th = App.thumbnail(k.copies[1].inst, 32)
+th.Position = UDim2.fromOffset(0, 2)
 th.Parent = head
 label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
 label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
@@ -5616,7 +5658,7 @@ string.format(
 num(#done + #(swap.preview or {}))
 )
 )
-App.kinds = nil
+scanAgain()
 swap.key, swap.preview, swap.ref = nil, nil, nil
 end
 App.rebuildAll()
@@ -6155,7 +6197,7 @@ armed = 0
 local rec = beginRec("Smart Scatter: Restore original")
 local back = Engine.restoreSnapshot()
 endRec(rec, back == 0)
-App.kinds = nil
+scanAgain()
 App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
 App.rebuildAll()
 end, { Parent = row })

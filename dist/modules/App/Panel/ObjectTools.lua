@@ -12,7 +12,7 @@ return function(App)
 	local hintOn, slider, switch, switchRow, segmented = App.hintOn, App.slider, App.switch, App.switchRow, App.segmented
 	local recolorOverlay, rebuildOverlay, canGenerate, requestLive, commit =
 		App.recolorOverlay, App.rebuildOverlay, App.canGenerate, App.requestLive, App.commit
-	local newArea, eachThumb, thumbnail = App.newArea, App.eachThumb, App.thumbnail
+	local newArea, thumbnail = App.newArea, App.thumbnail
 	local beginRec, endRec, button, buttonRow, explain = App.beginRec, App.endRec, App.button, App.buttonRow, App.explain
 	local chip, chipGrid, stepLabel, NICE = App.chip, App.chipGrid, App.stepLabel, App.NICE
 
@@ -1398,11 +1398,15 @@ return function(App)
 		end
 		local boxes = App.ui.live or {}
 		if #boxes > 0 then
-			eachThumb(function(vp) -- thumbnails are reused: take them out before the rows they sit in go
-				vp.Parent = nil
-			end)
 			table.clear(rowRefs)
 			for _, lb in boxes do
+				-- thumbnails are reused: take the ones in these rows out before the rows go (only these: others on
+				-- the page, like the object brush's rows, stay where they are)
+				for _, d in lb.holder:GetDescendants() do
+					if d:IsA("ViewportFrame") then
+						d.Parent = nil
+					end
+				end
 				for _, ch in lb.holder:GetChildren() do
 					if ch:IsA("GuiObject") then
 						ch:Destroy()

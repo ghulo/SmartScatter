@@ -490,8 +490,12 @@ return function(E, I)
 
 		-- where each move and addition really stands: on the ground, clear of anything else, a spot at a time
 		local rp = an.rp
+		-- the overlap check leaves out the kind's own copies (set once: it's a long list) and the terrain
 		local ol = OverlapParams.new()
 		ol.FilterType = Enum.RaycastFilterType.Exclude
+		local ignore = table.clone(insts)
+		table.insert(ignore, workspace.Terrain)
+		ol.FilterDescendantsInstances = ignore
 		local offsets = {}
 		for _, c in copies do
 			local r = workspace:Raycast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
@@ -513,14 +517,12 @@ return function(E, I)
 			if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
 				return nil
 			end
-			local ignore = table.clone(insts)
-			table.insert(ignore, r.Instance)
-			table.insert(ignore, workspace.Terrain)
-			ol.FilterDescendantsInstances = ignore
 			local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
 			for _, p in hits do
-				-- something is there already (a rock, a bench, a wall); a flower or a tuft of grass doesn't count
-				if p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5) then
+				-- something is there already (a rock, a bench, a wall); a flower or a tuft of grass doesn't count, nor
+				-- does the ground: the part it stands on, or a neighbouring tile of it (its middle below the surface)
+				local ground = p == r.Instance or p.Position.Y < r.Position.Y
+				if not ground and (p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5)) then
 					return nil
 				end
 			end

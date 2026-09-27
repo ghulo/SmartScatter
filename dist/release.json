@@ -1,6 +1,6 @@
 {
- "version": "9.53",
- "build": 117,
+ "version": "9.54",
+ "build": 118,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -12,7 +12,7 @@
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
-   "sum": 295110946
+   "sum": 705137234
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
@@ -36,15 +36,15 @@
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
-   "sum": 567572066
+   "sum": 788761619
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
-   "sum": 858488316
+   "sum": 127164076
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 379002479
+   "sum": 523835192
   },
   "App/Panel/Tabs/Brush": {
    "path": "modules/App/Panel/Tabs/Brush.lua",
@@ -96,11 +96,11 @@
   },
   "Engine/Kinds": {
    "path": "modules/Engine/Kinds.lua",
-   "sum": 900142744
+   "sum": 944189044
   },
   "Engine/Layout": {
    "path": "modules/Engine/Layout.lua",
-   "sum": 674565840
+   "sum": 873861740
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
@@ -128,7 +128,7 @@
   },
   "Engine/Seasons": {
    "path": "modules/Engine/Seasons.lua",
-   "sum": 672870976
+   "sum": 671085184
   }
  }
 }

@@ -452,7 +452,7 @@ local FAST, MED, tween, beginRec, endRec, track = App.FAST, App.MED, App.tween, 
 local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
-local runGenerate, commit, thumbCache, eachThumb, buildHeader = App.runGenerate, App.commit, App.thumbCache, App.eachThumb, App.buildHeader
+local runGenerate, commit, buildHeader = App.runGenerate, App.commit, App.buildHeader
 App.perfNote = function()
 if G.ghost then
 return "Boxes only: turn off Preview as boxes to place the real models.", false
@@ -1002,10 +1002,7 @@ keep[k] = App.ui[k]
 end
 App.ui = keep
 App.hideTip()
-eachThumb(function(vp)
-vp:Destroy()
-end)
-table.clear(thumbCache)
+App.pruneThumbs()
 for _, ch in sc:GetChildren() do
 if ch:IsA("GuiObject") then
 ch:Destroy()
@@ -1032,6 +1029,7 @@ local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and 
 local turned = builtPage ~= nil and builtPage ~= G.page
 builtPage = G.page
 if App.root then
+App.pruneThumbs()
 App.root:Destroy()
 end
 App.ui = {}
@@ -1092,6 +1090,7 @@ end
 end
 local function applyTheme()
 makePalette()
+App.pruneThumbs(true)
 App.rebuildAll()
 rebuildOverlay()
 if App.removeSplineViz then
