@@ -451,6 +451,87 @@ do
 	check("where the rules allow nothing, nothing moves", #nowhere.moves == 0 and #nowhere.adds == 0)
 end
 
+-- ── path shapes and subdivide ───────────────────────────────────────────────────────────
+do
+	local c = Vector3.new(10, 5, 20)
+	-- a hexagon from its centre: six corners, all as far out as the mouse, one right under it
+	local hex, smooth = E.shapePoints("Hexagon", c, Vector3.new(30, 5, 20))
+	local round = #hex == 6 and not smooth
+	for _, p in hex do
+		round = round and near((p - c).Magnitude, 20, 1e-6) and p.Y == 5
+	end
+	check("a hexagon: six sharp corners round its centre", round and near(hex[1].X, 30, 1e-6) and near(hex[1].Z, 20, 1e-6))
+	-- the turn snaps to 15° steps, unless free
+	local sq = E.shapePoints("Square", c, c + Vector3.new(math.cos(math.rad(47)), 0, math.sin(math.rad(47))) * 10)
+	local turn = math.deg(math.atan2(sq[1].Z - c.Z, sq[1].X - c.X))
+	local free = E.shapePoints("Square", c, c + Vector3.new(math.cos(math.rad(47)), 0, math.sin(math.rad(47))) * 10, true)
+	local freeTurn = math.deg(math.atan2(free[1].Z - c.Z, free[1].X - c.X))
+	check(
+		"a shape turns in 15° steps, or freely",
+		#sq == 4 and near(turn, 45, 1e-6) and near(freeTurn, 47, 1e-6),
+		string.format("%.2f / %.2f", turn, freeTurn)
+	)
+	-- the rectangle goes corner to corner; the circle is smooth
+	local rect = E.shapePoints("Rectangle", Vector3.new(0, 0, 0), Vector3.new(40, 3, 10))
+	check("a rectangle: corner to corner", #rect == 4 and rect[3].X == 40 and rect[3].Z == 10 and rect[2].Z == 0 and rect[3].Y == 0)
+	local _, circle = E.shapePoints("Circle", c, c + Vector3.xAxis * 8)
+	check("a circle is smooth", circle == true)
+
+	-- subdivide: a point halfway along each side, the shape unchanged
+	local function curve(list, closed, sharp)
+		local pts = {}
+		for _, p in list do
+			table.insert(pts, { p = p, n = Vector3.yAxis, sharp = sharp or nil })
+		end
+		return { pts = pts, closed = closed }
+	end
+	local square = curve(E.shapePoints("Rectangle", Vector3.new(0, 0, 0), Vector3.new(20, 0, 20)), true, true)
+	local added = E.subdivide(square)
+	local mid = square.pts[2]
+	check(
+		"subdividing a closed square adds one point per side, on the side",
+		added == 4 and #square.pts == 8 and near(mid.p.X, 10, 1e-6) and near(mid.p.Z, 0, 1e-6) and mid.sharp == true,
+		string.format("%d added, mid at %.2f, %.2f", added, mid.p.X, mid.p.Z)
+	)
+	local open = curve({ Vector3.new(0, 0, 0), Vector3.new(10, 0, 0), Vector3.new(20, 0, 10) }, false)
+	local before = E.splineCurve(open, 0.25)
+	E.subdivide(open)
+	local worst = 0
+	for _, p in E.splineCurve(open, 0.25) do -- every point of the new curve lies on the old one
+		local best = math.huge
+		for _, q in before do
+			best = math.min(best, (p - q).Magnitude)
+		end
+		worst = math.max(worst, best)
+	end
+	check("subdividing an open curve adds a point per stretch and keeps its shape", #open.pts == 5 and worst < 0.6, string.format("%.3f off", worst))
+	-- a bent (Bezier) stretch splits exactly
+	local bent = curve({ Vector3.new(0, 0, 0), Vector3.new(20, 0, 0) }, false)
+	bent.pts[1].h = Vector3.new(4, 0, 8)
+	local want = E.splineCurve(bent, 1)
+	E.subdivide(bent)
+	local P = E.splineCurve(bent, 0.5)
+	local off = 0
+	for _, q in want do
+		local best = math.huge
+		for _, p in P do
+			best = math.min(best, (p - q).Magnitude)
+		end
+		off = math.max(off, best)
+	end
+	check("subdividing a bent stretch keeps the bend", #bent.pts == 3 and off < 0.35, string.format("%.3f off", off))
+
+	-- a loop of its own in a path network: drawn closed
+	local net = { pts = { { p = Vector3.new(0, 0, 0), n = Vector3.yAxis }, { p = Vector3.new(10, 0, 0), n = Vector3.yAxis } }, closed = false }
+	net.branches = { curve(E.shapePoints("Triangle", Vector3.new(50, 0, 50), Vector3.new(60, 0, 50)), true, true) }
+	local cvs = E.splineCurves(net)
+	check("a shape added to a path is its own closed loop", #cvs == 2 and cvs[2].closed == true and cvs[1].closed == false)
+	-- a branch's end dropped on its own start closes it too
+	local br = curve({ Vector3.new(0, 0, 0), Vector3.new(10, 0, 0), Vector3.new(10, 0, 10), Vector3.new(0, 0, 10), Vector3.new(0, 0, 0.01) }, false)
+	local how = E.joinToPoint(net, { cv = br, i = 5 }, { cv = br, i = 1 })
+	check("a branch closes into a loop like the main curve", how == "closed" and br.closed == true and #br.pts == 4)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

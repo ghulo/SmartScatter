@@ -58,10 +58,10 @@ return function(App)
 		end
 		return n
 	end
-	-- the curve table the engine evaluates for an editable curve (branches are always open)
+	-- the curve table the engine evaluates for an editable curve
 	local function curveOf(cv)
 		local sp = App.area.spline
-		return cv == sp and sp or { pts = cv.pts, closed = false }
+		return cv == sp and sp or { pts = cv.pts, closed = cv.closed == true }
 	end
 	local function selectPt(ref)
 		selPt = ref
@@ -395,7 +395,7 @@ return function(App)
 			return "append"
 		end
 		local cv, i = selPt.cv, selPt.i
-		local open = cv ~= sp or not sp.closed or #sp.pts < 3
+		local open = not cv.closed or #cv.pts < 3
 		if open and i == #cv.pts then
 			return "append"
 		elseif open and cv == sp and i == 1 then
@@ -420,14 +420,22 @@ return function(App)
 				len += (P[k] - P[k - 1]).Magnitude
 			end
 		end
-		local n, nb = totalPoints(), #(sp.branches or {})
+		local n, nb, nl = totalPoints(), 0, 0
+		for _, b in sp.branches or {} do
+			if b.closed then
+				nl += 1
+			else
+				nb += 1
+			end
+		end
 		App.ui.splineInfo.Text = string.format(
-			"%d point%s · %s studs · %s%s%s",
+			"%d point%s · %s studs · %s%s%s%s",
 			n,
 			n == 1 and "" or "s",
 			num(len),
 			(sp.closed and #sp.pts >= 3) and "loop" or "open",
 			nb > 0 and string.format(" · %d branch%s", nb, nb == 1 and "" or "es") or "",
+			nl > 0 and string.format(" · %d more loop%s", nl, nl == 1 and "" or "s") or "",
 			(sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
 		)
 	end
@@ -487,6 +495,10 @@ return function(App)
 
 	mouse.Move:Connect(function()
 		if App.mode ~= "Spline" then
+			return
+		end
+		if App.shapeTool then -- a shape preset is picked: its drag (Viewport/Shapes)
+			App.shapeMove()
 			return
 		end
 		local sp = App.area and App.area.spline
@@ -618,6 +630,10 @@ return function(App)
 		if App.mode ~= "Spline" then
 			return
 		end
+		if App.shapeTool then
+			App.shapeDown()
+			return
+		end
 		if hoverHandle and validPt(selPt) then
 			dragHandle = hoverHandle
 			dragRec = beginRec("Smart Scatter: Spline handle")
@@ -683,7 +699,7 @@ return function(App)
 		if snap.kind == "point" then
 			local how = Engine.joinToPoint(sp, ref, snap.ref)
 			if how == "closed" then
-				selectPt({ cv = sp, i = 1 })
+				selectPt({ cv = ref.cv, i = 1 })
 				return "Closed the loop."
 			end
 			return how and "Joined. The two points now move together." or nil
@@ -751,6 +767,10 @@ return function(App)
 		end
 	end
 	mouse.Button1Up:Connect(function()
+		if App.mode == "Spline" and App.shapeTool then
+			App.shapeUp()
+			return
+		end
 		if App.mode == "Spline" and dragHandle then
 			dragHandle = nil
 			local rec = dragRec
@@ -791,6 +811,9 @@ return function(App)
 	-- a mode change, an area switch or an undo in the middle of a drag: keep (or with `cancel`, drop) what was
 	-- dragged or drawn so far, and close its undo recording
 	App.resetSplineDrag = function(cancel)
+		if App.cancelShape then
+			App.cancelShape()
+		end
 		local rec, moved = dragRec, dragMoved
 		if drawing and App.area and not cancel then
 			finishDrawing()
@@ -812,6 +835,9 @@ return function(App)
 		end
 		splineEdit("Spline", function()
 			table.remove(ref.cv.pts, ref.i)
+			if ref.cv ~= sp and #ref.cv.pts < 3 then -- a loop of its own needs three points to go round
+				ref.cv.closed = nil
+			end
 			if ref.cv ~= sp and #ref.cv.pts < 2 then -- a branch needs its root and one more point
 				table.remove(sp.branches, table.find(sp.branches, ref.cv))
 			elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then -- main curve gone: the first branch takes over
@@ -928,6 +954,8 @@ return function(App)
 				return
 			end
 			setSharp(ref, not ref.cv.pts[ref.i].sharp)
+		elseif name == "cancel" and App.shapeTool then -- Esc puts a picked shape away, and stays in the editor
+			App.cancelShape()
 		elseif name == "close" or name == "cancel" then
 			selectPt(nil)
 			App.setMode("Off")
@@ -966,8 +994,38 @@ return function(App)
 			App.setMode("Spline")
 		end
 	end
+	-- Subdivide, like Blender's: a point halfway along every stretch of the selected point's curve (or of every curve),
+	-- the shape unchanged, ready to be dragged into a new one
+	App.subdivideSpline = function()
+		local sp = App.area and App.area.spline
+		if not sp or totalPoints() < 2 then
+			App.status("Draw a path or place a shape first, then subdivide it.")
+			return
+		end
+		local list = validPt(selPt) and { selPt.cv } or editCurves()
+		local added = 0
+		splineEdit("Subdivide", function()
+			for _, cv in list do
+				if #cv.pts + #cv.pts <= 512 then -- (a limit: a few presses shouldn't make thousands)
+					added += Engine.subdivide(curveOf(cv)) -- (a branch's curve table shares its point list)
+				end
+			end
+		end)
+		hoverPt = nil
+		if validPt(selPt) then
+			selectPt({ cv = selPt.cv, i = math.min(selPt.i * 2 - 1, #selPt.cv.pts) }) -- (the same point, renumbered)
+		end
+		App.status(
+			added > 0 and string.format("Added %d point%s, one halfway along each side.", added, added == 1 and "" or "s")
+				or "That curve already has plenty of points."
+		)
+	end
+
 	App.commitSplineFn = commitSpline
 	App.ensureSplineFn = ensureSpline
+	App.splinePointHit = pointHit
+	App.splineLabel = splineLabel
+	App.selectSplinePoint = selectPt
 
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz

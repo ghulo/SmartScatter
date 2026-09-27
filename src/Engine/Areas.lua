@@ -521,6 +521,13 @@ return function(E, I)
 					table.insert(sp.branches, { pts = pts, closed = false })
 				end
 			end
+			-- closed curves of their own (shape presets), kept apart from the branches so older versions still read those
+			for _, b in (type(sd.loops) == "table" and sd.loops or {}) do
+				local pts = type(b) == "table" and readPts(b) or {}
+				if #pts >= 3 then
+					table.insert(sp.branches, { pts = pts, closed = true })
+				end
+			end
 			a.spline = sp
 		end
 		-- upgrade coarse areas to the finer grid (smoother edges); per-layer paint follows
@@ -747,9 +754,11 @@ return function(E, I)
 				end
 				return pts
 			end
-			local br = {}
+			local br, loops = {}, {}
 			for _, b in sp.branches or {} do
-				if #b.pts >= 2 then
+				if b.closed and #b.pts >= 3 then
+					table.insert(loops, pack(b.pts))
+				elseif #b.pts >= 2 then
 					table.insert(br, pack(b.pts))
 				end
 			end
@@ -762,6 +771,7 @@ return function(E, I)
 					snap = sp.snap,
 					walls = sp.walls,
 					branches = #br > 0 and br or nil,
+					loops = #loops > 0 and loops or nil,
 					surface = sp.surface,
 				})
 			)

@@ -19,7 +19,7 @@ return function(App)
 				tag = not isPath and "Optional" or nil,
 				sub = drawn and (isPath and "Click to add more points, or drag one to move it" or "Objects set to follow it line it")
 					or (isPath and "Click in the viewport to place points" or "A road, fence or row of lamps along a curve you draw"),
-				keys = "draw path spline points corner branch loop clear",
+				keys = "draw path spline points vertex corner branch loop clear shape preset square rectangle triangle hexagon octagon circle subdivide fence",
 				build = App.buildDrawTools,
 			})
 			if isPath then

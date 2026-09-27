@@ -35,6 +35,10 @@ return function(App)
 		if m == "Paint" or m == "Erase" then
 			local erase = (m == "Erase") ~= (shift == true)
 			return erase and "Erasing ground" or "Painting ground", on(G.tool, area), erase
+		elseif m == "Spline" and App.shapeTool then
+			return "Placing a " .. string.lower(App.shapeTool),
+				on(App.shapeTool == "Rectangle" and "corner to corner" or "drag from the centre", area),
+				false
 		elseif m == "Spline" then
 			return "Drawing the path", on(area), false
 		elseif m == "Remove" then
