@@ -3823,7 +3823,7 @@ for i = 2, #cv.pts do
 approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 end
 end
-local step = math.clamp(approx / 900, 0.35, 4)
+local step = math.clamp(approx / 700, 0.5, 4)
 sv.curves = {}
 local lines = {}
 for _, cv in editCurves() do
@@ -3845,8 +3845,11 @@ sv.halo:Clear()
 for _, L in lines do
 for k = 1, #L - 1 do
 sv.wire:AddLine(L[k], L[k + 1])
-sv.glow:AddLine(L[k], L[k + 1])
-sv.halo:AddLine(L[k], L[k + 1])
+end
+for k = 1, #L - 1, 2 do
+local b = L[math.min(k + 2, #L)]
+sv.glow:AddLine(L[k], b)
+sv.halo:AddLine(L[k], b)
 end
 end
 else
@@ -4068,6 +4071,16 @@ App.gz.anchor.CFrame = CFrame.new(hit.Position)
 end
 setLabel(hit and text or "")
 end
+local drawPending = false
+local function requestDraw()
+drawPending = true
+end
+track(App.RunService.Heartbeat:Connect(function()
+if drawPending then
+drawPending = false
+App.drawSpline()
+end
+end))
 mouse.Move:Connect(function()
 if App.mode ~= "Spline" then
 return
@@ -4098,7 +4111,7 @@ off = Vector3.new(was.X, off.Y, was.Z)
 end
 q.h = dragHandle == "out" and off or -off
 dragMoved = true
-App.drawSpline()
+requestDraw()
 end
 end
 splineLabel(nil)
@@ -4126,7 +4139,7 @@ end
 table.insert(drawing.pts, q)
 drawing.anchor = hit.Position
 selPt = { cv = cv, i = drawing.prepend and 1 or #cv.pts }
-App.drawSpline()
+requestDraw()
 end
 splineLabel(hit, "Drawing · release to finish")
 return
@@ -4176,7 +4189,7 @@ if o then
 o.p, o.n, o.raised = q.p, q.n, q.raised
 end
 end
-App.drawSpline()
+requestDraw()
 end
 return
 end

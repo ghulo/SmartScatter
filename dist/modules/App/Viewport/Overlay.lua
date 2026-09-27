@@ -19,6 +19,7 @@ return function(App)
 	--------------------------------------------------------------------------------
 	local overlayFolder
 	local rowParts = {} -- [cz] = { parts }
+	local edgeStrips, edgeCount = {}, 0 -- the contour's pieces (they breathe while you paint, when there aren't too many)
 	App.dirtyRows = {} -- [cz] = true
 	local cellInfo = {} -- [cz][cx] = { y =, cls = } quick ground probe cache
 	local MAX_OVERLAY = 80000
@@ -74,6 +75,8 @@ return function(App)
 			overlayFolder = nil
 		end
 		rowParts, App.dirtyRows = {}, {}
+		table.clear(edgeStrips)
+		edgeCount = 0
 	end
 	local classColor -- (below)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
@@ -164,19 +167,39 @@ return function(App)
 	-- clean shape rather than a grid of tiles.
 	local FILL = 0.66 -- how see-through the fill is
 	local RIM, RIM_W = 0.3, 0.26 -- the contour: how see-through, and how wide (studs)
-	local edgeStrips = setmetatable({}, { __mode = "k" }) -- the contour's pieces (they breathe while you paint)
+	local BREATHE_MAX = 300 -- more contour pieces than this: it stays still (animating thousands costs frames)
 	local EDGE_REST = RIM
+	-- Parts are reused, not made and destroyed: a stroke rebuilds the rows it touches, and making parts is the
+	-- slow part of that. A rebuilt row's parts go back to this pool (out of the world) for the next row to take.
+	local pool, POOL_MAX = {}, 4000
 	local function strip(props)
-		props.Anchored, props.CanCollide, props.CanQuery, props.CanTouch = true, false, false, false
-		props.CastShadow, props.Locked, props.Archivable = false, true, false
-		props.Parent = overlayFolder
-		return new("Part", props)
+		local p = table.remove(pool)
+		if not p then
+			p = Instance.new("Part")
+			p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
+			p.CastShadow, p.Locked, p.Archivable = false, true, false
+		end
+		p.Material, p.Transparency, p.Color, p.Size, p.CFrame = props.Material, props.Transparency, props.Color, props.Size, props.CFrame
+		p.Parent = overlayFolder
+		return p
+	end
+	local function release(p)
+		if edgeStrips[p] then
+			edgeStrips[p] = nil
+			edgeCount -= 1
+		end
+		if #pool < POOL_MAX and p.Parent then
+			p.Parent = nil
+			table.insert(pool, p)
+		else
+			p:Destroy()
+		end
 	end
 	local function buildRow(cz)
 		local old = rowParts[cz]
 		if old then
 			for _, p in old do
-				p:Destroy()
+				release(p)
 			end
 			rowParts[cz] = nil
 		end
@@ -237,6 +260,7 @@ return function(App)
 		local function line(cf, size, col)
 			local p = strip({ Material = Enum.Material.Neon, Transparency = RIM, Color = col, Size = size, CFrame = cf })
 			edgeStrips[p] = true
+			edgeCount += 1
 			table.insert(parts, p)
 		end
 		for _, side in { -1, 1 } do -- the row's far and near sides (z)
@@ -303,7 +327,7 @@ return function(App)
 		if next(App.dirtyRows) then
 			flushRows(0.004) -- a few ms a frame, so a big redraw never stalls Studio
 		end
-		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil
+		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil and edgeCount <= BREATHE_MAX
 		if paint or breathing then
 			breath += dt
 			if breath >= 0.08 or not paint then

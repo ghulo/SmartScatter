@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 144
-local BUNDLED_VERSION = "9.80"
+local BUNDLED_BUILD = 145
+local BUNDLED_VERSION = "9.81"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -10983,6 +10983,7 @@ return function(App)
 	--------------------------------------------------------------------------------
 	local overlayFolder
 	local rowParts = {} -- [cz] = { parts }
+	local edgeStrips, edgeCount = {}, 0 -- the contour's pieces (they breathe while you paint, when there aren't too many)
 	App.dirtyRows = {} -- [cz] = true
 	local cellInfo = {} -- [cz][cx] = { y =, cls = } quick ground probe cache
 	local MAX_OVERLAY = 80000
@@ -11038,6 +11039,8 @@ return function(App)
 			overlayFolder = nil
 		end
 		rowParts, App.dirtyRows = {}, {}
+		table.clear(edgeStrips)
+		edgeCount = 0
 	end
 	local classColor -- (below)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
@@ -11128,19 +11131,39 @@ return function(App)
 	-- clean shape rather than a grid of tiles.
 	local FILL = 0.66 -- how see-through the fill is
 	local RIM, RIM_W = 0.3, 0.26 -- the contour: how see-through, and how wide (studs)
-	local edgeStrips = setmetatable({}, { __mode = "k" }) -- the contour's pieces (they breathe while you paint)
+	local BREATHE_MAX = 300 -- more contour pieces than this: it stays still (animating thousands costs frames)
 	local EDGE_REST = RIM
+	-- Parts are reused, not made and destroyed: a stroke rebuilds the rows it touches, and making parts is the
+	-- slow part of that. A rebuilt row's parts go back to this pool (out of the world) for the next row to take.
+	local pool, POOL_MAX = {}, 4000
 	local function strip(props)
-		props.Anchored, props.CanCollide, props.CanQuery, props.CanTouch = true, false, false, false
-		props.CastShadow, props.Locked, props.Archivable = false, true, false
-		props.Parent = overlayFolder
-		return new("Part", props)
+		local p = table.remove(pool)
+		if not p then
+			p = Instance.new("Part")
+			p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
+			p.CastShadow, p.Locked, p.Archivable = false, true, false
+		end
+		p.Material, p.Transparency, p.Color, p.Size, p.CFrame = props.Material, props.Transparency, props.Color, props.Size, props.CFrame
+		p.Parent = overlayFolder
+		return p
+	end
+	local function release(p)
+		if edgeStrips[p] then
+			edgeStrips[p] = nil
+			edgeCount -= 1
+		end
+		if #pool < POOL_MAX and p.Parent then
+			p.Parent = nil
+			table.insert(pool, p)
+		else
+			p:Destroy()
+		end
 	end
 	local function buildRow(cz)
 		local old = rowParts[cz]
 		if old then
 			for _, p in old do
-				p:Destroy()
+				release(p)
 			end
 			rowParts[cz] = nil
 		end
@@ -11201,6 +11224,7 @@ return function(App)
 		local function line(cf, size, col)
 			local p = strip({ Material = Enum.Material.Neon, Transparency = RIM, Color = col, Size = size, CFrame = cf })
 			edgeStrips[p] = true
+			edgeCount += 1
 			table.insert(parts, p)
 		end
 		for _, side in { -1, 1 } do -- the row's far and near sides (z)
@@ -11267,7 +11291,7 @@ return function(App)
 		if next(App.dirtyRows) then
 			flushRows(0.004) -- a few ms a frame, so a big redraw never stalls Studio
 		end
-		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil
+		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil and edgeCount <= BREATHE_MAX
 		if paint or breathing then
 			breath += dt
 			if breath >= 0.08 or not paint then
@@ -12869,7 +12893,7 @@ return function(App)
 				approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
 			end
 		end
-		local step = math.clamp(approx / 900, 0.35, 4) -- display resolution: fine enough that bends look round
+		local step = math.clamp(approx / 700, 0.5, 4) -- display resolution: fine enough that bends look round
 		sv.curves = {}
 		local lines = {}
 		for _, cv in editCurves() do
@@ -12891,8 +12915,11 @@ return function(App)
 			for _, L in lines do
 				for k = 1, #L - 1 do
 					sv.wire:AddLine(L[k], L[k + 1])
-					sv.glow:AddLine(L[k], L[k + 1])
-					sv.halo:AddLine(L[k], L[k + 1])
+				end
+				for k = 1, #L - 1, 2 do -- (the glow is soft: every other point is plenty, and half the lines)
+					local b = L[math.min(k + 2, #L)]
+					sv.glow:AddLine(L[k], b)
+					sv.halo:AddLine(L[k], b)
 				end
 			end
 		else
@@ -13126,6 +13153,18 @@ return function(App)
 		setLabel(hit and text or "")
 	end
 
+	-- while dragging or drawing, the curve is redrawn at most once a frame, however often the mouse reports a move
+	local drawPending = false
+	local function requestDraw()
+		drawPending = true
+	end
+	track(App.RunService.Heartbeat:Connect(function()
+		if drawPending then
+			drawPending = false
+			App.drawSpline()
+		end
+	end))
+
 	mouse.Move:Connect(function()
 		if App.mode ~= "Spline" then
 			return
@@ -13156,7 +13195,7 @@ return function(App)
 					end
 					q.h = dragHandle == "out" and off or -off
 					dragMoved = true
-					App.drawSpline()
+					requestDraw()
 				end
 			end
 			splineLabel(nil)
@@ -13184,7 +13223,7 @@ return function(App)
 				table.insert(drawing.pts, q)
 				drawing.anchor = hit.Position
 				selPt = { cv = cv, i = drawing.prepend and 1 or #cv.pts }
-				App.drawSpline()
+				requestDraw()
 			end
 			splineLabel(hit, "Drawing · release to finish")
 			return
@@ -13235,7 +13274,7 @@ return function(App)
 						o.p, o.n, o.raised = q.p, q.n, q.raised
 					end
 				end
-				App.drawSpline()
+				requestDraw()
 			end
 			return
 		end
