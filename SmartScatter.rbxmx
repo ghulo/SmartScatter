@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX33"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX36"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 113
-local BUNDLED_VERSION = "9.49"
+local BUNDLED_BUILD = 114
+local BUNDLED_VERSION = "9.50"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -379,7 +379,7 @@ end)
 	hands back its cleanup (the last one returned runs when the plugin unloads or updates).
 	  Core/        state, UI kit, cards and search, generation jobs, and the undo/cleanup wiring that runs last
 	  Viewport/    what happens in the 3D view: the painted overlay, painting, the spline editor
-	  Panel/       the header, the controls for areas and objects, the shell (tabs, search, bottom bar), the tour
+	  Panel/       the header, the controls for areas, objects and the map, the shell (tabs, search, bottom bar), the tour
 	  Panel/Tabs/  one module per tab: Scatter, Brush, Map, Settings
 	To add a module: create it in the folder it belongs to and add its path to ORDER after what it uses.
 ]]
@@ -393,6 +393,7 @@ local ORDER = {
 	"Panel/Header",
 	"Panel/AreaTools",
 	"Panel/ObjectTools",
+	"Panel/MapTools",
 	"Panel/Tabs/Scatter",
 	"Panel/Tabs/Brush",
 	"Panel/Tabs/Map",
@@ -2644,6 +2645,7 @@ return function(App)
 		shape = "Circle",
 		fillReach = 120,
 		paintOn = {},
+		scanSelection = false, -- the map scan looks only inside the selection
 		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do
@@ -2922,7 +2924,7 @@ return function(App)
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX17"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX7"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX18"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX7"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
 	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
 	and the welcome shown before there are any areas. Each builder fills the body it's given.
@@ -4269,7 +4271,636 @@ return function(App)
 	App.maskOp = maskOp
 	App.primaryButton = primaryButton
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
+	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
+	first), seasons (snowy, autumn or dry, fully or in patches), and the snapshot (the originals kept before anything
+	changes them, and putting them back).
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Selection, Engine, G, saveG, P, num = App.Selection, App.Engine, App.G, App.saveG, App.P, App.num
+	local SANS, SANS_M, SANS_B, box, col, label, vlist = App.SANS, App.SANS_M, App.SANS_B, App.box, App.col, App.label, App.vlist
+	local button, buttonRow, hintOn, explain, beginRec, endRec = App.button, App.buttonRow, App.hintOn, App.explain, App.beginRec, App.endRec
+
+	local SHOWN = 12 -- kinds listed before "Show all"
+
+	-- the last scan (this session): App.kinds = { kind, ... } from Engine.scanKinds, and where it looked
+	App.kinds = nil
+	local scanning, showAll, scope = false, false, "the whole map"
+
+	-- the copies of a kind still in the map (some may have been deleted since the scan)
+	local function alive(k)
+		local out = {}
+		for _, c in k.copies do
+			if c.inst.Parent then
+				table.insert(out, c.inst)
+			end
+		end
+		return out
+	end
+
+	local function runScan()
+		if scanning then
+			return
+		end
+		local roots
+		if G.scanSelection then
+			roots = {}
+			for _, s in Selection:Get() do
+				table.insert(roots, s)
+			end
+			if #roots == 0 then
+				App.status("Select the models or folders to scan in the Explorer first, or turn off Only the selection.")
+				return
+			end
+		end
+		scanning = true
+		App.rebuildAll()
+		App.status("Scanning the map…")
+		task.spawn(function()
+			local ok, kinds = pcall(Engine.scanKinds, { roots = roots, pause = task.wait })
+			scanning = false
+			if not ok then
+				App.status("The scan stopped: " .. tostring(kinds), "error")
+				App.rebuildAll()
+				return
+			end
+			App.kinds, showAll = kinds, false
+			scope = roots and (#roots == 1 and roots[1].Name or (#roots .. " selected")) or "the whole map"
+			local copies = 0
+			for _, k in kinds do
+				copies += k.count
+			end
+			App.status(#kinds == 0 and "No repeated models found." or string.format("Found %d kinds, %s copies in all.", #kinds, num(copies)))
+			App.rebuildAll()
+		end)
+	end
+
+	-- swapping: the kind being swapped (its key), the models it's swapped for, how, and the copies tried so far
+	local swap = { key = nil, with = {}, size = 1, match = false, turn = 0, scripts = false, tags = true, attributes = true }
+	local function swapKind()
+		for _, k in App.kinds or {} do
+			if k.key == swap.key then
+				return k
+			end
+		end
+		return nil
+	end
+
+	-- one kind: its thumbnail, name and count, and buttons that select every copy or pick it to swap
+	local function kindRow(parent, k)
+		local list = alive(k)
+		local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = parent })
+		local th = App.thumbnail(k.copies[1].inst, 30)
+		th.Position = UDim2.fromOffset(0, 3)
+		th.Parent = row
+		label(k.name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -170, 0, 18), Parent = row })
+		label(
+			string.format("%s cop%s · %d part%s", num(#list), #list == 1 and "y" or "ies", k.parts, k.parts == 1 and "" or "s"),
+			11,
+			P.dim,
+			SANS,
+			{ Position = UDim2.fromOffset(40, 18), Size = UDim2.new(1, -170, 0, 16), Parent = row }
+		)
+		local acts = box({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(0, 30),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Parent = row,
+		}, { App.hlist(6) })
+		hintOn(
+			button("Select", nil, function()
+				local now = alive(k)
+				Selection:Set(now)
+				App.status(string.format("Selected %s %s.", num(#now), #now == 1 and "copy" or "copies"))
+			end, { LayoutOrder = 1, Parent = acts }),
+			"Selects every copy of this kind in the Explorer and the viewport."
+		)
+		local picked = swap.key == k.key
+		hintOn(
+			button("Swap", picked and "accent" or nil, function()
+				if swap.key ~= k.key then
+					swap.key, swap.preview, swap.ref = k.key, nil, nil
+				end
+				App.rebuildAll()
+			end, { LayoutOrder = 2, Parent = acts }),
+			"Swap every copy of this kind for another model, or a mix (the Swap models card below)."
+		)
+	end
+
+	App.buildMapScan = function(b)
+		App.switchRow("Only the selection", function()
+			return G.scanSelection == true
+		end, function(v)
+			G.scanSelection = v
+		end, function()
+			saveG()
+		end, "On: scans only inside the models and folders selected in the Explorer. Off: the whole Workspace.").Parent =
+			b
+		local go = App.primaryButton(scanning and "Scanning…" or (App.kinds and "Scan again" or "Scan the map"), runScan)
+		go.Parent = b
+		hintOn(
+			go,
+			"Finds every model that appears more than once, by its shape: renamed, turned and resized copies still match. What Smart Scatter placed, and characters, are left out."
+		)
+		local kinds = App.kinds
+		if not kinds then
+			explain(b, "Groups the copies in a finished map into kinds, so you can pick every copy of one at once.")
+			return
+		end
+		if #kinds == 0 then
+			App.emptyState(b, "No repeated models", "Nothing in " .. scope .. " appears more than once.")
+			return
+		end
+		local copies = 0
+		for _, k in kinds do
+			copies += k.count
+		end
+		label(
+			string.format("%d kinds · %s copies · in %s", #kinds, num(copies), scope),
+			12,
+			P.faint,
+			SANS_B,
+			{ Size = UDim2.new(1, 0, 0, 20), Parent = b }
+		)
+		local list = col({ Parent = b }, { vlist(4) })
+		for i, k in kinds do
+			if i > SHOWN and not showAll then
+				break
+			end
+			kindRow(list, k)
+		end
+		if #kinds > SHOWN then
+			button(showAll and "Show fewer" or string.format("Show all %d", #kinds), "ghost", function()
+				showAll = not showAll
+				App.rebuildAll()
+			end, { Parent = buttonRow(b) })
+		end
+	end
+
+	-- the models in the current selection that can stand in for a kind
+	local function selectedModels(k)
+		local out, own = {}, {}
+		for _, c in k and k.copies or {} do
+			own[c.inst] = true
+		end
+		for _, sel in Selection:Get() do
+			for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+				if (inst:IsA("Model") or inst:IsA("BasePart")) and not own[inst] and Engine.keyOf(inst) then
+					table.insert(out, inst)
+				end
+			end
+		end
+		return out
+	end
+
+	local function doSwap(k, copies, preview)
+		local rec = beginRec(preview and "Smart Scatter: Try swap" or "Smart Scatter: Swap models")
+		-- what the kind is like, measured once before any of it is swapped (tried copies would skew it)
+		swap.ref = swap.ref or Engine.kindRef(k.copies)
+		local ok, pairsOrErr = pcall(Engine.swapCopies, copies, swap.with, {
+			ref = swap.ref,
+			size = swap.size,
+			match = swap.match,
+			turn = swap.turn,
+			scripts = swap.scripts,
+			tags = swap.tags,
+			attributes = swap.attributes,
+			seed = #k.copies,
+		})
+		endRec(rec, not ok)
+		if not ok then
+			App.status("The swap stopped: " .. tostring(pairsOrErr), "error")
+			return nil
+		end
+		-- the kind's list follows its copies: a swapped one is now the new model
+		local newOf = {}
+		for _, pr in pairsOrErr do
+			newOf[pr.old] = pr.new
+		end
+		for _, c in k.copies do
+			c.inst = newOf[c.inst] or c.inst
+		end
+		return pairsOrErr
+	end
+
+	App.buildSwap = function(b)
+		local k = swapKind()
+		if not k then
+			swap.key, swap.preview, swap.ref = nil, nil, nil
+			explain(
+				b,
+				App.kinds and "Press Swap on a kind in the Map scan to replace its copies with another model or a mix."
+					or "Scan the map first, then press Swap on a kind."
+			)
+			return
+		end
+		-- the kind
+		local head = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+		local th = App.thumbnail(k.copies[1].inst, 30)
+		th.Position = UDim2.fromOffset(0, 3)
+		th.Parent = head
+		label("Swap " .. k.name, 13, P.text, SANS_B, { Position = UDim2.fromOffset(40, 1), Size = UDim2.new(1, -40, 0, 18), Parent = head })
+		label(string.format("%s copies in the map", num(#alive(k))), 11, P.dim, SANS, {
+			Position = UDim2.fromOffset(40, 18),
+			Size = UDim2.new(1, -40, 0, 16),
+			Parent = head,
+		})
+		-- what it's swapped for
+		label("For", 13, P.text, SANS, { Parent = b })
+		for i, w in swap.with do
+			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
+			local t = App.thumbnail(w.inst, 28)
+			t.Position = UDim2.fromOffset(0, 2)
+			t.Parent = row
+			label(w.inst.Name, 13, P.text, SANS_M, { Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -120, 1, 0), Parent = row })
+			button("Remove", "danger", function()
+				table.remove(swap.with, i)
+				App.rebuildAll()
+			end, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Parent = row })
+			if #swap.with > 1 then
+				App.slider("Share", 0, 10, function()
+					return w.w
+				end, function(v)
+					w.w = v
+				end, "%.1f", 0.5, nil, nil, "How often this model is picked compared to the others.", 1).Parent =
+					b
+			end
+		end
+		local pickRow = buttonRow(b)
+		hintOn(
+			button(#swap.with == 0 and "Use selected models" or "Add selected models", #swap.with == 0 and "accent" or nil, function()
+				local found = selectedModels(k)
+				if #found == 0 then
+					App.status("Select the new model, or several to mix, in the Explorer first (not a copy of this kind).")
+					return
+				end
+				for _, inst in found do
+					local dup = false
+					for _, w in swap.with do
+						dup = dup or w.inst == inst
+					end
+					if not dup then
+						table.insert(swap.with, { inst = inst, w = 1 })
+					end
+				end
+				App.rebuildAll()
+			end, { Parent = pickRow }),
+			"Select the model to swap in, or several to mix (a folder works too), in the Explorer, then click."
+		)
+		if #swap.with == 0 then
+			return
+		end
+		-- how
+		App.slider("Size", 0.2, 4, function()
+			return swap.size
+		end, function(v)
+			swap.size = v
+		end, "%.2f×", 0.05, nil, nil, "On top of each copy's own scale.", 1).Parent =
+			b
+		App.switchRow(
+			"Same size as the old ones",
+			function()
+				return swap.match
+			end,
+			function(v)
+				swap.match = v
+			end,
+			nil,
+			"On: each new copy is made as big as the one it replaces. Off: the new model keeps its own size, bigger or smaller where the old copies were."
+		).Parent =
+			b
+		label("Turn", 13, P.text, SANS, { Parent = b })
+		App.segmented({ "0°", "90°", "180°", "270°" }, function()
+			return swap.turn .. "°"
+		end, function(v)
+			swap.turn = tonumber(string.match(v, "%d+")) or 0
+		end).Parent =
+			b
+		explain(b, "If the new model faces another way than the old one, turn every copy about its up.")
+		for _, o in
+			{
+				{ "scripts", "Carry over scripts", "Copies the old copy's scripts into the new one." },
+				{ "tags", "Carry over tags", "The old copy's CollectionService tags go on the new one." },
+				{ "attributes", "Carry over attributes", "The old copy's attributes go on the new one." },
+			}
+		do
+			App.switchRow(o[2], function()
+				return swap[o[1]]
+			end, function(v)
+				swap[o[1]] = v
+			end, nil, o[3]).Parent = b
+		end
+		-- go: try it on a few first, then all
+		local acts = buttonRow(b)
+		local n = #alive(k)
+		if swap.preview then
+			hintOn(
+				button("Undo the try", nil, function()
+					local only = {}
+					for _, pr in swap.preview do
+						only[pr.new] = true
+					end
+					local rec = beginRec("Smart Scatter: Undo try")
+					local back, map = Engine.restoreSnapshot(only)
+					endRec(rec, back == 0)
+					for _, c in k.copies do
+						c.inst = map[c.inst] or c.inst
+					end
+					swap.preview = nil
+					App.status(string.format("Put %d back as they were.", back))
+					App.rebuildAll()
+				end, { Parent = acts }),
+				"Puts the tried copies back as they were."
+			)
+		else
+			hintOn(
+				button("Try on 5", nil, function()
+					local copies, list = {}, {}
+					for _, c in k.copies do
+						if c.inst.Parent then
+							table.insert(list, c)
+						end
+					end
+					for i = 1, math.min(5, #list) do -- spread over the kind, not the first five in a row
+						table.insert(copies, list[math.floor((i - 0.5) * #list / math.min(5, #list)) + 1])
+					end
+					local done = doSwap(k, copies, true)
+					if done then
+						swap.preview = done
+						local sel = {}
+						for _, pr in done do
+							table.insert(sel, pr.new)
+						end
+						Selection:Set(sel)
+						App.status(string.format("Swapped %d copies to try (selected). Swap all, or undo the try.", #done))
+					end
+					App.rebuildAll()
+				end, { Parent = acts }),
+				"Swaps 5 copies spread over the map, and selects them, so you can check the look first."
+			)
+		end
+		hintOn(
+			button(string.format("Swap all %s", num(n)), "accent", function()
+				local tried, copies = {}, {}
+				for _, pr in swap.preview or {} do
+					tried[pr.new] = true
+				end
+				for _, c in k.copies do
+					if not tried[c.inst] then -- (the tried ones are swapped already)
+						table.insert(copies, c)
+					end
+				end
+				local done = doSwap(k, copies, false)
+				if done then
+					App.status(
+						string.format(
+							"Swapped %s copies. The originals are kept: Restore original in the Snapshot card puts them back.",
+							num(#done + #(swap.preview or {}))
+						)
+					)
+					App.kinds = nil -- the map changed: scan again to see its kinds now
+					swap.key, swap.preview, swap.ref = nil, nil, nil
+				end
+				App.rebuildAll()
+			end, { Parent = acts }),
+			"Swaps every copy of this kind. Their originals are kept in the snapshot first."
+		)
+	end
+
+	-- seasons: what the Seasons card is set to (this session)
+	local season = {
+		name = "Snow",
+		strength = 1,
+		patchy = 0,
+		patchSize = 90,
+		selection = false,
+		terrainColors = true,
+		terrainMaterials = false,
+	}
+	local seasonBusy = false
+
+	local function runSeason(off)
+		if seasonBusy then
+			return
+		end
+		local roots
+		if season.selection then
+			roots = Selection:Get()
+			if #roots == 0 then
+				App.status("Select the models or folders to change in the Explorer first, or turn off Only the selection.")
+				return
+			end
+		end
+		seasonBusy = true
+		App.status(off and "Taking the season off…" or ("Turning the map " .. string.lower(season.name) .. "…"))
+		App.rebuildAll()
+		task.spawn(function()
+			local rec = beginRec(off and "Smart Scatter: Season off" or ("Smart Scatter: " .. season.name))
+			local ok, n, terrainOk = pcall(function()
+				if off then
+					return Engine.clearSeason({ roots = roots, pause = task.wait })
+				end
+				return Engine.applySeason({
+					season = season.name,
+					strength = season.strength,
+					patchy = season.patchy,
+					patchSize = season.patchSize,
+					seed = 7,
+					roots = roots,
+					terrainColors = season.terrainColors,
+					terrainMaterials = season.terrainMaterials,
+					pause = task.wait,
+				})
+			end)
+			endRec(rec, not ok)
+			seasonBusy = false
+			if not ok then
+				App.status("Stopped: " .. tostring(n), "error")
+			elseif off then
+				App.status(string.format("Season off: %s parts back to their own colours.", num(n)))
+			else
+				App.status(
+					string.format("%s: %s parts changed.", season.name, num(n))
+						.. (terrainOk == false and " The terrain was too big to keep a copy of, so its grass stayed; try Only the selection." or "")
+				)
+			end
+			App.rebuildAll()
+		end)
+	end
+
+	App.buildSeasons = function(b)
+		local grid = App.chipGrid(b, 3, 30)
+		for i, name in Engine.SEASONS do
+			local c = App.chip(grid, name, function()
+				return season.name == name
+			end, function()
+				season.name = name
+				App.rebuildAll() -- (the terrain options differ)
+			end)
+			c.LayoutOrder = i
+			hintOn(c, Engine.SEASON_HINT[name])
+		end
+		App.slider("Strength", 0, 1, function()
+			return season.strength
+		end, function(v)
+			season.strength = v
+		end, "%.0f%%", 0.05, nil, nil, "How far into the season: 100% is fully snowy, autumn or dry.", 1).Parent =
+			b
+		App.slider("Patchy", 0, 1, function()
+			return season.patchy
+		end, function(v)
+			season.patchy = v
+		end, "%.0f%%", 0.05, nil, nil, "0%: the same everywhere. Higher: stronger in some places and lighter in others, like the first snow.", 0).Parent =
+			b
+		if season.patchy > 0 then
+			App.slider("Patch size", 20, 300, function()
+				return season.patchSize
+			end, function(v)
+				season.patchSize = v
+			end, "%.0f studs", 5, nil, nil, "How big the stronger and lighter patches are.", 90).Parent =
+				b
+		end
+		for _, o in
+			{
+				{ "selection", "Only the selection", "On: changes only the models and folders selected in the Explorer. Off: the whole Workspace." },
+				{ "terrainColors", "Terrain grass colour", "Tints the terrain's grass for the season." },
+				{
+					"terrainMaterials",
+					season.name == "Dry" and "Terrain grass to dry ground" or "Terrain grass to snow",
+					"Turns the terrain's grass itself around the map. The terrain there is kept first, so it comes back exactly.",
+				},
+			}
+		do
+			if not (o[1] == "terrainMaterials" and season.name == "Autumn") then -- (autumn keeps its grass)
+				App.switchRow(o[2], function()
+					return season[o[1]]
+				end, function(v)
+					season[o[1]] = v
+				end, nil, o[3]).Parent = b
+			end
+		end
+		local info = Engine.seasonInfo()
+		explain(
+			b,
+			info
+					and string.format(
+						"The map is %s now (%d%%). Applying again starts from the original colours.",
+						string.lower(info.season),
+						info.strength * 100
+					)
+				or "Colours keep their originals, so a season can be switched or taken off again exactly. What Smart Scatter places has its own Colour zones."
+		)
+		local row = buttonRow(b)
+		button(seasonBusy and "Working…" or ("Make it " .. string.lower(season.name == "Snow" and "snowy" or season.name)), "accent", function()
+			runSeason(false)
+		end, { Parent = row })
+		if info then
+			hintOn(
+				button("Take it off", nil, function()
+					runSeason(true)
+				end, { Parent = row }),
+				"Every colour back to its own, and the terrain as it was."
+			)
+		end
+	end
+
+	App.buildSnapshot = function(b)
+		local info = Engine.snapshotInfo()
+		local text
+		if not info then
+			text = "Nothing kept yet. Keep the originals before swapping models or changing seasons, and put them back with one click."
+		else
+			text = string.format(
+				"%s cop%s kept%s. %s",
+				num(info.saved),
+				info.saved == 1 and "y" or "ies",
+				info.time and os.date(" on %d %b, %H:%M", info.time) or "",
+				info.changed > 0 and string.format("%s changed since.", num(info.changed)) or "Nothing changed since."
+			)
+		end
+		explain(b, text)
+		local row = buttonRow(b)
+		local kinds = App.kinds
+		hintOn(
+			button("Keep originals", "accent", function()
+				if not (App.kinds and #App.kinds > 0) then
+					App.status("Scan the map first: the snapshot keeps the copies it finds.")
+					return
+				end
+				local list = {}
+				for _, k in App.kinds do
+					for _, inst in alive(k) do
+						table.insert(list, inst)
+					end
+				end
+				local rec = beginRec("Smart Scatter: Keep originals")
+				local added = Engine.snapshot(list)
+				endRec(rec, added == 0)
+				App.status(
+					added == 0 and "Every copy found is already kept."
+						or string.format("Kept the originals of %s copies (ServerStorage › SmartScatter Snapshot).", num(added))
+				)
+				App.rebuildAll()
+			end, { Parent = row }),
+			kinds and "Keeps a copy of every model the scan found, as it is now. Copies kept before stay as they were."
+				or "Scan the map first; this keeps a copy of every model it finds."
+		)
+		if info and info.changed > 0 then
+			local armed = 0
+			local restore
+			restore = button("Restore original", "danger", function()
+				if os.clock() - armed > 3 then -- asks twice
+					armed = os.clock()
+					restore.Text = "Click again to restore"
+					task.delay(3, function()
+						if os.clock() - armed >= 2.9 then
+							restore.Text = "Restore original"
+						end
+					end)
+					return
+				end
+				armed = 0
+				local rec = beginRec("Smart Scatter: Restore original")
+				local back = Engine.restoreSnapshot()
+				endRec(rec, back == 0)
+				App.kinds = nil -- the copies in the map are new instances now
+				App.status(string.format("Put %s copies back as they were. Ctrl+Z undoes it.", num(back)))
+				App.rebuildAll()
+			end, { Parent = row })
+			hintOn(restore, "Puts every changed copy back exactly as it was kept, where it was. Ctrl+Z undoes it.")
+		end
+		if info then
+			hintOn(
+				button("Forget", "ghost", function()
+					App.dialog(
+						"Forget the snapshot?",
+						"The map stays as it is now, but the kept originals are deleted, so changed copies can't be put back any more.",
+						{
+							{
+								"Forget it",
+								"danger",
+								function()
+									local rec = beginRec("Smart Scatter: Forget snapshot")
+									Engine.clearSnapshot()
+									endRec(rec)
+									App.status("Snapshot forgotten.")
+									App.rebuildAll()
+								end,
+							},
+							{ "Keep it", nil, function() end },
+						}
+					)
+				end, { Parent = row }),
+				"Deletes the kept originals (the map stays as it is)."
+			)
+		end
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
 	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
 	settings (a card per rule), biomes, presets, the performance report and removing single copies.
@@ -5697,7 +6328,7 @@ return function(App)
 		return liveBox(parent, fillRemoveCopies)
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
 	Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
 	update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
@@ -6009,7 +6640,12 @@ return function(App)
 	local TABS = {
 		{ name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
 		{ name = "Brush", icon = "brush", hint = "Work by hand: paint the ground, brush one object, remove copies.", build = "buildBrushTab" },
-		{ name = "Map", icon = "spline", hint = "The path, its road, and telling the scan what's what.", build = "buildMapTab" },
+		{
+			name = "Map",
+			icon = "spline",
+			hint = "The path and its road; scanning a finished map, swapping its models, seasons and the snapshot.",
+			build = "buildMapTab",
+		},
 		{ name = "Settings", icon = "settings", hint = "The plugin's look, output and shortcuts.", build = "buildSettingsTab" },
 	}
 	local TAB = {}
@@ -6241,7 +6877,7 @@ return function(App)
 		local page = col({ Parent = sc }, { vlist(10) })
 		if App.searching() then
 			buildResults(page)
-		elseif not App.area and G.page ~= "Settings" then
+		elseif not App.area and (G.page == "Scatter" or G.page == "Brush") then
 			App.buildWelcome(page)
 		else
 			App[TAB[G.page].build](page)
@@ -6332,7 +6968,7 @@ return function(App)
 	App.applyTheme = applyTheme
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX15"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX16"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, brush one object more or
 	less (or place copies exactly), take single copies out; then which surfaces painting sticks to and cleaning up
 	the painted edge under More options.
@@ -6460,9 +7096,9 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
-	Smart Scatter — Map tab: the shapes on the map. The path (drawing it, its curve and its road), and telling the
-	scan what the parts of the map are.
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
+	for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -6472,7 +7108,7 @@ return function(App)
 		local cs = App.cards(page, "map")
 		local kind = a and App.kindOf(a)
 		local drawn = App.hasPath()
-		if kind ~= "Clear" then
+		if a and kind ~= "Clear" then
 			local isPath = kind == "Path"
 			local card = cs.add({
 				id = "path",
@@ -6505,15 +7141,47 @@ return function(App)
 			end
 		end
 		cs.add({
-			id = "scanfix",
-			title = "Fix what the scan sees",
-			keys = "mark road path building water rescan",
-			more = kind ~= "Clear",
-			build = App.buildScanFix,
+			id = "mapscan",
+			title = "Map scan",
+			icon = "search",
+			sub = "Every repeated model in a finished map, grouped by shape",
+			keys = "scan kinds copies find repeated models select duplicates",
+			build = App.buildMapScan,
 		})
+		cs.add({
+			id = "swap",
+			title = "Swap models",
+			icon = "refresh",
+			sub = "Replace every copy of a kind with another model or a mix",
+			keys = "swap replace model mix kind copies preview try",
+			build = App.buildSwap,
+		})
+		cs.add({
+			id = "seasons",
+			title = "Seasons",
+			sub = "Snowy, autumn or dry, fully or in patches",
+			keys = "season snow winter autumn fall dry summer colour color terrain",
+			build = App.buildSeasons,
+		})
+		cs.add({
+			id = "snapshot",
+			title = "Snapshot",
+			sub = "Keep the originals, and put them back with one click",
+			keys = "save keep originals restore backup revert",
+			build = App.buildSnapshot,
+		})
+		if a then
+			cs.add({
+				id = "scanfix",
+				title = "Fix what the scan sees",
+				keys = "mark road path building water rescan",
+				more = kind ~= "Clear",
+				build = App.buildScanFix,
+			})
+		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
 	when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
 	performance report under More options.
@@ -6641,7 +7309,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
 	viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -6830,7 +7498,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
@@ -6904,7 +7572,7 @@ return function(App)
 			title = "Four tabs",
 			text = "Scatter: what fills the area, its objects and their rules.\n"
 				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
-				.. "Map: the path, its road, and fixing what the scan sees.\n"
+				.. "Map: the path and its road; scanning a finished map, swapping its models, seasons.\n"
 				.. "Settings: the plugin itself.\n\n"
 				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
 				.. "below the tabs, like road or spacing.",
@@ -7289,7 +7957,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX21"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX22"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Overlay: the widget and the painted-area overlay in the viewport.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -7557,7 +8225,7 @@ return function(App)
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -8538,7 +9206,7 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -9512,9 +10180,11 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
+	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
+	Seasons turns it snowy, autumn or dry.
 	Upright placement: a model's "up" is how it stands in the world, never its pivot rotation.
 
 	Each module below is `return function(E, I) … end` and runs once, in ORDER:
@@ -9523,7 +10193,7 @@ end
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate" }
+local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons" }
 
 local function module(name) -- (a flattened release swaps this line for its own table of modules)
 	return require(script:FindFirstChild(name))
@@ -9540,7 +10210,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -10487,7 +11157,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -11287,7 +11957,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -11726,7 +12396,490 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
+	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
+	of what later tools change (swapping models, seasons), so they can be put back.
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E, I)
+	local STEP = 40 -- a side is known to 1/40 of the copy's longest side: tells shapes apart, forgives float error
+	local SNAPSHOT = "SmartScatter Snapshot"
+
+	--------------------------------------------------------------------------------
+	-- Shape keys
+	--------------------------------------------------------------------------------
+	-- The key of a shape given as its parts { { kind = "MeshPart:rbxassetid://1", size = Vector3 }, ... }: every
+	-- part's sides, longest first (so turning doesn't matter), as fractions of the longest side of any part (so
+	-- scale doesn't matter), sorted. Returns the key and that longest side (a copy's size, to compare copies by).
+	function E.shapeKey(parts)
+		local unit = 0
+		for _, p in parts do
+			unit = math.max(unit, p.size.X, p.size.Y, p.size.Z)
+		end
+		if #parts == 0 or unit <= 0 then
+			return nil, 0
+		end
+		local keys = table.create(#parts)
+		for i, p in parts do
+			local d = { p.size.X, p.size.Y, p.size.Z }
+			table.sort(d, function(a, b)
+				return a > b
+			end)
+			local q = function(v)
+				return math.floor(v / unit * STEP + 0.5)
+			end
+			keys[i] = string.format("%s/%d,%d,%d", p.kind, q(d[1]), q(d[2]), q(d[3]))
+		end
+		table.sort(keys)
+		return #parts .. "|" .. table.concat(keys, "|"), unit
+	end
+
+	-- what a part is, apart from its size: its class, and its mesh or its shape
+	local function partKind(p)
+		if p:IsA("MeshPart") then
+			return "MeshPart:" .. p.MeshId
+		elseif p:IsA("Part") then
+			local sm = p:FindFirstChildOfClass("SpecialMesh")
+			if sm then
+				return "Mesh:" .. sm.MeshType.Name .. ":" .. sm.MeshId
+			end
+			return "Part:" .. p.Shape.Name
+		end
+		return p.ClassName
+	end
+	local function describe(inst)
+		local parts = {}
+		local list = inst:IsA("BasePart") and { inst } or inst:GetDescendants()
+		for _, p in list do
+			if p:IsA("BasePart") then
+				table.insert(parts, { kind = partKind(p), size = p.Size })
+			end
+		end
+		return parts
+	end
+	-- a model's key (nil when it has no parts)
+	function E.keyOf(inst)
+		return E.shapeKey(describe(inst))
+	end
+
+	--------------------------------------------------------------------------------
+	-- Scanning a map for kinds
+	--------------------------------------------------------------------------------
+	-- a single part counts as a copy only when it has a shape of its own (a mesh or a union), not a plain block:
+	-- floors and walls built from blocks aren't copies of a model
+	local function shapedPart(p)
+		return p:IsA("MeshPart") or p:IsA("UnionOperation") or (p:IsA("Part") and p:FindFirstChildOfClass("SpecialMesh") ~= nil)
+	end
+	local function skipped(inst)
+		if inst:IsA("Terrain") or inst:IsA("Camera") then
+			return true
+		end
+		if inst.Name == E.OUT or inst.Name == E.ROADS then -- what the plugin placed: its areas own it
+			return inst.Parent == workspace
+		end
+		return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil -- players and NPCs
+	end
+
+	-- Finds the kinds in a map: every model or shaped part that has at least one other copy of the same shape.
+	-- A copy inside another copy (a window in a house) stays part of it, unless opts.nested. opts.roots: where to
+	-- look (default the whole Workspace); opts.pause: called now and then on a big map (e.g. task.wait, to keep
+	-- Studio responsive).
+	-- Returns the kinds, most copies first: { key, name, count, copies = { { inst, scale } }, parts }. A copy's
+	-- scale is its size against the kind's first copy.
+	function E.scanKinds(opts)
+		opts = opts or {}
+		local roots = opts.roots or { workspace }
+		-- every candidate's key, and how many share it
+		local keyOf, sizeOf, count, seen = {}, {}, {}, 0
+		local function visit(inst)
+			if skipped(inst) then
+				return
+			end
+			if inst:IsA("Model") or (inst:IsA("BasePart") and shapedPart(inst)) then
+				local key, size = E.keyOf(inst)
+				if key then
+					keyOf[inst], sizeOf[inst] = key, size
+					count[key] = (count[key] or 0) + 1
+				end
+			end
+			seen += 1
+			if opts.pause and seen % 3000 == 0 then
+				opts.pause()
+			end
+			for _, c in inst:GetChildren() do
+				visit(c)
+			end
+		end
+		for _, r in roots do
+			visit(r)
+		end
+		-- then from the top down: the first repeated shape on each branch is a copy, and what's inside it is its own
+		local byKey, list = {}, {}
+		local function pick(inst)
+			if skipped(inst) then
+				return
+			end
+			local key = keyOf[inst]
+			if key and count[key] >= 2 then
+				local k = byKey[key]
+				if not k then
+					k = { key = key, copies = {}, names = {}, parts = #describe(inst) }
+					byKey[key] = k
+					table.insert(list, k)
+				end
+				table.insert(k.copies, { inst = inst, size = sizeOf[inst] })
+				k.names[inst.Name] = (k.names[inst.Name] or 0) + 1
+				if not opts.nested then
+					return
+				end
+			end
+			for _, c in inst:GetChildren() do
+				pick(c)
+			end
+		end
+		for _, r in roots do
+			pick(r)
+		end
+		local kinds = {}
+		for _, k in list do
+			if #k.copies >= 2 then -- (a shape repeated only inside other copies has one left here)
+				local name, most = "?", 0
+				for n, c in k.names do
+					if c > most or (c == most and n < name) then
+						name, most = n, c
+					end
+				end
+				local ref = k.copies[1].size
+				for _, c in k.copies do
+					c.scale = ref > 0 and c.size / ref or 1
+					c.size = nil
+				end
+				table.insert(kinds, { key = k.key, name = name, count = #k.copies, copies = k.copies, parts = k.parts })
+			end
+		end
+		table.sort(kinds, function(a, b)
+			if a.count ~= b.count then
+				return a.count > b.count
+			end
+			return a.name < b.name
+		end)
+		return kinds
+	end
+
+	--------------------------------------------------------------------------------
+	-- The snapshot: originals kept before anything changes them
+	--------------------------------------------------------------------------------
+	-- ServerStorage › SmartScatter Snapshot holds one entry per saved copy: the original (a clone, as it was), where
+	-- it lived, and the copy in the map now. A copy is saved once, so the snapshot always holds the true original,
+	-- however many times it's changed afterwards. Tools that change a copy say so (E.snapshotChanged); Restore puts
+	-- back the changed ones.
+	local function folder(make)
+		local ss = game:GetService("ServerStorage")
+		local f = ss:FindFirstChild(SNAPSHOT)
+		if not f and make then
+			f = Instance.new("Folder")
+			f.Name = SNAPSHOT
+			f:SetAttribute("SS_Saved", os.time())
+			f.Parent = ss
+		end
+		return f
+	end
+	local function entries()
+		local f = folder(false)
+		return f and f:GetChildren() or {}
+	end
+	-- [copy in the map] = its entry, rebuilt whenever it doesn't match the folder (after an undo, say)
+	local index = {}
+	local function entryOf(inst)
+		local e = index[inst]
+		local ok = e and e.Parent == folder(false) and e:FindFirstChild("Now") and e.Now.Value == inst
+		if not ok then
+			index = {}
+			for _, x in entries() do
+				local now = x:FindFirstChild("Now")
+				if now and now.Value then
+					index[now.Value] = x
+				end
+			end
+			e = index[inst]
+		end
+		return e
+	end
+
+	-- keeps the originals of these copies (ones already kept are skipped). Returns how many were added.
+	function E.snapshot(list)
+		local have = {}
+		for _, e in entries() do
+			local now = e:FindFirstChild("Now")
+			if now and now.Value then
+				have[now.Value] = true
+			end
+		end
+		local f, added = nil, 0
+		for _, inst in list do
+			if not have[inst] and inst.Parent then
+				local old = inst.Archivable
+				inst.Archivable = true -- (a clone of a non-archivable instance is nil)
+				local copy = inst:Clone()
+				inst.Archivable = old
+				if copy then
+					f = f or folder(true)
+					local e = Instance.new("Folder")
+					e.Name = inst.Name
+					local where = Instance.new("ObjectValue")
+					where.Name = "Where"
+					where.Value = inst.Parent
+					where.Parent = e
+					local now = Instance.new("ObjectValue")
+					now.Name = "Now"
+					now.Value = inst
+					now.Parent = e
+					copy.Name = "Original"
+					copy.Parent = e
+					e.Parent = f
+					index[inst] = e
+					have[inst] = true
+					added += 1
+				end
+			end
+		end
+		return added
+	end
+
+	-- a tool changed a kept copy (swapped it for `now`, or recoloured it in place: now == inst). Returns whether
+	-- the copy was in the snapshot.
+	function E.snapshotChanged(inst, now)
+		local e = entryOf(inst)
+		if not e then
+			return false
+		end
+		e.Now.Value = now or inst
+		index[inst] = nil
+		index[now or inst] = e
+		e:SetAttribute("SS_Changed", true)
+		return true
+	end
+
+	-- { saved = copies kept, changed = copies changed since, time = when it was started } or nil
+	function E.snapshotInfo()
+		local f = folder(false)
+		if not f then
+			return nil
+		end
+		local changed = 0
+		local list = f:GetChildren()
+		for _, e in list do
+			if e:GetAttribute("SS_Changed") then
+				changed += 1
+			end
+		end
+		return { saved = #list, changed = changed, time = f:GetAttribute("SS_Saved") }
+	end
+
+	-- puts every changed copy back as it was, where it was (the originals stay kept, so it can be done again).
+	-- only (optional): a set of copies now in the map, { [inst] = true }: just those go back. Returns how many were
+	-- put back, and [copy that was in the map] = the original now back in its place.
+	function E.restoreSnapshot(only)
+		local back, map = 0, {}
+		for _, e in entries() do
+			local orig, now, where = e:FindFirstChild("Original"), e:FindFirstChild("Now"), e:FindFirstChild("Where")
+			if orig and now and e:GetAttribute("SS_Changed") and (not only or only[now.Value]) then
+				local was = now.Value
+				if was and was.Parent then
+					was:Destroy()
+				end
+				local copy = orig:Clone()
+				copy.Name = e.Name
+				copy.Parent = (where and where.Value and where.Value:IsDescendantOf(game)) and where.Value or workspace
+				now.Value = copy
+				index[copy] = e
+				e:SetAttribute("SS_Changed", nil)
+				back += 1
+				if was then
+					map[was] = copy
+				end
+			end
+		end
+		return back, map
+	end
+
+	-- forgets the snapshot (the map stays as it is now)
+	function E.clearSnapshot()
+		local f = folder(false)
+		if f then
+			f:Destroy()
+		end
+		index = {}
+	end
+
+	--------------------------------------------------------------------------------
+	-- Swapping copies for another model
+	--------------------------------------------------------------------------------
+	local CollectionService = game:GetService("CollectionService")
+	local AXES = { Vector3.xAxis, -Vector3.xAxis, Vector3.yAxis, -Vector3.yAxis, Vector3.zAxis, -Vector3.zAxis }
+	-- the model axis nearest to v
+	local function snapAxis(v)
+		local best, bd = Vector3.yAxis, -math.huge
+		for _, a in AXES do
+			local d = a:Dot(v)
+			if d > bd then
+				best, bd = a, d
+			end
+		end
+		return best
+	end
+	-- the turn that takes axis a onto axis b (both model axes)
+	local function turnBetween(a, b)
+		local d = a:Dot(b)
+		if d > 0.5 then
+			return CFrame.identity
+		elseif d < -0.5 then
+			local side = math.abs(a.X) > 0.5 and Vector3.zAxis or Vector3.xAxis
+			return CFrame.fromAxisAngle(side, math.pi)
+		end
+		return CFrame.fromAxisAngle(a:Cross(b).Unit, math.pi / 2)
+	end
+	local function boxOf(inst)
+		if inst:IsA("BasePart") then
+			return inst.CFrame, inst.Size
+		end
+		return inst:GetBoundingBox()
+	end
+	-- the middle of a copy's underside, "under" meaning along -up
+	local function baseOf(inst, up)
+		local cf, size = boxOf(inst)
+		local reach = math.abs(cf.RightVector:Dot(up)) * size.X + math.abs(cf.UpVector:Dot(up)) * size.Y + math.abs(cf.LookVector:Dot(up)) * size.Z
+		return cf.Position - up * (reach / 2)
+	end
+	local function extent(inst)
+		local _, size = boxOf(inst)
+		return math.max(size.X, size.Y, size.Z)
+	end
+	local function scaleBy(inst, f)
+		if math.abs(f - 1) < 1e-4 then
+			return
+		end
+		if inst:IsA("Model") then
+			inst:ScaleTo(inst:GetScale() * f)
+		else
+			inst.Size *= f
+		end
+	end
+	-- which way is up for a kind, in its copies' own axes (most stand the way they were built)
+	local function upOfCopies(copies)
+		local sum = Vector3.zero
+		for _, c in copies do
+			if c.inst.Parent then
+				sum += c.inst:GetPivot():VectorToObjectSpace(Vector3.yAxis)
+			end
+		end
+		return snapAxis(sum)
+	end
+	local function median(list)
+		if #list == 0 then
+			return 1
+		end
+		table.sort(list)
+		return list[math.ceil(#list / 2)]
+	end
+
+	-- what a whole kind is like, for swapping part of it the same way as the rest: its usual scale, its size at
+	-- that scale, and which way is up in its copies' axes
+	function E.kindRef(copies)
+		local scales, sizes = {}, {}
+		for _, c in copies do
+			if c.inst.Parent then
+				table.insert(scales, c.scale or 1)
+				table.insert(sizes, extent(c.inst) / (c.scale or 1))
+			end
+		end
+		return { scale = median(scales), size = median(sizes), up = upOfCopies(copies) }
+	end
+
+	-- Swaps copies for other models, each copy for one of `with` = { { inst, w } } (picked by weight).
+	-- Each new copy stands where the old one stood, turned the same way (its up matched to the old one's up), at
+	-- the old one's scale against the rest of its kind, with its underside where the old one's was.
+	-- opts: ref (E.kindRef of the whole kind; default: of these copies), size (× on top), match (make the new
+	-- model as big as the old ones), turn (extra degrees about its up), scripts / tags / attributes (carry them
+	-- over from the old copy), seed, pause (called now and then). Every old copy is kept in the snapshot first.
+	-- Returns { { old, new } }.
+	function E.swapCopies(copies, with, opts)
+		opts = opts or {}
+		local ref = opts.ref or E.kindRef(copies)
+		local total = 0
+		for _, w in with do
+			total += math.max(w.w or 1, 0)
+		end
+		if total <= 0 then
+			return {}
+		end
+		local list = {}
+		for _, c in copies do
+			if c.inst.Parent then
+				table.insert(list, c.inst)
+			end
+		end
+		E.snapshot(list)
+		local rng = Random.new(tonumber(opts.seed) or 1)
+		local out = {}
+		for n, c in copies do
+			local old = c.inst
+			if old.Parent then
+				local r, pick = rng:NextNumber() * total, with[#with]
+				for _, w in with do
+					r -= math.max(w.w or 1, 0)
+					if r <= 0 then
+						pick = w
+						break
+					end
+				end
+				local new = E.copyOf(pick.inst)
+				if new then
+					local tUp = snapAxis(pick.inst:GetPivot():VectorToObjectSpace(Vector3.yAxis))
+					-- the kind's usual copy keeps the new model's size (or, matching, the old one's), others scale with it
+					local f = opts.match and (c.scale or 1) * ref.size / math.max(extent(pick.inst), 1e-3) or (c.scale or 1) / ref.scale
+					f *= opts.size or 1
+					scaleBy(new, f)
+					local pivot = old:GetPivot()
+					local turn = CFrame.fromAxisAngle(tUp, math.rad(opts.turn or 0))
+					new:PivotTo(CFrame.new(pivot.Position) * pivot.Rotation * turnBetween(tUp, ref.up) * turn)
+					local up = pivot:VectorToWorldSpace(ref.up)
+					new:PivotTo(new:GetPivot() + (baseOf(old, up) - baseOf(new, up)))
+					if opts.scripts then
+						for _, d in old:GetDescendants() do
+							if d:IsA("LuaSourceContainer") then
+								d:Clone().Parent = new
+							end
+						end
+					end
+					if opts.tags then
+						for _, t in CollectionService:GetTags(old) do
+							CollectionService:AddTag(new, t)
+						end
+					end
+					if opts.attributes then
+						for k, v in old:GetAttributes() do
+							if new:GetAttribute(k) == nil then
+								new:SetAttribute(k, v)
+							end
+						end
+					end
+					new.Parent = old.Parent
+					E.snapshotChanged(old, new)
+					old:Destroy()
+					table.insert(out, { old = old, new = new })
+				end
+			end
+			if opts.pause and n % 200 == 0 then
+				opts.pause()
+			end
+		end
+		return out
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -12804,7 +13957,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -13485,7 +14638,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -13593,7 +14746,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14578,7 +15731,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -14903,7 +16056,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -15350,5 +16503,338 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.MAT_CLASS = MAT_CLASS
 	I.hasKeyword = hasKeyword
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
+	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
+	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or
+	taken off again exactly.
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E, I)
+	local hasKeyword = I.hasKeyword
+	local ORIG = "SS_SeasonOrig" -- the colour a part, tint or decal had before any season
+	local STATE = "SmartScatter Season" -- ServerStorage: what's applied, and the terrain as it was
+
+	E.SEASONS = { "Snow", "Autumn", "Dry" }
+	E.SEASON_HINT = {
+		Snow = "Leaves and grass go white, roofs and flat tops get snow, everything else turns cold and pale.",
+		Autumn = "Leaves turn orange, red, yellow and brown, each tree its own; the rest warms up a little.",
+		Dry = "Leaves and grass fade to straw and brown; the rest bleaches a little in the sun.",
+	}
+
+	--------------------------------------------------------------------------------
+	-- Colours
+	--------------------------------------------------------------------------------
+	local AUTUMN = {
+		Color3.fromRGB(214, 110, 32), -- orange
+		Color3.fromRGB(184, 52, 30), -- red
+		Color3.fromRGB(226, 178, 48), -- yellow
+		Color3.fromRGB(150, 88, 40), -- brown
+		Color3.fromRGB(200, 140, 40), -- gold
+	}
+	local SNOW = Color3.fromRGB(236, 241, 248)
+	local STRAW = Color3.fromRGB(196, 170, 104)
+	local DEAD = Color3.fromRGB(140, 110, 70)
+
+	-- a target colour at the original's brightness, so light and dark parts stay light and dark
+	local function atBrightness(target, c)
+		local h, s, _ = target:ToHSV()
+		local _, _, v = c:ToHSV()
+		local _, _, tv = target:ToHSV()
+		return Color3.fromHSV(h, s, math.clamp(v * 0.55 + tv * 0.45, 0, 1))
+	end
+	local function hsvShift(c, dh, ds, dv)
+		local h, s, v = c:ToHSV()
+		return Color3.fromHSV((h + dh) % 1, math.clamp(s + ds, 0, 1), math.clamp(v * (1 + dv), 0, 1))
+	end
+
+	-- A colour in a season. amount 0-1 (0 = as it is). kind.foliage: leaves, grass, bushes; kind.top: a roof or a
+	-- flat top snow settles on; kind.pick 0-1: which autumn colour this copy takes (the same for its parts).
+	function E.seasonColor(c, season, amount, kind)
+		if amount <= 0 then
+			return c
+		end
+		kind = kind or {}
+		if season == "Snow" then
+			if kind.foliage or kind.top then
+				return c:Lerp(SNOW, amount * (kind.foliage and 0.82 or 0.9))
+			end
+			return hsvShift(c, 0.02 * amount, -0.35 * amount, 0.18 * amount):Lerp(SNOW, 0.12 * amount)
+		elseif season == "Autumn" then
+			if kind.foliage then
+				local t = AUTUMN[math.clamp(math.floor((kind.pick or 0) * #AUTUMN) + 1, 1, #AUTUMN)]
+				return c:Lerp(atBrightness(t, c), amount)
+			end
+			return hsvShift(c, -0.03 * amount, 0.05 * amount, 0.03 * amount)
+		elseif season == "Dry" then
+			if kind.foliage then
+				local t = (kind.pick or 0) < 0.7 and STRAW or DEAD
+				return c:Lerp(atBrightness(t, c), amount * 0.9)
+			end
+			return hsvShift(c, -0.01 * amount, -0.2 * amount, 0.08 * amount)
+		end
+		return c
+	end
+
+	-- is it greenery? its material, its colour (clearly green) or its name
+	local LEAF_WORDS = { "leaf", "leaves", "foliage", "bush", "shrub", "grass", "canopy", "needle", "pine", "fern", "hedge", "ivy", "moss" }
+	local function isFoliage(p, c)
+		if p.Material == Enum.Material.Grass or p.Material == Enum.Material.LeafyGrass then
+			return true
+		end
+		local h, s, v = c:ToHSV()
+		if h > 0.17 and h < 0.45 and s > 0.25 and v > 0.12 then
+			return true
+		end
+		return hasKeyword(p.Name, LEAF_WORDS) or (p.Parent and hasKeyword(p.Parent.Name, LEAF_WORDS))
+	end
+	-- does snow settle on it: a roof, or a flat slab facing up
+	local function isTop(p)
+		if hasKeyword(p.Name, { "roof", "rooftop" }) then
+			return true
+		end
+		local s = p.Size
+		local up = p.CFrame.UpVector.Y
+		return (p:IsA("WedgePart") and up > 0.5) or (up > 0.9 and s.Y <= math.min(s.X, s.Z) * 0.5)
+	end
+	-- a number 0-1 that's the same for every part of one copy, and differs between copies
+	local function pickOf(p)
+		local unit = p.Parent and p.Parent:IsA("Model") and p.Parent or p
+		local pos = unit:GetPivot().Position
+		local n = math.sin(pos.X * 12.9898 + pos.Y * 4.1414 + pos.Z * 78.233) * 43758.5453
+		return n - math.floor(n)
+	end
+
+	--------------------------------------------------------------------------------
+	-- Applying a season to a map
+	--------------------------------------------------------------------------------
+	local function stateFolder(make)
+		local ss = game:GetService("ServerStorage")
+		local f = ss:FindFirstChild(STATE)
+		if not f and make then
+			f = Instance.new("Folder")
+			f.Name = STATE
+			f.Parent = ss
+		end
+		return f
+	end
+	local function skipped(inst)
+		if inst:IsA("Terrain") or inst:IsA("Camera") then
+			return true
+		end
+		if (inst.Name == E.OUT or inst.Name == E.ROADS) and inst.Parent == workspace then -- areas colour themselves
+			return true
+		end
+		return inst:IsA("Model") and inst:FindFirstChildOfClass("Humanoid") ~= nil
+	end
+	-- sets a colour property, keeping the first value it ever had as the original
+	local function setKept(obj, prop, to)
+		if obj:GetAttribute(ORIG) == nil then
+			obj:SetAttribute(ORIG, obj[prop])
+		end
+		obj[prop] = to
+	end
+	local function original(obj, prop)
+		local o = obj:GetAttribute(ORIG)
+		return typeof(o) == "Color3" and o or obj[prop]
+	end
+
+	local TERRAIN_GREEN = { Enum.Material.Grass, Enum.Material.LeafyGrass }
+	local TERRAIN_TO = { Snow = Enum.Material.Snow, Dry = Enum.Material.Ground } -- (autumn keeps its grass)
+
+	-- the terrain cells (4 studs each) around what's in the roots, grown a little: where terrain changes stay
+	local function cellsAround(roots)
+		local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+		for _, r in roots do
+			for _, d in r:IsA("BasePart") and { r } or r:GetDescendants() do
+				if d:IsA("BasePart") then
+					lo, hi = lo:Min(d.Position), hi:Max(d.Position)
+				end
+			end
+		end
+		if lo.X > hi.X then
+			return nil
+		end
+		local pad = 64
+		local function cell(v, f)
+			return Vector3.new(f(v.X / 4), f(v.Y / 4), f(v.Z / 4))
+		end
+		return cell(lo - Vector3.new(pad, pad, pad), math.floor), cell(hi + Vector3.new(pad, pad, pad), math.ceil)
+	end
+	local function v16(v)
+		return Vector3int16.new(v.X, v.Y, v.Z)
+	end
+
+	-- puts the terrain back as it was before any season changed its materials
+	local function restoreTerrain()
+		local f = stateFolder(false)
+		local saved = f and f:FindFirstChild("Terrain")
+		if saved and saved:IsA("TerrainRegion") then
+			local corner = f:GetAttribute("SS_TerrainCorner")
+			if typeof(corner) == "Vector3" then
+				workspace.Terrain:PasteRegion(saved, Vector3int16.new(corner.X, corner.Y, corner.Z), true)
+			end
+			saved:Destroy()
+			f:SetAttribute("SS_TerrainCorner", nil)
+		end
+		local t = workspace.Terrain
+		for _, m in TERRAIN_GREEN do
+			local o = t:GetAttribute("SS_SeasonOrig_" .. m.Name)
+			if typeof(o) == "Color3" then
+				t:SetMaterialColor(m, o)
+				t:SetAttribute("SS_SeasonOrig_" .. m.Name, nil)
+			end
+		end
+	end
+
+	-- Puts the map in a season. opts: season (E.SEASONS), strength 0-1, patchy 0-1 (0: the same everywhere;
+	-- higher: stronger in some places than others, following a pattern of patchSize studs), seed, roots (default
+	-- the whole Workspace; what Smart Scatter placed and characters are left out), terrainColors (grass colours),
+	-- terrainMaterials (grass turns to snow or dry ground, Snow and Dry only), pause. Starts from the original
+	-- colours, so one season replaces another. Returns how many parts changed, and false if the terrain couldn't
+	-- be changed (too big an area to keep a copy of, say).
+	function E.applySeason(opts)
+		local season, strength = opts.season or "Snow", math.clamp(opts.strength or 1, 0, 1)
+		local roots = opts.roots or { workspace }
+		local noise = { pattern = "Natural", patchSize = opts.patchSize or 90, seed = tonumber(opts.seed) or 7 }
+		local patchy = math.clamp(opts.patchy or 0, 0, 1)
+		local function amountAt(pos)
+			if patchy <= 0 then
+				return strength
+			end
+			return strength * (1 - patchy + patchy * E.patternAt(noise, pos.X, pos.Z))
+		end
+		local n, seen = 0, 0
+		local function recolor(p)
+			local base = original(p, "Color")
+			local amount = amountAt(p.Position)
+			local kind = { foliage = isFoliage(p, base), top = season == "Snow" and isTop(p), pick = pickOf(p) }
+			setKept(p, "Color", E.seasonColor(base, season, amount, kind))
+			for _, d in p:GetChildren() do
+				if d:IsA("SurfaceAppearance") then
+					pcall(function() -- (older Studio builds have no SurfaceAppearance.Color)
+						setKept(d, "Color", E.seasonColor(original(d, "Color"), season, amount, kind))
+					end)
+				elseif d:IsA("Decal") then
+					setKept(d, "Color3", E.seasonColor(original(d, "Color3"), season, amount, kind))
+				end
+			end
+			n += 1
+		end
+		local function visit(inst)
+			if skipped(inst) then
+				return
+			end
+			if inst:IsA("BasePart") then
+				recolor(inst)
+			end
+			seen += 1
+			if opts.pause and seen % 2000 == 0 then
+				opts.pause()
+			end
+			for _, c in inst:GetChildren() do
+				visit(c)
+			end
+		end
+		for _, r in roots do
+			visit(r)
+		end
+
+		-- the terrain: back to how it was first, then this season
+		restoreTerrain()
+		local t = workspace.Terrain
+		if opts.terrainColors then
+			for _, m in TERRAIN_GREEN do
+				local c = t:GetMaterialColor(m)
+				t:SetAttribute("SS_SeasonOrig_" .. m.Name, c)
+				t:SetMaterialColor(m, E.seasonColor(c, season, strength, { foliage = true, pick = 0.3 }))
+			end
+		end
+		local to, terrainOk = TERRAIN_TO[season], true
+		if opts.terrainMaterials and to and strength > 0 then
+			local c0, c1 = cellsAround(roots)
+			if c0 then
+				-- the terrain there is kept first (pasted back when the season changes or comes off)
+				terrainOk = pcall(function()
+					local saved = t:CopyRegion(Region3int16.new(v16(c0), v16(c1 - Vector3.one)))
+					local f = stateFolder(true)
+					saved.Name = "Terrain"
+					saved.Parent = f
+					f:SetAttribute("SS_TerrainCorner", c0)
+					-- in blocks, so a whole map is never one huge call
+					local B = 128 -- cells (512 studs)
+					for x = c0.X, c1.X - 1, B do
+						for y = c0.Y, c1.Y - 1, B do
+							for z = c0.Z, c1.Z - 1, B do
+								local lo = Vector3.new(x, y, z)
+								local hi = Vector3.new(math.min(x + B, c1.X), math.min(y + B, c1.Y), math.min(z + B, c1.Z))
+								local region = Region3.new(lo * 4, hi * 4)
+								for _, m in TERRAIN_GREEN do
+									t:ReplaceMaterial(region, 4, m, to)
+								end
+								if opts.pause then
+									opts.pause()
+								end
+							end
+						end
+					end
+				end)
+			end
+		end
+		local f = stateFolder(true)
+		f:SetAttribute("SS_Season", season)
+		f:SetAttribute("SS_Strength", strength)
+		f:SetAttribute("SS_Parts", n)
+		return n, terrainOk
+	end
+
+	-- { season, strength, parts } of the season on the map, or nil
+	function E.seasonInfo()
+		local f = stateFolder(false)
+		if not f or not f:GetAttribute("SS_Season") then
+			return nil
+		end
+		return { season = f:GetAttribute("SS_Season"), strength = f:GetAttribute("SS_Strength") or 1, parts = f:GetAttribute("SS_Parts") or 0 }
+	end
+
+	-- Takes the season off: every colour back to its original, and the terrain as it was. roots: where to look
+	-- (default the whole Workspace). Returns how many parts went back.
+	function E.clearSeason(opts)
+		opts = opts or {}
+		local n, seen = 0, 0
+		local function back(obj, prop)
+			local o = obj:GetAttribute(ORIG)
+			if typeof(o) == "Color3" then
+				obj[prop] = o
+			end
+			if o ~= nil then
+				obj:SetAttribute(ORIG, nil)
+			end
+		end
+		for _, r in opts.roots or { workspace } do
+			for _, d in r:GetDescendants() do
+				if d:IsA("BasePart") and d:GetAttribute(ORIG) ~= nil then
+					back(d, "Color")
+					n += 1
+				elseif d:IsA("SurfaceAppearance") and d:GetAttribute(ORIG) ~= nil then
+					pcall(back, d, "Color")
+				elseif d:IsA("Decal") and d:GetAttribute(ORIG) ~= nil then
+					back(d, "Color3")
+				end
+				seen += 1
+				if opts.pause and seen % 4000 == 0 then
+					opts.pause()
+				end
+			end
+		end
+		restoreTerrain()
+		local f = stateFolder(false)
+		if f then
+			f:Destroy()
+		end
+		return n
+	end
 end
 ]]></ProtectedString></Properties></Item></Item></Item></roblox>

@@ -1,10 +1,10 @@
 {
- "version": "9.49",
- "build": 113,
+ "version": "9.50",
+ "build": 114,
  "modules": {
   "App": {
    "path": "modules/App.lua",
-   "sum": 897873991
+   "sum": 590656795
   },
   "App/Core/Cards": {
    "path": "modules/App/Core/Cards.lua",
@@ -24,7 +24,7 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 381540564
+   "sum": 657483785
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
@@ -34,13 +34,17 @@
    "path": "modules/App/Panel/Header.lua",
    "sum": 502168983
   },
+  "App/Panel/MapTools": {
+   "path": "modules/App/Panel/MapTools.lua",
+   "sum": 711778477
+  },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
    "sum": 389029674
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 713034572
+   "sum": 853754131
   },
   "App/Panel/Tabs/Brush": {
    "path": "modules/App/Panel/Tabs/Brush.lua",
@@ -48,7 +52,7 @@
   },
   "App/Panel/Tabs/Map": {
    "path": "modules/App/Panel/Tabs/Map.lua",
-   "sum": 121495907
+   "sum": 704422824
   },
   "App/Panel/Tabs/Scatter": {
    "path": "modules/App/Panel/Tabs/Scatter.lua",
@@ -60,7 +64,7 @@
   },
   "App/Panel/Tour": {
    "path": "modules/App/Panel/Tour.lua",
-   "sum": 526233756
+   "sum": 349305953
   },
   "App/Viewport/Overlay": {
    "path": "modules/App/Viewport/Overlay.lua",
@@ -76,7 +80,7 @@
   },
   "Engine": {
    "path": "modules/Engine.lua",
-   "sum": 772857173
+   "sum": 718311587
   },
   "Engine/Areas": {
    "path": "modules/Engine/Areas.lua",
@@ -89,6 +93,10 @@
   "Engine/Generate": {
    "path": "modules/Engine/Generate.lua",
    "sum": 84172933
+  },
+  "Engine/Kinds": {
+   "path": "modules/Engine/Kinds.lua",
+   "sum": 103455714
   },
   "Engine/Lines": {
    "path": "modules/Engine/Lines.lua",
@@ -113,6 +121,10 @@
   "Engine/Scan": {
    "path": "modules/Engine/Scan.lua",
    "sum": 906692989
+  },
+  "Engine/Seasons": {
+   "path": "modules/Engine/Seasons.lua",
+   "sum": 672870976
   }
  }
 }

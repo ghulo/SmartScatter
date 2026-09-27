@@ -84,6 +84,7 @@ return function(App)
 		shape = "Circle",
 		fillReach = 120,
 		paintOn = {},
+		scanSelection = false, -- the map scan looks only inside the selection
 		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
 	}
 	do

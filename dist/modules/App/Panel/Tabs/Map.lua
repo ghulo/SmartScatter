@@ -1,6 +1,6 @@
 --[[
-	Smart Scatter — Map tab: the shapes on the map. The path (drawing it, its curve and its road), and telling the
-	scan what the parts of the map are.
+	Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
+	for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -10,7 +10,7 @@ return function(App)
 		local cs = App.cards(page, "map")
 		local kind = a and App.kindOf(a)
 		local drawn = App.hasPath()
-		if kind ~= "Clear" then
+		if a and kind ~= "Clear" then
 			local isPath = kind == "Path"
 			local card = cs.add({
 				id = "path",
@@ -43,11 +43,43 @@ return function(App)
 			end
 		end
 		cs.add({
-			id = "scanfix",
-			title = "Fix what the scan sees",
-			keys = "mark road path building water rescan",
-			more = kind ~= "Clear",
-			build = App.buildScanFix,
+			id = "mapscan",
+			title = "Map scan",
+			icon = "search",
+			sub = "Every repeated model in a finished map, grouped by shape",
+			keys = "scan kinds copies find repeated models select duplicates",
+			build = App.buildMapScan,
 		})
+		cs.add({
+			id = "swap",
+			title = "Swap models",
+			icon = "refresh",
+			sub = "Replace every copy of a kind with another model or a mix",
+			keys = "swap replace model mix kind copies preview try",
+			build = App.buildSwap,
+		})
+		cs.add({
+			id = "seasons",
+			title = "Seasons",
+			sub = "Snowy, autumn or dry, fully or in patches",
+			keys = "season snow winter autumn fall dry summer colour color terrain",
+			build = App.buildSeasons,
+		})
+		cs.add({
+			id = "snapshot",
+			title = "Snapshot",
+			sub = "Keep the originals, and put them back with one click",
+			keys = "save keep originals restore backup revert",
+			build = App.buildSnapshot,
+		})
+		if a then
+			cs.add({
+				id = "scanfix",
+				title = "Fix what the scan sees",
+				keys = "mark road path building water rescan",
+				more = kind ~= "Clear",
+				build = App.buildScanFix,
+			})
+		end
 	end
 end
