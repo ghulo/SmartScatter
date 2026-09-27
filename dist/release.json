@@ -1,6 +1,6 @@
 {
- "version": "9.75",
- "build": 139,
+ "version": "9.76",
+ "build": 140,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -24,7 +24,7 @@
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
-   "sum": 858279991
+   "sum": 591119319
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
@@ -52,7 +52,7 @@
   },
   "App/Panel/Palette": {
    "path": "modules/App/Panel/Palette.lua",
-   "sum": 890771376
+   "sum": 219854763
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",

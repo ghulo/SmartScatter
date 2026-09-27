@@ -5163,7 +5163,9 @@ local G, saveG, P, Engine = App.G, App.saveG, App.P, App.Engine
 local new, box, label, corner, stroke, pad = App.new, App.box, App.label, App.corner, App.stroke, App.pad
 local SANS, SANS_M, SANS_B = App.SANS, App.SANS_M, App.SANS_B
 local UIS = game:GetService("UserInputService")
-local ROW, HEAD, SHOWN, WIDTH = 30, 22, 10, 440
+local ROW, HEAD, SHOWN, WIDTH = 30, 22, 10, 500
+local BLUR, DIM = 6, { Saturation = -0.25, Brightness = -0.04 }
+local SEE = 0.08
 local RECENT = 5
 local GROUP_ICON = {
 Generate = "logo",
@@ -5667,6 +5669,24 @@ App.paletteResults = function(text)
 return results(text, actions())
 end
 local gui, conns, closing = nil, {}, false
+local blur, dim
+local function stepBack(on)
+local cam = workspace.CurrentCamera
+if on and cam then
+blur = new("BlurEffect", { Name = "SmartScatterPaletteBlur", Archivable = false, Size = 0, Parent = cam })
+dim = new("ColorCorrectionEffect", { Name = "SmartScatterPaletteDim", Archivable = false, Parent = cam })
+App.tween(blur, App.FAST, { Size = BLUR })
+App.tween(dim, App.FAST, DIM)
+return
+end
+for _, e in { blur, dim } do
+App.tween(e, App.FAST, e:IsA("BlurEffect") and { Size = 0 } or { Saturation = 0, Brightness = 0 })
+task.delay(0.25, function()
+e:Destroy()
+end)
+end
+blur, dim = nil, nil
+end
 local function close()
 for _, c in conns do
 c:Disconnect()
@@ -5675,6 +5695,7 @@ table.clear(conns)
 if gui then
 gui:Destroy()
 gui = nil
+stepBack(false)
 end
 end
 App.closePalette = close
@@ -5709,6 +5730,7 @@ if gui then
 return
 end
 local all = actions()
+stepBack(true)
 gui = new("ScreenGui", {
 Name = "SmartScatterPalette",
 Archivable = false,
@@ -5728,7 +5750,7 @@ local view = gui.AbsoluteSize.X > 0 and gui.AbsoluteSize or workspace.CurrentCam
 local height = 40 + 1 + SHOWN * ROW + 8 + 24
 local mx, my = App.rawMouse.X, App.rawMouse.Y
 local win = box({
-BackgroundTransparency = 0,
+BackgroundTransparency = SEE,
 BackgroundColor3 = P.card,
 Position = UDim2.fromOffset(
 math.clamp(mx - 60, 8, math.max(view.X - WIDTH - 8, 8)),
@@ -5930,6 +5952,19 @@ tb:CaptureFocus()
 end
 end)
 end
+local cam = workspace.CurrentCamera
+for _, name in { "SmartScatterPaletteBlur", "SmartScatterPaletteDim" } do
+local e = cam and cam:FindFirstChild(name)
+if e then
+e:Destroy()
+end
+end
+pcall(function()
+local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterPalette")
+if g then
+g:Destroy()
+end
+end)
 end
 end)()
 -- #module App/Panel/Tour
@@ -6480,6 +6515,9 @@ removeSplineViz()
 clearOverlay()
 if App.clearFocus then
 App.clearFocus()
+end
+if App.closePalette then
+App.closePalette()
 end
 if App.root then
 App.root:Destroy()
