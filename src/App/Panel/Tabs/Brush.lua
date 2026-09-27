@@ -113,7 +113,7 @@ return function(App)
 				sub = kind == "Clear" and "Where nothing from any area may go"
 					or painted and string.format("%s studs² painted. Keep painting, or tune what fills it.", App.num(a.count * a.cell * a.cell))
 					or "Pick a tool, then paint the ground in the viewport",
-				keys = "paint ground brush lasso box polygon fill erase size shape reach selected parts",
+				keys = "paint ground brush lasso box polygon fill erase all delete size shape reach selected parts",
 				build = App.buildPaintTools,
 			})
 			App.ui.step1Card = card
@@ -150,7 +150,7 @@ return function(App)
 					id = "tidy",
 					title = "Tidy the edge",
 					sub = "Fill holes, smooth, grow or shrink what's painted",
-					keys = "fill holes smooth grow shrink erase all paint cleanup",
+					keys = "fill holes smooth grow shrink cleanup",
 					more = true,
 					build = App.buildTidy,
 				})

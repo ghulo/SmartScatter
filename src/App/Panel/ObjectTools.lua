@@ -414,17 +414,34 @@ return function(App)
 			keys = "brush more less erase reset place pins",
 			more = more,
 			build = function(b)
+				-- the modes that add or change, in a strip; Erase on its own beside it, red, so it can't be mistaken
 				local labels, modeOf = {}, {}
 				for _, m in App.LAYER_ORDER do
-					table.insert(labels, App.LAYER_LABEL[m])
-					modeOf[App.LAYER_LABEL[m]] = m
+					if m ~= "None" then
+						table.insert(labels, App.LAYER_LABEL[m])
+						modeOf[App.LAYER_LABEL[m]] = m
+					end
 				end
+				local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = b })
 				local seg, refresh = segmented(labels, function()
-					return App.paintLayer == l and App.LAYER_LABEL[App.mode] or nil
+					return App.paintLayer == l and App.mode ~= "None" and App.LAYER_LABEL[App.mode] or nil
 				end, function(label)
 					App.setMode(modeOf[label], l)
 				end, nil, nil, true, nil, LAYER_HINT)
-				seg.Parent = b
+				seg.Size = UDim2.new(1, -100, 1, 0)
+				seg.Parent = row
+				local erase, eraseLook = App.dangerButton("Erase", function()
+					App.setMode("None", l)
+				end, {
+					on = function()
+						return App.paintLayer == l and App.mode == "None"
+					end,
+				})
+				erase.AutomaticSize = Enum.AutomaticSize.None
+				erase.Size = UDim2.fromOffset(92, 30)
+				erase.AnchorPoint, erase.Position = Vector2.new(1, 0), UDim2.fromScale(1, 0)
+				erase.Parent = row
+				hintOn(erase, LAYER_HINT.Erase .. " Shift while brushing does the same in any other mode.")
 				local what = App.para("", { Parent = b })
 				what.TextColor3 = P.dim
 				local function say()
@@ -435,6 +452,7 @@ return function(App)
 				say()
 				App.ui.refreshLayerBrush = function()
 					refresh()
+					eraseLook()
 					say()
 				end
 				slider("Brush size", 4, 200, function()
@@ -444,17 +462,6 @@ return function(App)
 				end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. App.keyText("size") .. " sizes it with the mouse.", 24).Parent =
 					b
 				App.keyChips(b, { { "Shift", "opposite" }, { App.keyText("size"), "size" }, { App.keyText("cancel"), "stop" } })
-				local acts = buttonRow(b)
-				if l.pins then
-					hintOn(
-						button(string.format("Remove %d placed by hand", #l.pins), "ghost", function()
-							l.pins = nil
-							commit(l)
-							App.refreshObjects()
-						end, { Parent = acts }),
-						"Takes out every copy of it you put down with Place."
-					)
-				end
 				if l.paint then
 					hintOn(
 						button("Reset all painting", nil, function()
@@ -464,9 +471,20 @@ return function(App)
 							end
 							commit(l)
 							App.refreshObjects()
-						end, { Parent = acts }),
+						end, { Parent = buttonRow(b) }),
 						"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
 					)
+				end
+				if l.pins then -- what takes away for good, at the bottom, apart
+					gap(b, 2)
+					App.fadeLine(b, nil, 0.14)
+					local rm = App.dangerButton(string.format("Remove all %d placed by hand", #l.pins), function()
+						l.pins = nil
+						commit(l)
+						App.refreshObjects()
+					end, { confirm = "Click again to remove", full = true })
+					rm.Parent = b
+					hintOn(rm, "Takes out every copy of it you put down with Place. Ctrl+Z brings them back.")
 				end
 			end,
 		})
@@ -1326,14 +1344,15 @@ return function(App)
 	-- single copies: take out the one that looks wrong, or bring them all back
 	local function fillRemoveCopies(b)
 		local fix = buttonRow(b)
-		local pick = button("", nil, function()
+		local pick, refresh = App.dangerButton("Remove single copies", function()
 			App.setMode("Remove")
-		end, { Parent = fix })
-		hintOn(pick, "Click placed copies in the viewport to take them out. Generating again keeps them out.")
-		local function refresh()
-			pick.Text = App.mode == "Remove" and "Done removing" or "Remove single copies"
-		end
-		refresh()
+		end, {
+			on = function()
+				return App.mode == "Remove"
+			end,
+		})
+		pick.Parent = fix
+		hintOn(pick, "Lit: click placed copies in the viewport to take them out; click here again when done. Generating again keeps them out.")
 		App.ui.refreshRemoveBtn = refresh
 		local n = App.area and Engine.removedCount(App.area) or 0
 		if n > 0 then
