@@ -14,8 +14,8 @@ return function(App)
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
-		if G.ghost then
-			return "Boxes only: turn off Preview as boxes to place the real models.", false
+		if App.area and App.area.folder.Parent and App.Engine.isPreview(App.area) then
+			return "Some are still a preview (boxes): press Generate to place the real models.", false
 		end
 		local heavy = App.lastParts > 20000
 		return heavy and "That's heavy. Lower the amount or use simpler models." or App.lastParts > 8000 and "Getting heavy for phones." or "", heavy
@@ -222,7 +222,7 @@ return function(App)
 			if App.worldChanged() then -- read the ground again only if something under the area changed
 				App.analysisDirty = true
 			end
-			runGenerate(true)
+			runGenerate(true, nil, nil, true) -- the real models, a live preview's boxes too
 		end)
 		hintOn(App.ui.genBtn, function()
 			if App.busy() then
@@ -235,7 +235,7 @@ return function(App)
 			if App.failure then
 				return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
 			end
-			return "Places everything now. With Live on, changes do this by themselves."
+			return "Places the real models now. With Live on, changes show as see-through boxes first; this turns them into the models."
 		end)
 
 		-- Live update: a pill that lights up when on
@@ -272,9 +272,16 @@ return function(App)
 			if G.live then
 				commit()
 			end
-			App.status(G.live and "Live update on: every change rebuilds as you make it." or "Live update off: changes wait for Generate.")
+			App.status(
+				G.live
+						and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+					or "Live off: changes wait for Generate."
+			)
 		end)
-		hintOn(live, "On: every change rebuilds the area as you make it. Off: changes wait for the Generate button.")
+		hintOn(
+			live,
+			"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
+		)
 
 		local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 		shuffle.LayoutOrder = 2

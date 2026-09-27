@@ -1202,6 +1202,33 @@ local ok, err = pcall(function()
 			stayed > 0 and moved == 0,
 			string.format("%d kept, %d far copies rebuilt", stayed, moved)
 		)
+		-- a live preview is boxes; a real run turns them into the models, a locked object's too
+		local out = { walk = true, shadows = true, query = true, ghost = true }
+		local _, boxes = E.generate(a, an, 1, templates, { output = out })
+		local function looks()
+			local ghosts, models = 0, 0
+			for _, m in a.folder:GetDescendants() do
+				if m:GetAttribute("SS_Type") then
+					if m:IsA("Part") and m.Transparency > 0.5 and not m.CanQuery then
+						ghosts += 1
+					else
+						models += 1
+					end
+				end
+			end
+			return ghosts, models
+		end
+		local g1, m1 = looks()
+		check("a live preview places boxes", boxes > 0 and g1 == boxes and m1 == 0 and E.isPreview(a), string.format("%d boxes, %d models", g1, m1))
+		a.layers[1].s.locked = true
+		local _, real = E.generate(a, an, 1, templates, {})
+		local g2, m2 = looks()
+		check(
+			"Generate turns a preview into the real models, even a locked object's",
+			real > 0 and g2 == 0 and m2 == real and not E.isPreview(a),
+			string.format("%d boxes, %d models", g2, m2)
+		)
+		a.layers[1].s.locked = false
 	end
 
 	-- map scan: copies grouped by shape (renamed, turned and scaled still match), nested copies left inside theirs,

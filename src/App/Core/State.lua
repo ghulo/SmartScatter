@@ -83,7 +83,7 @@ return function(App)
 		chunks = false,
 		accent = "Sage", -- the accent theme (ACCENTS below)
 		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
-		ghost = false, -- preview as boxes: one see-through box per copy, for quick tuning of big areas
+		liveBoxes = true, -- Live previews as see-through boxes (one per copy) until Generate places the real models
 		tool = "Brush",
 		shape = "Circle",
 		fillReach = 120,

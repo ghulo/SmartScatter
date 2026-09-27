@@ -169,6 +169,10 @@ return function(App)
 					App.status("Nothing to bake yet. Generate first.")
 					return
 				end
+				if Engine.isPreview(a) then -- boxes would be baked, not the models
+					App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
+					return
+				end
 				App.cancelJob()
 				local rec = beginRec("Smart Scatter: Bake")
 				local out, count = Engine.bake(a)

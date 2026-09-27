@@ -152,12 +152,20 @@ return function(E, I)
 			end
 		end
 
-		-- which layers can stay as they are
+		-- which layers can stay as they are. A live preview (see-through boxes) never stays for a real run: Generate
+		-- turns every preview into the real models, a locked object's too.
+		local previewed = {}
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Ghost") then
+				previewed[f:GetAttribute("SS_Key") or ""] = true
+			end
+		end
 		local keep = {}
 		for _, p in plans do
 			local l = p.layer
-			if l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from)) then
-				keep[E.layerKey(l)] = l
+			local key = E.layerKey(l)
+			if (l.s.locked or (opts.from and l ~= opts.from and before(l, opts.from))) and not (previewed[key] and not ctx.output.ghost) then
+				keep[key] = l
 			end
 		end
 		local folders, counts, total = {}, {}, 0
@@ -191,6 +199,9 @@ return function(E, I)
 			local pl = partial[key]
 			if pl and not partial[pl] then
 				partial[pl] = f
+				if ctx.output.ghost then -- boxes merged into it: it's a preview now
+					f:SetAttribute("SS_Ghost", true)
+				end
 				local n = 0
 				for _, inst in f:GetDescendants() do
 					if not CORE[inst:GetAttribute("SS_Type")] then
@@ -250,6 +261,7 @@ return function(E, I)
 				hide(f)
 				f.Name = l.inst.Name
 				f:SetAttribute("SS_Key", E.layerKey(l))
+				f:SetAttribute("SS_Ghost", ctx.output.ghost or nil) -- a live preview: boxes, not the models yet
 				folders[l] = f
 				table.insert(staged, f)
 			end
