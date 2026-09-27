@@ -333,8 +333,9 @@ return function(App)
 
 	-- a finished edit: saved as one undo step (the objects aren't part of it: undo rebuilds them from the saved
 	-- settings), then one run that also covers any preview still pending
-	local function commit(from)
-		local rec = beginRec("Smart Scatter: Change settings")
+	-- saves the area as one undo step (named `what`, or "Change settings") and, when live, rebuilds from `from` on
+	local function commit(from, what)
+		local rec = beginRec("Smart Scatter: " .. (what or "Change settings"))
 		saveArea()
 		endRec(rec)
 		if not G.live then

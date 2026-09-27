@@ -2475,8 +2475,8 @@ end
 liveLoop = false
 end)
 end
-local function commit(from)
-local rec = beginRec("Smart Scatter: Change settings")
+local function commit(from, what)
+local rec = beginRec("Smart Scatter: " .. (what or "Change settings"))
 saveArea()
 endRec(rec)
 if not G.live then
@@ -4121,6 +4121,19 @@ rebuildOverlay()
 end
 App.rebuildAll()
 end
+local function removeObject(l)
+local i = App.area and table.find(App.area.layers, l)
+if not i then
+return
+end
+table.remove(App.area.layers, i)
+if App.heatLayer == l then
+App.heatLayer = nil
+end
+commit(nil, "Remove " .. l.inst.Name)
+showObject(nil)
+App.status(string.format("Removed %s. Ctrl+Z brings it back.", l.inst.Name))
+end
 local function modelRow(parent, inst, text, actions)
 local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = parent })
 local th = thumbnail(inst, 28)
@@ -4868,9 +4881,7 @@ end, { Parent = actions }),
 "Selects the source model in the Explorer."
 )
 button("Remove object", "danger", function()
-table.remove(App.area.layers, table.find(App.area.layers, l))
-commit()
-showObject(nil)
+removeObject(l)
 end, { Parent = actions })
 end
 local function layerRules(l, parent, c)
@@ -4932,15 +4943,15 @@ th.Position = UDim2.fromOffset(8, 8)
 th.Parent = r
 local name = label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, l.s.enabled and P.text or P.faint, SANS_B, {
 Position = UDim2.fromOffset(62, 9),
-Size = UDim2.new(1, -112, 0, 18),
+Size = UDim2.new(1, -144, 0, 18),
 Parent = r,
 })
-local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(62, 27), Size = UDim2.new(1, -112, 0, 16), Parent = r })
+local kind = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(62, 27), Size = UDim2.new(1, -144, 0, 16), Parent = r })
 local barTrack = box({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.raised,
 Position = UDim2.fromOffset(62, 47),
-Size = UDim2.new(1, -112, 0, 3),
+Size = UDim2.new(1, -144, 0, 3),
 Parent = r,
 }, { corner(2) })
 local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.accent, Size = UDim2.fromScale(0, 1), Parent = barTrack }, { corner(2) })
@@ -4957,6 +4968,34 @@ sw.Position = UDim2.new(1, -48, 0.5, -11)
 sw.ZIndex = 3
 sw.Parent = r
 hintOn(sw, "On or off, keeping its settings.")
+local x = new("TextButton", {
+Name = "Remove",
+Text = "",
+AutoButtonColor = false,
+BackgroundColor3 = P.danger,
+BackgroundTransparency = 1,
+AnchorPoint = Vector2.new(0, 0.5),
+Position = UDim2.new(1, -80, 0.5, 0),
+Size = UDim2.fromOffset(24, 24),
+ZIndex = 3,
+Parent = r,
+}, { corner(7) })
+local xi = App.icon("close", 11, P.faint)
+xi.AnchorPoint, xi.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+xi.Parent = x
+x.MouseEnter:Connect(function()
+x.BackgroundTransparency = 0.82
+App.setIconColor(xi, P.danger)
+end)
+x.MouseLeave:Connect(function()
+x.BackgroundTransparency = 1
+App.setIconColor(xi, P.faint)
+end)
+App.pressable(x, 0.9)
+hintOn(x, "Removes this object and what it placed. Ctrl+Z brings it back.")
+x.MouseButton1Click:Connect(function()
+removeObject(l)
+end)
 r.MouseButton1Click:Connect(function()
 showObject(l)
 end)
