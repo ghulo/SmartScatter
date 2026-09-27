@@ -1439,9 +1439,10 @@ return function(App)
 			end
 		end
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
-			local ok, why = canGenerate()
+			local ok = canGenerate()
 			local failed = ok and App.failure ~= nil
-			App.ui.genBtn.Text = failed and "Generate failed  ·  click to try again" or ok and "Generate" or (why or "Generate")
+			-- always one short word; what's missing, or why it failed, is in its tooltip
+			App.ui.genBtn.Text = failed and "Try again" or "Generate"
 			tween(App.ui.genBtn, FAST, {
 				BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 				TextColor3 = ok and P.onAccent or P.faint,

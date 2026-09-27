@@ -952,7 +952,7 @@ return function(App)
 			refreshParams()
 			gizmoFolder()
 			local t = modeText(MODE_TEXT[App.mode] and App.mode or G.tool)
-			App.status((App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
+			App.hint(App.mode .. G.tool, (App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
 			updateGizmo(mouseHit())
 		else
 			removeGizmo()
@@ -971,7 +971,7 @@ return function(App)
 		if App.mode ~= "Paint" and App.mode ~= "Erase" then
 			App.setMode("Paint")
 		else
-			App.status(modeText(t))
+			App.hint("Paint" .. t, modeText(t))
 			updateGizmo(mouseHit())
 		end
 	end

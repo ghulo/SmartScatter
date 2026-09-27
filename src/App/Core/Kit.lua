@@ -481,12 +481,16 @@ return function(App)
 			end)
 		end)
 	end
+	-- hint: the tooltip's text, or a function giving it when the mouse arrives (for a hint that changes)
 	local function hintOn(obj, hint)
 		if not hint then
 			return
 		end
 		obj.MouseEnter:Connect(function()
-			showTip(obj, hint)
+			local text = type(hint) == "function" and hint() or hint
+			if text then
+				showTip(obj, text)
+			end
 		end)
 		obj.MouseLeave:Connect(hideTip)
 		obj.AncestryChanged:Connect(hideTip)
@@ -791,6 +795,20 @@ return function(App)
 		if name == "brush" then
 			ring(0.5, 0.5, 0.36)
 			ring(0.5, 0.5, 0.09, true)
+		elseif name == "undo" then -- a hooked arrow back: left along the top, round the right, back along the bottom
+			bar(0.28, 0.34, 0.6, 0.34)
+			bar(0.28, 0.34, 0.42, 0.2)
+			bar(0.28, 0.34, 0.42, 0.48)
+			local last
+			for k = 0, 6 do
+				local a = math.rad(-90 + k * 30)
+				local pt = Vector2.new(0.6 + 0.21 * math.cos(a), 0.55 + 0.21 * math.sin(a))
+				if last then
+					bar(last.X, last.Y, pt.X, pt.Y)
+				end
+				last = pt
+			end
+			bar(0.6, 0.76, 0.36, 0.76)
 		elseif name == "search" then
 			ring(0.42, 0.42, 0.27)
 			bar(0.63, 0.63, 0.84, 0.84)
