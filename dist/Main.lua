@@ -4142,6 +4142,14 @@ if not i then
 return
 end
 table.remove(App.area.layers, i)
+local key = Engine.layerKey(l)
+for _, f in App.area.folder:GetChildren() do
+if f:GetAttribute("SS_Key") == key then
+Engine.dropOutput(f)
+end
+end
+App.lastTotal = math.max((App.lastTotal or 0) - (App.lastCounts[l] or 0), 0)
+App.lastCounts[l] = nil
 if App.heatLayer == l then
 App.heatLayer = nil
 end
