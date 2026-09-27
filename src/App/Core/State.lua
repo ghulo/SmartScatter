@@ -85,6 +85,7 @@ return function(App)
 		keys = {}, -- shortcuts changed from their defaults: [action id] = KeyCode name (KEYMAP below)
 		liveBoxes = true, -- Live previews as see-through boxes (one per copy) until Generate places the real models
 		stampRandom = false, -- the stamp rolls a new random turn, size and model after each one
+		recent = {}, -- the search menu's last actions, newest first (Panel/Palette)
 		tool = "Brush",
 		shape = "Circle",
 		fillReach = 120,
@@ -152,6 +153,7 @@ return function(App)
 		{ id = "turn", group = "Stamp", label = "Turn the stamp (Shift: back)", key = "T" },
 		{ id = "model", group = "Stamp", label = "Next model", key = "V" },
 		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
+		{ id = "palette", group = "Anywhere while working", label = "Search every action (the viewport's menu)", key = "Space" },
 		{ id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 	}
 	-- how a key is written on a chip

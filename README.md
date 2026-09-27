@@ -22,6 +22,7 @@ round bends, and everything updates live as you tweak it.
   own copies), previewed in the viewport first; hand-placed copies never move
 - **Biomes and presets** — start from a Forest/Meadow/Desert/Town mix made from your own models, or save your own sets
 - **Game-ready output** — optional streaming chunks, no-collision plants, shadow and click settings; a heaviness warning
+- **Search menu** — press Space in the viewport (like Blender's F3): type a few letters of any action and run it
 - **Undo everything** — every edit is one Ctrl+Z step, and a history timeline (a tick per step) jumps back or
   forward to any of them
 
@@ -50,7 +51,7 @@ src/
     Core/                   State · Kit (UI kit) · Cards (feature cards + search) · Generation (jobs, areas) ·
                             Lifecycle (undo, cleanup; runs last)
     Viewport/               Overlay · Paint · Grid · Spline · Shapes · Stamp · Focus
-    Panel/                  Header (area menu) · AreaTools · ObjectTools · HandTools · MapTools (the controls) · Shell (tabs, search,
+    Panel/                  Header (area menu) · AreaTools · ObjectTools · HandTools · MapTools (the controls) · Palette (the search menu) · Shell (tabs, search,
                             bottom bar) · Tour
       Tabs/                 Scatter · Brush · Map · Settings: one module per tab, a card per feature
 tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,

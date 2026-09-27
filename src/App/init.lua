@@ -34,6 +34,7 @@ local ORDER = {
 	"Viewport/Shapes",
 	"Viewport/Stamp",
 	"Viewport/Focus",
+	"Panel/Palette",
 	"Panel/Tour",
 	"Core/Lifecycle",
 }

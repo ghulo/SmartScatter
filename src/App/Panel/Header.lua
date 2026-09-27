@@ -22,6 +22,62 @@ return function(App)
 		end
 	end
 
+	-- the area menu's actions (the search menu runs them too)
+	App.toggleLock = function()
+		local a = App.area
+		if not a then
+			return
+		end
+		local rec = beginRec(a.locked and "Smart Scatter: Unlock area" or "Smart Scatter: Lock area")
+		a.locked = not a.locked or nil
+		saveArea()
+		endRec(rec)
+		if a.locked and App.mode ~= "Off" then
+			App.setMode("Off")
+		end
+		App.rebuildAll()
+		App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
+	end
+	App.clearPlaced = function()
+		if not App.area then
+			return
+		end
+		local rec = beginRec("Smart Scatter: Clear")
+		Engine.clearOutputs(App.area)
+		endRec(rec)
+		App.lastCounts, App.lastTotal = {}, 0
+		App.refreshCounts()
+		App.status("Cleared. The area and objects are kept; Generate brings it all back.")
+	end
+	App.bakeArea = function()
+		if not App.area then
+			return
+		end
+		local a = App.area
+		local n = Engine.roadOf(a) and 1 or 0
+		for _, f in a.folder:GetChildren() do
+			n += #f:GetChildren()
+		end
+		if n == 0 then
+			App.status("Nothing to bake yet. Generate first.")
+			return
+		end
+		if Engine.isPreview(a) then -- boxes would be baked, not the models
+			App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
+			return
+		end
+		App.cancelJob()
+		local rec = beginRec("Smart Scatter: Bake")
+		local out, count = Engine.bake(a)
+		a.locked = true -- so the area doesn't fill itself again on the next edit
+		saveArea()
+		endRec(rec)
+		Selection:Set({ out })
+		App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
+		App.rebuildAll()
+		App.status(string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name))
+	end
+
 	-- the area menu: switch area, rename, lock, bake, delete. pick (optional): { title, onPick(folder) } lists the
 	-- other areas instead, to choose one (the source for "Copy settings from…")
 	local function openAreaMenu(pick)
@@ -122,18 +178,7 @@ return function(App)
 		end
 		if App.area then
 			box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-			item(App.area.locked and "Unlock area" or "Lock area", function()
-				local a = App.area
-				local rec = beginRec(a.locked and "Smart Scatter: Unlock area" or "Smart Scatter: Lock area")
-				a.locked = not a.locked or nil
-				saveArea()
-				endRec(rec)
-				if a.locked and App.mode ~= "Off" then
-					App.setMode("Off")
-				end
-				App.rebuildAll()
-				App.status(a.locked and "Locked: nothing regenerates or repaints here until you unlock it." or "Unlocked.")
-			end, P.dim)
+			item(App.area.locked and "Unlock area" or "Lock area", App.toggleLock, P.dim)
 			if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
 				item("Copy settings from…", function()
 					task.defer(openAreaMenu, {
@@ -150,42 +195,9 @@ return function(App)
 				end, P.dim)
 			end
 			if App.kindOf(App.area) ~= "Clear" then
-				item("Clear placed objects", function()
-					local rec = beginRec("Smart Scatter: Clear")
-					Engine.clearOutputs(App.area)
-					endRec(rec)
-					App.lastCounts, App.lastTotal = {}, 0
-					App.refreshCounts()
-					App.status("Cleared. The area and objects are kept; Generate brings it all back.")
-				end, P.dim)
+				item("Clear placed objects", App.clearPlaced, P.dim)
 			end
-			item("Bake to plain models", function()
-				local a = App.area
-				local n = Engine.roadOf(a) and 1 or 0
-				for _, f in a.folder:GetChildren() do
-					n += #f:GetChildren()
-				end
-				if n == 0 then
-					App.status("Nothing to bake yet. Generate first.")
-					return
-				end
-				if Engine.isPreview(a) then -- boxes would be baked, not the models
-					App.status("Some objects are still a preview (boxes). Press Generate first, then bake.", "error")
-					return
-				end
-				App.cancelJob()
-				local rec = beginRec("Smart Scatter: Bake")
-				local out, count = Engine.bake(a)
-				a.locked = true -- so the area doesn't fill itself again on the next edit
-				saveArea()
-				endRec(rec)
-				Selection:Set({ out })
-				App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
-				App.rebuildAll()
-				App.status(
-					string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name)
-				)
-			end, P.dim)
+			item("Bake to plain models", App.bakeArea, P.dim)
 			item("Delete area", deleteArea, P.danger)
 		end
 	end
