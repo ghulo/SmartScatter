@@ -110,7 +110,7 @@ return function(App)
 			hintOn(go, "The selected models float under the mouse; click to put one down. Pick up where you left off with no selection.")
 			local a = App.area
 			if a and #a.layers > 0 then -- or one of the area's own objects (all its models)
-				App.label("OR ONE OF THIS AREA'S OBJECTS", 11, P.faint, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
+				App.label("Or one of this area's objects", 12, P.dim, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
 				local grid = chipGrid(box, 3, 28, 104)
 				for _, l in a.layers do
 					chip(grid, l.inst.Name, nil, function()

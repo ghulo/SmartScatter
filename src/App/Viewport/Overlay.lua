@@ -19,7 +19,6 @@ return function(App)
 	--------------------------------------------------------------------------------
 	local overlayFolder
 	local rowParts = {} -- [cz] = { parts }
-	local edgeStrips, edgeCount = {}, 0 -- the contour's pieces (they breathe while you paint, when there aren't too many)
 	App.dirtyRows = {} -- [cz] = true
 	local cellInfo = {} -- [cz][cx] = { y =, cls = } quick ground probe cache
 	local MAX_OVERLAY = 80000
@@ -75,8 +74,6 @@ return function(App)
 			overlayFolder = nil
 		end
 		rowParts, App.dirtyRows = {}, {}
-		table.clear(edgeStrips)
-		edgeCount = 0
 	end
 	local classColor -- (below)
 	local QUIET = { Road = true, Dirt = true } -- only some objects go there
@@ -163,12 +160,10 @@ return function(App)
 		return classColor(cls)
 	end
 	-- The look: a soft, continuous fill (no seams between cells, one flat strip per run of cells of the same colour and
-	-- height) and, round the painted shape, a thin glowing contour exactly on its border, so the area reads as one
+	-- height) and, round the painted shape, a thin solid contour exactly on its border, so the area reads as one
 	-- clean shape rather than a grid of tiles.
 	local FILL = 0.66 -- how see-through the fill is
-	local RIM, RIM_W = 0.3, 0.26 -- the contour: how see-through, and how wide (studs)
-	local BREATHE_MAX = 300 -- more contour pieces than this: it stays still (animating thousands costs frames)
-	local EDGE_REST = RIM
+	local RIM, RIM_W = 0.15, 0.24 -- the contour: how see-through, and how wide (studs): a crisp solid line
 	-- Parts are reused, not made and destroyed: a stroke rebuilds the rows it touches, and making parts is the
 	-- slow part of that. A rebuilt row's parts go back to this pool (out of the world) for the next row to take.
 	local pool, POOL_MAX = {}, 4000
@@ -184,10 +179,6 @@ return function(App)
 		return p
 	end
 	local function release(p)
-		if edgeStrips[p] then
-			edgeStrips[p] = nil
-			edgeCount -= 1
-		end
 		if #pool < POOL_MAX and p.Parent then
 			p.Parent = nil
 			table.insert(pool, p)
@@ -258,9 +249,7 @@ return function(App)
 			return col == VIEW.accent and VIEW.edge or col
 		end
 		local function line(cf, size, col)
-			local p = strip({ Material = Enum.Material.Neon, Transparency = RIM, Color = col, Size = size, CFrame = cf })
-			edgeStrips[p] = true
-			edgeCount += 1
+			local p = strip({ Material = Enum.Material.SmoothPlastic, Transparency = RIM, Color = col, Size = size, CFrame = cf })
 			table.insert(parts, p)
 		end
 		for _, side in { -1, 1 } do -- the row's far and near sides (z)
@@ -321,22 +310,10 @@ return function(App)
 			end
 		end
 	end
-	-- while you paint the area, its outline breathes (a dozen updates a second, only the outline's strips)
-	local breath, breathing = 0, false
-	track(RunService.Heartbeat:Connect(function(dt)
+	-- rows a stroke changed are redrawn a few ms a frame, so a big redraw never stalls Studio
+	track(RunService.Heartbeat:Connect(function()
 		if next(App.dirtyRows) then
-			flushRows(0.004) -- a few ms a frame, so a big redraw never stalls Studio
-		end
-		local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil and edgeCount <= BREATHE_MAX
-		if paint or breathing then
-			breath += dt
-			if breath >= 0.08 or not paint then
-				local t = paint and EDGE_REST - 0.06 + 0.06 * math.sin(os.clock() * 2.4) or EDGE_REST
-				breath, breathing = 0, paint
-				for strip in edgeStrips do
-					strip.Transparency = t
-				end
-			end
+			flushRows(0.004)
 		end
 	end))
 

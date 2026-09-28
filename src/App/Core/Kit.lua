@@ -7,7 +7,6 @@ return function(App)
 	local TextService = game:GetService("TextService")
 	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
-	local TweenService = game:GetService("TweenService")
 
 	--------------------------------------------------------------------------------
 	-- UI kit
@@ -108,116 +107,33 @@ return function(App)
 		return o
 	end
 	--------------------------------------------------------------------------------
-	-- Surface effects from the design: a fine halftone grain, a soft sheen from the top, lines that fade out at
-	-- both ends, and a light-to-dark shade on raised things. The grain is a tiny dot texture drawn in code
-	-- (EditableImage) and tiled, so nothing has to be uploaded; where that's unavailable the panel is just plain.
-	--------------------------------------------------------------------------------
-	local grain -- Content of a 4×4 tile with one white dot (false: not available here)
-	local function grainContent()
-		if grain == nil then
-			local ok, c = pcall(function()
-				local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(4, 4) })
-				local buf = buffer.create(4 * 4 * 4) -- RGBA, all clear
-				local i = (1 * 4 + 1) * 4 -- the dot at (1, 1)
-				buffer.writeu8(buf, i, 255)
-				buffer.writeu8(buf, i + 1, 255)
-				buffer.writeu8(buf, i + 2, 255)
-				buffer.writeu8(buf, i + 3, 255)
-				img:WritePixelsBuffer(Vector2.zero, Vector2.new(4, 4), buf)
-				return Content.fromObject(img)
-			end)
-			grain = ok and c or false
-		end
-		return grain or nil
+	-- Surface effects. (These used to add grain, sheens, glossy gradients and neon glows. The look is flat now: solid surfaces, 1 px
+	-- borders and hairlines, a quiet focus ring. The functions stay, so every control still calls them the same way.)
+	local function halftone()
+		return nil
 	end
-	-- halftone dots over `parent` (strength 0–1; they never take clicks)
-	local function halftone(parent, strength, spacing, z)
-		local c = grainContent()
-		if not c then
-			return nil
-		end
-		local l = new("ImageLabel", {
-			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(1, 1),
-			ScaleType = Enum.ScaleType.Tile,
-			TileSize = UDim2.fromOffset(spacing or 4, spacing or 4),
-			ResampleMode = Enum.ResamplerMode.Pixelated,
-			ImageTransparency = 1 - (strength or 0.04),
-			ImageColor3 = settings().Studio.Theme.Name == "Light" and Color3.new(0, 0, 0) or Color3.new(1, 1, 1),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		if not pcall(function()
-			l.ImageContent = c
-		end) then
-			l:Destroy()
-			return nil
-		end
-		return l
+	local function sheen()
+		return nil
 	end
-	-- a soft light from the top of `parent`, fading out over `height` px
-	local function sheen(parent, strength, height, z)
-		local f = new("Frame", {
-			BackgroundColor3 = Color3.new(1, 1, 1),
-			BackgroundTransparency = 0,
-			Size = UDim2.new(1, 0, 0, height or 120),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		new("UIGradient", {
-			Rotation = 90,
-			Transparency = NumberSequence.new(1 - (strength or 0.04), 1),
-			Parent = f,
-		})
-		return f
-	end
-	-- a 1 px line that fades in and out at the ends (edge "left": strong on the left, fading right)
-	local function fadeLine(parent, edge, strength)
-		local f = new("Frame", {
-			BackgroundColor3 = P.text,
+	-- a 1 px hairline divider
+	local function fadeLine(parent)
+		return new("Frame", {
+			BackgroundColor3 = P.line,
 			BackgroundTransparency = 0,
 			Size = UDim2.new(1, 0, 0, 1),
 			Parent = parent,
 		})
-		local a = 1 - (strength or 0.16)
-		new("UIGradient", {
-			Transparency = edge == "left" and NumberSequence.new({
-				NumberSequenceKeypoint.new(0, a),
-				NumberSequenceKeypoint.new(0.7, 1),
-				NumberSequenceKeypoint.new(1, 1),
-			}) or NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(0.4, a),
-				NumberSequenceKeypoint.new(0.6, a),
-				NumberSequenceKeypoint.new(1, 1),
-			}),
-			Parent = f,
-		})
-		return f
 	end
-	-- a light-to-dark shade on a filled thing (multiplies its colour, so hover colours keep working)
-	local function shade(obj, amount)
-		local d = 1 - (amount or 0.08)
-		return new("UIGradient", {
-			Rotation = 90,
-			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(d, d, d)),
-			Parent = obj,
-		})
+	local function shade()
+		return nil
 	end
-	-- a faint highlight along the inside of the top edge (the "inset" light on cards and buttons)
-	local function topLight(obj, strength, inset)
-		local f = fadeLine(obj, nil, strength or 0.07)
-		f.Position = UDim2.fromOffset(inset or 10, 0)
-		f.Size = UDim2.new(1, -(inset or 10) * 2, 0, 1)
-		f.ZIndex = obj.ZIndex + 1
-		return f
+	local function topLight()
+		return nil
 	end
 
 	--------------------------------------------------------------------------------
-	-- Light and motion: neon glow, depth, press-in and a moving sheen. Every control uses these, so the whole
-	-- panel lights and moves the same way. Plugin UI can't blur, so glass is layers: a shade, a top light, a glow.
+	-- Focus and depth: a 1 px ring just outside a control when it's on (like a focus ring), a faint shadow under
+	-- cards, and a slight press-in. Every control uses these, so the whole panel behaves the same way.
 	--------------------------------------------------------------------------------
 	-- a ring just outside obj's edge (a child frame, so it moves and hides with obj; it never takes clicks).
 	-- obj's own padding is undone, so the ring hugs its real edge.
@@ -239,53 +155,28 @@ return function(App)
 		st.Parent = f
 		return st
 	end
-	-- a soft neon glow round obj (the accent, or color): two rings, bright close in, faint further out. Returns a
-	-- controller: :set(on, instant) lights it or puts it out; :pulse(on) breathes while something runs.
-	local GLOW = { { 1, 1.5, 0.62 }, { 3, 4, 0.93 } } -- { out, thickness, transparency when fully lit }
-	local function glow(obj, radius, strength, color)
-		strength = strength or 1
-		local rings, lit, pulses = {}, false, {}
-		for i, g in GLOW do
-			rings[i] = { st = ring(obj, radius or 8, g[1], g[2], color or P.accent), rest = 1 - (1 - g[3]) * strength }
-		end
+	-- the focus ring round obj (the accent, or color). Returns a controller: :set(on, instant) shows or hides it;
+	-- :pulse(on) shows it while something runs (steady: nothing blinks).
+	local function glow(obj, radius, _strength, color)
+		local st = ring(obj, radius or 8, 2, 1, color or P.accent)
 		local c = {}
 		function c:set(on, instant)
-			lit = on
-			for _, r in rings do
-				local t = on and r.rest or 1
-				if instant then
-					r.st.Transparency = t
-				else
-					tween(r.st, FAST, { Transparency = t })
-				end
+			local t = on and 0.35 or 1
+			if instant then
+				st.Transparency = t
+			else
+				tween(st, FAST, { Transparency = t })
 			end
 		end
 		function c:pulse(on)
-			for _, p in pulses do
-				p:Cancel()
-			end
-			table.clear(pulses)
-			if not on then
-				self:set(lit, false)
-				return
-			end
-			for _, r in rings do
-				r.st.Transparency = r.rest
-				local p = TweenService:Create(
-					r.st,
-					TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-					{ Transparency = (r.rest + 1) / 2 }
-				)
-				p:Play()
-				table.insert(pulses, p)
-			end
+			self:set(on and true or false, false)
 		end
 		return c
 	end
 	-- depth: a soft dark ring offset downward, so a card sits a little above what's behind it
 	local function shadow(obj, radius)
 		local st = ring(obj, radius or 12, 1, 3, Color3.new(0, 0, 0), 2)
-		st.Transparency = settings().Studio.Theme.Name == "Light" and 0.93 or 0.75
+		st.Transparency = settings().Studio.Theme.Name == "Light" and 0.95 or 0.86
 		return st
 	end
 	-- press-in: the control shrinks a touch while held
@@ -301,46 +192,11 @@ return function(App)
 		end
 		return sc
 	end
-	-- a band of light sweeping across obj, over and over, while :play(true)
-	local function sweep(obj, strength)
-		local f = new("Frame", {
-			BackgroundColor3 = Color3.new(1, 1, 1),
-			BackgroundTransparency = 0,
-			Size = UDim2.fromScale(1, 1),
-			Visible = false,
-			Active = false,
-			ZIndex = obj.ZIndex + 1,
-			Parent = obj,
-		}, { corner(8) })
-		local a = 1 - (strength or 0.35)
-		local g = new("UIGradient", {
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(0.4, 1),
-				NumberSequenceKeypoint.new(0.5, a),
-				NumberSequenceKeypoint.new(0.6, 1),
-				NumberSequenceKeypoint.new(1, 1),
-			}),
-			Offset = Vector2.new(-1, 0),
-			Parent = f,
-		})
-		local run
-		local c = {}
-		function c:play(on)
-			if run then
-				run:Cancel()
-				run = nil
-			end
-			f.Visible = on
-			if on then
-				g.Offset = Vector2.new(-1, 0)
-				run = TweenService:Create(g, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1), {
-					Offset = Vector2.new(1, 0),
-				})
-				run:Play()
-			end
-		end
-		return c
+	-- (the old light sweep across running controls: a no-op now, the progress line shows a job is running)
+	local function sweep()
+		return {
+			play = function() end,
+		}
 	end
 
 	local function hoverable(b, rest, over)
@@ -380,9 +236,6 @@ return function(App)
 		if not flat then
 			shade(b, filled and 0.1 or 0.06)
 			topLight(b, filled and 0.3 or 0.06, 6)
-		end
-		if filled then
-			glow(b, 8, 0.55):set(true, true)
 		end
 		pressable(b)
 		b.MouseEnter:Connect(function()
@@ -536,21 +389,23 @@ return function(App)
 		local f = box({ Size = UDim2.new(1, 0, 0, 50) })
 		hintOn(f, hint and (def ~= nil and (hint .. "\nRight-click to reset.") or hint))
 		local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -94, 0, 26), Parent = f })
+		-- the value reads as plain text at the row's end; it turns into a field under the mouse or while typing
 		local value = new("TextBox", {
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.raised,
+			BackgroundTransparency = 1,
+			BackgroundColor3 = P.field,
 			Text = "",
-			Font = SANS_B,
-			TextSize = 12,
+			Font = SANS_M,
+			TextSize = 13,
 			TextColor3 = P.dim,
-			TextXAlignment = Enum.TextXAlignment.Center,
+			TextXAlignment = Enum.TextXAlignment.Right,
 			ClearTextOnFocus = false,
-			Size = UDim2.new(0, 86, 0, 22),
+			Size = UDim2.new(0, 96, 0, 22),
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.new(1, 0, 0, 2),
 			Parent = f,
-		}, { corner(6), pad(4, 4, 0, 0) })
-		local valueStroke = stroke(P.raised)
+		}, { corner(5), pad(6, 6, 0, 0) })
+		local valueStroke = stroke(P.line)
+		valueStroke.Transparency = 1
 		valueStroke.Parent = value
 		local track = box({
 			BackgroundTransparency = 0,
@@ -596,7 +451,7 @@ return function(App)
 			-- the value's pill just fits what it says; the name gets the rest of the row
 			local ok, bounds = pcall(TextService.GetTextSize, TextService, value.Text, value.TextSize, value.Font, Vector2.new(400, 40))
 			if ok and typeof(bounds) == "Vector2" then
-				local w = math.clamp(math.ceil(bounds.X) + 18, 46, 110)
+				local w = math.clamp(math.ceil(bounds.X) + 20, 44, 110)
 				value.Size = UDim2.new(0, w, 0, 22)
 				name.Size = UDim2.new(1, -(w + 8), 0, 26)
 			end
@@ -624,6 +479,11 @@ return function(App)
 			knobStroke.Color = P.accent
 			knob.Size = UDim2.fromOffset(hot and 16 or 14, hot and 16 or 14)
 			name.TextColor3 = P.text
+			if not value:IsFocused() then
+				value.BackgroundTransparency = hovering and 0 or 1
+				valueStroke.Transparency = hovering and 0 or 1
+				value.TextColor3 = hot and P.text or P.dim
+			end
 		end
 		f.MouseEnter:Connect(function()
 			hovering = true
@@ -685,10 +545,12 @@ return function(App)
 			end)
 		end
 		value.Focused:Connect(function()
-			valueStroke.Color = P.accent
+			value.BackgroundTransparency, value.TextColor3 = 0, P.text
+			valueStroke.Color, valueStroke.Transparency = P.accent, 0
 		end)
 		value.FocusLost:Connect(function()
-			valueStroke.Color = P.raised
+			valueStroke.Color = P.line
+			look()
 			local n = tonumber(string.match(value.Text, "%-?[%d%.]+"))
 			if n and pct then
 				n /= 100
@@ -715,10 +577,9 @@ return function(App)
 			{ corner(11) }
 		)
 		local dot = box({ BackgroundTransparency = 0, BackgroundColor3 = P.knob, Size = UDim2.fromOffset(18, 18), Parent = b }, { corner(9) })
-		local lit = glow(b, 11, 0.7)
+		local lit = glow(b, 11, 0.7) -- (kept for callers; a switch shows it's on by its colour and knob alone)
 		local function refresh(animate)
 			local on = get()
-			lit:set(on, not animate)
 			local props = { Position = on and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2) }
 			if animate then
 				tween(dot, FAST, props)
@@ -1195,7 +1056,7 @@ return function(App)
 			st.Thickness = 1.5
 			st.Parent = dot
 		end
-		label(string.upper(text), 11, P.faint, SANS_B, { Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
+		label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
 		return row
 	end
 

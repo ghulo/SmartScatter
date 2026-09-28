@@ -373,7 +373,7 @@ return function(App)
 		App.refreshSplineInfo()
 
 		-- shape presets: pick one, then drag it out in the viewport (Viewport/Shapes)
-		label("SHAPES", 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+		label("Shapes", 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
 		local shapes = chipGrid(parent, 3, 28)
 		local looks = {}
 		for _, def in Engine.SHAPES do
@@ -431,7 +431,7 @@ return function(App)
 				{ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Parent = pointBox },
 				{ corner(10), stroke(P.line), pad(12, 12, 10, 10), vlist(2) }
 			)
-			label("SELECTED POINT", 11, P.faint, SANS_B, { Parent = card })
+			label("Selected point", 12, P.dim, SANS_B, { Parent = card })
 			local function pointSlider(key, text, hint)
 				return slider(
 					text,
@@ -556,7 +556,7 @@ return function(App)
 			markHead,
 			"The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
 		)
-		label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
+		label("Mark selected as", 12, P.dim, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
 		hintOn(
 			button("Remove mark", "ghost", function()
 				App.markSelected(nil)

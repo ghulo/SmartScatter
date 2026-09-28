@@ -101,41 +101,28 @@ return function(App)
 	local function card(parent, spec, order)
 		App.cardCount += 1
 		local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
-			corner(12),
+			corner(8),
 			stroke(P.line),
 			pad(14, 14, 12, 14),
 			vlist(8),
 		})
-		App.shade(c, 0.05)
-		App.topLight(c, 0.06, 12)
 		local head = col({ Parent = c })
-		local x = 0
+		local txt = col({ Parent = head }, { vlist(2) })
+		-- the title, with its icon small and quiet before it (no badge)
+		local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
 		local badgeIcon = spec.icon or ICON[spec.id]
 		if badgeIcon then
-			local badge = box({
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
-				Size = UDim2.fromOffset(28, 28),
-				Parent = head,
-			}, { corner(7) })
-			local ic = icon(badgeIcon, 15, P.accent)
-			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
-			ic.Parent = badge
-			x = 38
+			local ic = icon(badgeIcon, 14, P.accent)
+			ic.Parent = titleRow
 		end
-		local txt = col({ Position = UDim2.fromOffset(x, 0), Size = UDim2.new(1, -x, 0, 0), Parent = head }, { vlist(1) })
-		local titleRow = box({ Size = UDim2.new(1, 0, 0, 18), Parent = txt }, { hlist(8) })
-		label(spec.title, 14, P.text, SANS_B, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
-		if spec.tag then -- a small pill after the title ("Optional")
-			local tag = label(spec.tag, 10, P.dim, SANS_B, {
-				Size = UDim2.fromOffset(0, 18),
+		label(spec.title, 15, P.text, SANS_B, { Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
+		if spec.tag then -- a small tag after the title ("Optional")
+			local tag = label(spec.tag, 11, P.faint, App.SANS_M, {
+				Size = UDim2.fromOffset(0, 20),
 				AutomaticSize = Enum.AutomaticSize.X,
-				BackgroundTransparency = 0,
-				BackgroundColor3 = P.raised,
 				Parent = titleRow,
 			})
-			corner(9).Parent = tag
-			pad(7, 7, 0, 0).Parent = tag
+			tag.TextYAlignment = Enum.TextYAlignment.Center
 		end
 		local sub = spec.sub or SUB[spec.id]
 		if sub and sub ~= "" then

@@ -285,7 +285,7 @@ return function(App)
 			Parent = live,
 		}, { corner(4) })
 		local liveText = label("Live", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -30, 1, 0), Parent = live })
-		App.ui.liveGlow = App.glow(live, 10, 0.6) -- breathes while a job runs
+		App.ui.liveGlow = App.glow(live, 10, 0.6) -- a steady ring while a job runs
 		App.pressable(live, 0.95)
 		local function liveLook()
 			live.BackgroundColor3 = G.live and P.accentSoft or P.raised
@@ -520,14 +520,22 @@ return function(App)
 	end
 
 	local function buildTabs(parent)
-		local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Size = UDim2.new(1, 0, 0, 36), Parent = parent }, {
-			corner(10),
-			pad(3, 3, 3, 3),
+		-- plain tabs over a hairline; the open one is marked by a short accent line under its name
+		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
+		local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
 			new("UIGridLayout", {
-				CellSize = UDim2.new(1 / #TABS, -3, 1, 0),
-				CellPadding = UDim2.fromOffset(3, 0),
+				CellSize = UDim2.new(1 / #TABS, 0, 1, 0),
+				CellPadding = UDim2.fromOffset(0, 0),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
+		})
+		box({
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.line,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 0, 1, 0),
+			Size = UDim2.new(1, 0, 0, 1),
+			Parent = strip,
 		})
 		App.ui.tabs = {}
 		local fits = {} -- [icon] = the label beside it: icons hide when the panel is too narrow for both
@@ -536,13 +544,20 @@ return function(App)
 			local b = new("TextButton", {
 				Text = "",
 				AutoButtonColor = false,
-				BackgroundTransparency = on and 0 or 1,
-				BackgroundColor3 = P.card,
+				BackgroundTransparency = 1,
 				LayoutOrder = i,
 				Parent = bar,
-			}, { corner(8) })
+			})
 			if on then
-				App.stroke(P.accentLine).Parent = b
+				box({
+					BackgroundTransparency = 0,
+					BackgroundColor3 = P.accent,
+					AnchorPoint = Vector2.new(0.5, 1),
+					Position = UDim2.fromScale(0.5, 1),
+					Size = UDim2.new(1, -16, 0, 2),
+					ZIndex = 3,
+					Parent = b,
+				})
 			end
 			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
 				new("UIListLayout", {
@@ -552,10 +567,16 @@ return function(App)
 					Padding = UDim.new(0, 5),
 				}),
 			})
-			local fg = on and P.accent or P.dim
-			local ic = App.icon(t.icon, 13, fg)
+			local fg = on and P.text or P.dim
+			local ic = App.icon(t.icon, 13, on and P.accent or fg)
 			ic.Parent = row
-			local text = label(t.name, 12, fg, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
+			local text = label(
+				t.name,
+				13,
+				fg,
+				on and SANS_B or App.SANS_M,
+				{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row }
+			)
 			fits[ic] = text
 			if not on then
 				b.MouseEnter:Connect(function()
@@ -574,7 +595,7 @@ return function(App)
 			App.ui.tabs[t.name] = b
 		end
 		local function fit()
-			local cell = bar.AbsoluteSize.X / #TABS - 3
+			local cell = bar.AbsoluteSize.X / #TABS
 			for ic, text in fits do
 				ic.Visible = cell >= text.TextBounds.X + 13 + 5 + 12
 			end
