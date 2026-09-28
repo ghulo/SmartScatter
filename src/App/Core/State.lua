@@ -205,9 +205,52 @@ return function(App)
 		RightSuper = true,
 		Unknown = true,
 	}
-	local function keyOf(id) -- the KeyCode name bound to an action
-		if type(G.keys[id]) == "string" and not UNBINDABLE[G.keys[id]] then
-			return G.keys[id]
+	-- A binding is a KeyCode name, with the modifiers held for it in front: "G", "Shift+T", "Ctrl+Alt+R". The
+	-- modifiers are always written in this order, so two bindings are the same exactly when their text is.
+	local MODS = { "Ctrl", "Alt", "Shift" }
+	local MOD_KEYS = {
+		Ctrl = { Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl },
+		Alt = { Enum.KeyCode.LeftAlt, Enum.KeyCode.RightAlt },
+		Shift = { Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift },
+	}
+	local UIS = game:GetService("UserInputService")
+	-- which modifiers are held right now: { Ctrl = true, … }
+	local function modsHeld()
+		local held = {}
+		for name, codes in MOD_KEYS do
+			for _, c in codes do
+				local ok, down = pcall(UIS.IsKeyDown, UIS, c)
+				if ok and down then
+					held[name] = true
+				end
+			end
+		end
+		return held
+	end
+	-- the binding for `key` with `mods` held (mods: a set as modsHeld gives)
+	local function combo(key, mods)
+		local parts = {}
+		for _, m in MODS do
+			if mods and mods[m] then
+				table.insert(parts, m)
+			end
+		end
+		table.insert(parts, key)
+		return table.concat(parts, "+")
+	end
+	-- a binding's key and its modifiers: "Ctrl+G" → "G", { Ctrl = true }
+	local function splitCombo(c)
+		local mods, key = {}, c
+		for part in string.gmatch(c, "([^+]+)%+") do
+			mods[part] = true
+		end
+		key = string.match(c, "([^+]+)$") or c
+		return key, mods
+	end
+	local function keyOf(id) -- the binding of an action ("G", "Shift+T"…)
+		local k = G.keys[id]
+		if type(k) == "string" and not UNBINDABLE[(splitCombo(k))] then
+			return k
 		end
 		for _, a in KEYMAP do
 			if a.id == id then
@@ -216,9 +259,21 @@ return function(App)
 		end
 		return nil
 	end
+	-- how a binding is written on a chip: "Ctrl+Shift+[", "Esc"
+	local function comboText(c)
+		local key, mods = splitCombo(c)
+		local parts = {}
+		for _, m in MODS do
+			if mods[m] then
+				table.insert(parts, m)
+			end
+		end
+		table.insert(parts, KEY_TEXT[key] or key)
+		return table.concat(parts, "+")
+	end
 	local function keyText(id)
 		local k = keyOf(id)
-		return k and (KEY_TEXT[k] or k) or "?"
+		return k and comboText(k) or "?"
 	end
 	-- bind an action to a key; an action already on that key takes this one's old key (a swap). Returns the
 	-- action that moved, if any.
@@ -245,6 +300,24 @@ return function(App)
 		E = "moves the camera up",
 		F = "focuses the camera on the selection",
 		Delete = "deletes the selected parts",
+		["Ctrl+Z"] = "undoes",
+		["Ctrl+Y"] = "redoes",
+		["Ctrl+C"] = "copies",
+		["Ctrl+V"] = "pastes",
+		["Ctrl+X"] = "cuts",
+		["Ctrl+D"] = "duplicates",
+		["Ctrl+S"] = "saves",
+		["Ctrl+A"] = "selects everything",
+		["Ctrl+G"] = "groups the selection",
+		["Ctrl+U"] = "ungroups the selection",
+		["Ctrl+L"] = "switches local / world space",
+		["Ctrl+R"] = "turns the selection",
+		["Ctrl+T"] = "tilts the selection",
+		["Ctrl+One"] = "picks the Select tool",
+		["Ctrl+Two"] = "picks the Move tool",
+		["Ctrl+Three"] = "picks the Scale tool",
+		["Ctrl+Four"] = "picks the Rotate tool",
+		["Alt+P"] = "starts a playtest",
 	}
 	local function resetKeys()
 		table.clear(G.keys)
@@ -389,6 +462,10 @@ return function(App)
 	App.KEYMAP = KEYMAP
 	App.UNBINDABLE = UNBINDABLE
 	App.keyOf = keyOf
+	App.modsHeld = modsHeld
+	App.combo = combo
+	App.splitCombo = splitCombo
+	App.comboText = comboText
 	App.keyText = keyText
 	App.bindKey = bindKey
 	App.resetKeys = resetKeys

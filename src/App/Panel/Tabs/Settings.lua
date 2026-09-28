@@ -139,7 +139,10 @@ return function(App)
 	end
 
 	local function buildShortcuts(b)
-		App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
+		App.explain(
+			b,
+			"Click a key to change it, then press the new one (Esc keeps the old). Hold Ctrl, Alt or Shift with it for a combo, like Ctrl+Shift+G. A key already in use swaps over."
+		)
 		local group
 		for _, a in App.KEYMAP do
 			if a.group ~= group then
@@ -147,15 +150,18 @@ return function(App)
 				label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
 			end
 			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
-			label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
+			local name = label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
 			local key = button(App.keyText(a.id), nil, nil, {
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.new(1, 0, 0.5, 0),
-				AutomaticSize = Enum.AutomaticSize.None,
+				AutomaticSize = Enum.AutomaticSize.X, -- (a combo like Ctrl+Shift+[ needs more room than one key)
 				Size = UDim2.fromOffset(84, 26),
 				Font = SANS_B,
 				Parent = row,
 			})
+			key:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+				name.Size = UDim2.new(1, -(key.AbsoluteSize.X + 12), 1, 0)
+			end)
 			local lit = App.glow(key, 8, 0.8)
 			key.MouseButton1Click:Connect(function()
 				if App.capturingKey then
@@ -186,7 +192,7 @@ return function(App)
 			end)
 		end
 		local fixed = label(
-			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
+			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 			12,
 			P.faint,
 			SANS,

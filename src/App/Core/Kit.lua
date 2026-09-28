@@ -1366,6 +1366,8 @@ return function(App)
 			Parent = over,
 		})
 		local conns, finished = {}, false
+		-- key: a KeyCode name; the modifiers held with it (Ctrl, Alt, Shift) make it a combo ("Ctrl+Shift+G").
+		-- Esc on its own keeps the old binding.
 		local function finish(key)
 			if finished then
 				return
@@ -1375,12 +1377,23 @@ return function(App)
 				c:Disconnect()
 			end
 			tb:Destroy()
-			done(key ~= "Escape" and key or nil)
+			if not key or key == "Escape" then
+				done(nil)
+			else
+				done(App.combo(key, App.modsHeld()))
+			end
 		end
 		local function fromInput(input)
-			if input.UserInputType == Enum.UserInputType.Keyboard and not App.UNBINDABLE[input.KeyCode.Name] then
-				finish(input.KeyCode.Name)
+			if input.UserInputType ~= Enum.UserInputType.Keyboard then
+				return
 			end
+			if App.UNBINDABLE[input.KeyCode.Name] then -- a modifier on its own: show it, and wait for the key
+				if over:IsA("TextButton") or over:IsA("TextLabel") then
+					over.Text = App.combo("…", App.modsHeld())
+				end
+				return
+			end
+			finish(input.KeyCode.Name)
 		end
 		table.insert(conns, tb.InputBegan:Connect(fromInput))
 		table.insert(conns, UIS.InputBegan:Connect(fromInput))

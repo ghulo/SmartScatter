@@ -825,8 +825,13 @@ return function(App)
 	-- keys: every action and its key come from the keymap (State), so they follow what the user set in Settings
 	local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 	local lastKeyAt = {}
+	-- keys that also work with no tool on (while the panel is open): the search menu, the overlay, shuffling, and
+	-- picking a painting tool or erasing, which starts painting with it
+	local ANY_TIME =
+		{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+	local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true } -- (no new area from a key)
 	local function onKey(name)
-		if App.mode == "Off" and name ~= "palette" then
+		if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
 			return
 		end
 		-- keys arrive through UserInputService and, while the viewport has focus, through the plugin mouse too
@@ -907,19 +912,26 @@ return function(App)
 	local function charOf(key)
 		return CHAR[key] or (#key == 1 and string.lower(key)) or nil
 	end
-	local function ctrlHeld()
-		return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
-	end
-	-- the action on a key; a plain letter or digit held with Ctrl stays Studio's (Ctrl+C copies, Ctrl+X cuts)
+	-- the action on a key, with the modifiers held now:
+	--   1. an action bound to exactly this combo ("Ctrl+Shift+G") wins;
+	--   2. else, with Ctrl or Alt held, it's Studio's (Ctrl+C copies, Alt+P plays…), not ours;
+	--   3. else an action on the plain key, Shift or not (Shift is the tools' own modifier: erase, turn back…).
 	local function actionFor(key)
 		if App.capturingKey then -- Settings is listening for a new key: it isn't an action
 			return nil
 		end
+		local mods = App.modsHeld()
+		local exact = App.combo(key, mods)
+		for _, a in App.KEYMAP do
+			if App.keyOf(a.id) == exact then
+				return a.id
+			end
+		end
+		if mods.Ctrl or mods.Alt then
+			return nil
+		end
 		for _, a in App.KEYMAP do
 			if App.keyOf(a.id) == key then
-				if #(charOf(key) or "") == 1 and ctrlHeld() then
-					return nil -- Ctrl with a letter is Studio's (Ctrl+C, Ctrl+D…), not this shortcut
-				end
 				return a.id
 			end
 		end
@@ -934,6 +946,16 @@ return function(App)
 			onKey(name)
 		end
 	end))
+	-- the panel has the keyboard when the mouse is over it: its keys count too (the same press through two routes
+	-- is dropped once, in onKey)
+	App.panelKey = function(input)
+		if input.UserInputType == Enum.UserInputType.Keyboard and not UIS:GetFocusedTextBox() then
+			local name = actionFor(input.KeyCode.Name)
+			if name then
+				onKey(name)
+			end
+		end
+	end
 	-- Shift turns a brush into its opposite: the ring shows it the moment the key goes down or up
 	local function shiftChanged(input)
 		local k = input.KeyCode
@@ -950,7 +972,7 @@ return function(App)
 	track(UIS.InputEnded:Connect(shiftChanged))
 	mouse.KeyDown:Connect(function(k)
 		for _, a in App.KEYMAP do
-			local key = App.keyOf(a.id)
+			local key = App.splitCombo(App.keyOf(a.id)) -- (the plugin mouse gives only the character: the key)
 			if charOf(key) == k then
 				local name = actionFor(key)
 				if name then
