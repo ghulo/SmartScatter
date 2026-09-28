@@ -101,7 +101,7 @@ return function(App)
 	local function card(parent, spec, order)
 		App.cardCount += 1
 		local c = col({
-			BackgroundTransparency = App.blobsOn() and 0.15 or 0, -- (a hint of the colour blobs shows through)
+			BackgroundTransparency = 0,
 			BackgroundColor3 = P.card,
 			LayoutOrder = order,
 			Parent = parent,
@@ -111,6 +111,7 @@ return function(App)
 			pad(14, 14, 12, 14),
 			vlist(8),
 		})
+		App.glass(c) -- (see-through, with a sheen and a lit top edge, over the colour blobs)
 		local head = col({ Parent = c })
 		local txt = col({ Parent = head }, { vlist(2) })
 		-- the title, with its icon small and quiet before it (no badge)
