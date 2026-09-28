@@ -833,6 +833,11 @@ return function(App)
 			ZIndex = 1,
 			Parent = App.widget,
 		})
+		App.root.InputBegan:Connect(function(input) -- shortcuts work with the mouse over the panel too
+			if App.panelKey then
+				App.panelKey(input)
+			end
+		end)
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,

@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 149
-local BUNDLED_VERSION = "9.85"
+local BUNDLED_BUILD = 150
+local BUNDLED_VERSION = "9.86"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -2778,6 +2778,8 @@ return function(App)
 			Parent = over,
 		})
 		local conns, finished = {}, false
+		-- key: a KeyCode name; the modifiers held with it (Ctrl, Alt, Shift) make it a combo ("Ctrl+Shift+G").
+		-- Esc on its own keeps the old binding.
 		local function finish(key)
 			if finished then
 				return
@@ -2787,12 +2789,23 @@ return function(App)
 				c:Disconnect()
 			end
 			tb:Destroy()
-			done(key ~= "Escape" and key or nil)
+			if not key or key == "Escape" then
+				done(nil)
+			else
+				done(App.combo(key, App.modsHeld()))
+			end
 		end
 		local function fromInput(input)
-			if input.UserInputType == Enum.UserInputType.Keyboard and not App.UNBINDABLE[input.KeyCode.Name] then
-				finish(input.KeyCode.Name)
+			if input.UserInputType ~= Enum.UserInputType.Keyboard then
+				return
 			end
+			if App.UNBINDABLE[input.KeyCode.Name] then -- a modifier on its own: show it, and wait for the key
+				if over:IsA("TextButton") or over:IsA("TextLabel") then
+					over.Text = App.combo("…", App.modsHeld())
+				end
+				return
+			end
+			finish(input.KeyCode.Name)
 		end
 		table.insert(conns, tb.InputBegan:Connect(fromInput))
 		table.insert(conns, UIS.InputBegan:Connect(fromInput))
@@ -3481,9 +3494,52 @@ return function(App)
 		RightSuper = true,
 		Unknown = true,
 	}
-	local function keyOf(id) -- the KeyCode name bound to an action
-		if type(G.keys[id]) == "string" and not UNBINDABLE[G.keys[id]] then
-			return G.keys[id]
+	-- A binding is a KeyCode name, with the modifiers held for it in front: "G", "Shift+T", "Ctrl+Alt+R". The
+	-- modifiers are always written in this order, so two bindings are the same exactly when their text is.
+	local MODS = { "Ctrl", "Alt", "Shift" }
+	local MOD_KEYS = {
+		Ctrl = { Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl },
+		Alt = { Enum.KeyCode.LeftAlt, Enum.KeyCode.RightAlt },
+		Shift = { Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift },
+	}
+	local UIS = game:GetService("UserInputService")
+	-- which modifiers are held right now: { Ctrl = true, … }
+	local function modsHeld()
+		local held = {}
+		for name, codes in MOD_KEYS do
+			for _, c in codes do
+				local ok, down = pcall(UIS.IsKeyDown, UIS, c)
+				if ok and down then
+					held[name] = true
+				end
+			end
+		end
+		return held
+	end
+	-- the binding for `key` with `mods` held (mods: a set as modsHeld gives)
+	local function combo(key, mods)
+		local parts = {}
+		for _, m in MODS do
+			if mods and mods[m] then
+				table.insert(parts, m)
+			end
+		end
+		table.insert(parts, key)
+		return table.concat(parts, "+")
+	end
+	-- a binding's key and its modifiers: "Ctrl+G" → "G", { Ctrl = true }
+	local function splitCombo(c)
+		local mods, key = {}, c
+		for part in string.gmatch(c, "([^+]+)%+") do
+			mods[part] = true
+		end
+		key = string.match(c, "([^+]+)$") or c
+		return key, mods
+	end
+	local function keyOf(id) -- the binding of an action ("G", "Shift+T"…)
+		local k = G.keys[id]
+		if type(k) == "string" and not UNBINDABLE[(splitCombo(k))] then
+			return k
 		end
 		for _, a in KEYMAP do
 			if a.id == id then
@@ -3492,9 +3548,21 @@ return function(App)
 		end
 		return nil
 	end
+	-- how a binding is written on a chip: "Ctrl+Shift+[", "Esc"
+	local function comboText(c)
+		local key, mods = splitCombo(c)
+		local parts = {}
+		for _, m in MODS do
+			if mods[m] then
+				table.insert(parts, m)
+			end
+		end
+		table.insert(parts, KEY_TEXT[key] or key)
+		return table.concat(parts, "+")
+	end
 	local function keyText(id)
 		local k = keyOf(id)
-		return k and (KEY_TEXT[k] or k) or "?"
+		return k and comboText(k) or "?"
 	end
 	-- bind an action to a key; an action already on that key takes this one's old key (a swap). Returns the
 	-- action that moved, if any.
@@ -3521,6 +3589,24 @@ return function(App)
 		E = "moves the camera up",
 		F = "focuses the camera on the selection",
 		Delete = "deletes the selected parts",
+		["Ctrl+Z"] = "undoes",
+		["Ctrl+Y"] = "redoes",
+		["Ctrl+C"] = "copies",
+		["Ctrl+V"] = "pastes",
+		["Ctrl+X"] = "cuts",
+		["Ctrl+D"] = "duplicates",
+		["Ctrl+S"] = "saves",
+		["Ctrl+A"] = "selects everything",
+		["Ctrl+G"] = "groups the selection",
+		["Ctrl+U"] = "ungroups the selection",
+		["Ctrl+L"] = "switches local / world space",
+		["Ctrl+R"] = "turns the selection",
+		["Ctrl+T"] = "tilts the selection",
+		["Ctrl+One"] = "picks the Select tool",
+		["Ctrl+Two"] = "picks the Move tool",
+		["Ctrl+Three"] = "picks the Scale tool",
+		["Ctrl+Four"] = "picks the Rotate tool",
+		["Alt+P"] = "starts a playtest",
 	}
 	local function resetKeys()
 		table.clear(G.keys)
@@ -3665,6 +3751,10 @@ return function(App)
 	App.KEYMAP = KEYMAP
 	App.UNBINDABLE = UNBINDABLE
 	App.keyOf = keyOf
+	App.modsHeld = modsHeld
+	App.combo = combo
+	App.splitCombo = splitCombo
+	App.comboText = comboText
 	App.keyText = keyText
 	App.bindKey = bindKey
 	App.resetKeys = resetKeys
@@ -9674,6 +9764,11 @@ return function(App)
 			ZIndex = 1,
 			Parent = App.widget,
 		})
+		App.root.InputBegan:Connect(function(input) -- shortcuts work with the mouse over the panel too
+			if App.panelKey then
+				App.panelKey(input)
+			end
+		end)
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,
@@ -10413,7 +10508,10 @@ return function(App)
 	end
 
 	local function buildShortcuts(b)
-		App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
+		App.explain(
+			b,
+			"Click a key to change it, then press the new one (Esc keeps the old). Hold Ctrl, Alt or Shift with it for a combo, like Ctrl+Shift+G. A key already in use swaps over."
+		)
 		local group
 		for _, a in App.KEYMAP do
 			if a.group ~= group then
@@ -10421,15 +10519,18 @@ return function(App)
 				label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
 			end
 			local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
-			label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
+			local name = label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
 			local key = button(App.keyText(a.id), nil, nil, {
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.new(1, 0, 0.5, 0),
-				AutomaticSize = Enum.AutomaticSize.None,
+				AutomaticSize = Enum.AutomaticSize.X, -- (a combo like Ctrl+Shift+[ needs more room than one key)
 				Size = UDim2.fromOffset(84, 26),
 				Font = SANS_B,
 				Parent = row,
 			})
+			key:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+				name.Size = UDim2.new(1, -(key.AbsoluteSize.X + 12), 1, 0)
+			end)
 			local lit = App.glow(key, 8, 0.8)
 			key.MouseButton1Click:Connect(function()
 				if App.capturingKey then
@@ -10460,7 +10561,7 @@ return function(App)
 			end)
 		end
 		local fixed = label(
-			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
+			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 			12,
 			P.faint,
 			SANS,
@@ -12474,8 +12575,13 @@ return function(App)
 	-- keys: every action and its key come from the keymap (State), so they follow what the user set in Settings
 	local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 	local lastKeyAt = {}
+	-- keys that also work with no tool on (while the panel is open): the search menu, the overlay, shuffling, and
+	-- picking a painting tool or erasing, which starts painting with it
+	local ANY_TIME =
+		{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+	local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true } -- (no new area from a key)
 	local function onKey(name)
-		if App.mode == "Off" and name ~= "palette" then
+		if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
 			return
 		end
 		-- keys arrive through UserInputService and, while the viewport has focus, through the plugin mouse too
@@ -12556,19 +12662,26 @@ return function(App)
 	local function charOf(key)
 		return CHAR[key] or (#key == 1 and string.lower(key)) or nil
 	end
-	local function ctrlHeld()
-		return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
-	end
-	-- the action on a key; a plain letter or digit held with Ctrl stays Studio's (Ctrl+C copies, Ctrl+X cuts)
+	-- the action on a key, with the modifiers held now:
+	--   1. an action bound to exactly this combo ("Ctrl+Shift+G") wins;
+	--   2. else, with Ctrl or Alt held, it's Studio's (Ctrl+C copies, Alt+P plays…), not ours;
+	--   3. else an action on the plain key, Shift or not (Shift is the tools' own modifier: erase, turn back…).
 	local function actionFor(key)
 		if App.capturingKey then -- Settings is listening for a new key: it isn't an action
 			return nil
 		end
+		local mods = App.modsHeld()
+		local exact = App.combo(key, mods)
+		for _, a in App.KEYMAP do
+			if App.keyOf(a.id) == exact then
+				return a.id
+			end
+		end
+		if mods.Ctrl or mods.Alt then
+			return nil
+		end
 		for _, a in App.KEYMAP do
 			if App.keyOf(a.id) == key then
-				if #(charOf(key) or "") == 1 and ctrlHeld() then
-					return nil -- Ctrl with a letter is Studio's (Ctrl+C, Ctrl+D…), not this shortcut
-				end
 				return a.id
 			end
 		end
@@ -12583,6 +12696,16 @@ return function(App)
 			onKey(name)
 		end
 	end))
+	-- the panel has the keyboard when the mouse is over it: its keys count too (the same press through two routes
+	-- is dropped once, in onKey)
+	App.panelKey = function(input)
+		if input.UserInputType == Enum.UserInputType.Keyboard and not UIS:GetFocusedTextBox() then
+			local name = actionFor(input.KeyCode.Name)
+			if name then
+				onKey(name)
+			end
+		end
+	end
 	-- Shift turns a brush into its opposite: the ring shows it the moment the key goes down or up
 	local function shiftChanged(input)
 		local k = input.KeyCode
@@ -12599,7 +12722,7 @@ return function(App)
 	track(UIS.InputEnded:Connect(shiftChanged))
 	mouse.KeyDown:Connect(function(k)
 		for _, a in App.KEYMAP do
-			local key = App.keyOf(a.id)
+			local key = App.splitCombo(App.keyOf(a.id)) -- (the plugin mouse gives only the character: the key)
 			if charOf(key) == k then
 				local name = actionFor(key)
 				if name then

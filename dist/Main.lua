@@ -188,9 +188,47 @@ LeftSuper = true,
 RightSuper = true,
 Unknown = true,
 }
+local MODS = { "Ctrl", "Alt", "Shift" }
+local MOD_KEYS = {
+Ctrl = { Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl },
+Alt = { Enum.KeyCode.LeftAlt, Enum.KeyCode.RightAlt },
+Shift = { Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift },
+}
+local UIS = game:GetService("UserInputService")
+local function modsHeld()
+local held = {}
+for name, codes in MOD_KEYS do
+for _, c in codes do
+local ok, down = pcall(UIS.IsKeyDown, UIS, c)
+if ok and down then
+held[name] = true
+end
+end
+end
+return held
+end
+local function combo(key, mods)
+local parts = {}
+for _, m in MODS do
+if mods and mods[m] then
+table.insert(parts, m)
+end
+end
+table.insert(parts, key)
+return table.concat(parts, "+")
+end
+local function splitCombo(c)
+local mods, key = {}, c
+for part in string.gmatch(c, "([^+]+)%+") do
+mods[part] = true
+end
+key = string.match(c, "([^+]+)$") or c
+return key, mods
+end
 local function keyOf(id)
-if type(G.keys[id]) == "string" and not UNBINDABLE[G.keys[id]] then
-return G.keys[id]
+local k = G.keys[id]
+if type(k) == "string" and not UNBINDABLE[(splitCombo(k))] then
+return k
 end
 for _, a in KEYMAP do
 if a.id == id then
@@ -199,9 +237,20 @@ end
 end
 return nil
 end
+local function comboText(c)
+local key, mods = splitCombo(c)
+local parts = {}
+for _, m in MODS do
+if mods[m] then
+table.insert(parts, m)
+end
+end
+table.insert(parts, KEY_TEXT[key] or key)
+return table.concat(parts, "+")
+end
 local function keyText(id)
 local k = keyOf(id)
-return k and (KEY_TEXT[k] or k) or "?"
+return k and comboText(k) or "?"
 end
 local function bindKey(id, key)
 local old, moved = keyOf(id), nil
@@ -224,6 +273,24 @@ Q = "moves the camera down",
 E = "moves the camera up",
 F = "focuses the camera on the selection",
 Delete = "deletes the selected parts",
+["Ctrl+Z"] = "undoes",
+["Ctrl+Y"] = "redoes",
+["Ctrl+C"] = "copies",
+["Ctrl+V"] = "pastes",
+["Ctrl+X"] = "cuts",
+["Ctrl+D"] = "duplicates",
+["Ctrl+S"] = "saves",
+["Ctrl+A"] = "selects everything",
+["Ctrl+G"] = "groups the selection",
+["Ctrl+U"] = "ungroups the selection",
+["Ctrl+L"] = "switches local / world space",
+["Ctrl+R"] = "turns the selection",
+["Ctrl+T"] = "tilts the selection",
+["Ctrl+One"] = "picks the Select tool",
+["Ctrl+Two"] = "picks the Move tool",
+["Ctrl+Three"] = "picks the Scale tool",
+["Ctrl+Four"] = "picks the Rotate tool",
+["Alt+P"] = "starts a playtest",
 }
 local function resetKeys()
 table.clear(G.keys)
@@ -348,6 +415,10 @@ App.makePalette = makePalette
 App.KEYMAP = KEYMAP
 App.UNBINDABLE = UNBINDABLE
 App.keyOf = keyOf
+App.modsHeld = modsHeld
+App.combo = combo
+App.splitCombo = splitCombo
+App.comboText = comboText
 App.keyText = keyText
 App.bindKey = bindKey
 App.resetKeys = resetKeys
@@ -1651,12 +1722,23 @@ for _, c in conns do
 c:Disconnect()
 end
 tb:Destroy()
-done(key ~= "Escape" and key or nil)
+if not key or key == "Escape" then
+done(nil)
+else
+done(App.combo(key, App.modsHeld()))
+end
 end
 local function fromInput(input)
-if input.UserInputType == Enum.UserInputType.Keyboard and not App.UNBINDABLE[input.KeyCode.Name] then
-finish(input.KeyCode.Name)
+if input.UserInputType ~= Enum.UserInputType.Keyboard then
+return
 end
+if App.UNBINDABLE[input.KeyCode.Name] then
+if over:IsA("TextButton") or over:IsA("TextLabel") then
+over.Text = App.combo("…", App.modsHeld())
+end
+return
+end
+finish(input.KeyCode.Name)
 end
 table.insert(conns, tb.InputBegan:Connect(fromInput))
 table.insert(conns, UIS.InputBegan:Connect(fromInput))

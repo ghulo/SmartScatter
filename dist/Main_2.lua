@@ -1535,7 +1535,10 @@ App.ui.perf = para("", { Parent = b })
 App.refreshPerf()
 end
 local function buildShortcuts(b)
-App.explain(b, "Click a key to change it, then press the new one (Esc keeps the old). A key already in use swaps over.")
+App.explain(
+b,
+"Click a key to change it, then press the new one (Esc keeps the old). Hold Ctrl, Alt or Shift with it for a combo, like Ctrl+Shift+G. A key already in use swaps over."
+)
 local group
 for _, a in App.KEYMAP do
 if a.group ~= group then
@@ -1543,15 +1546,18 @@ group = a.group
 label(group, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 24), Parent = b })
 end
 local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = b })
-label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
+local name = label(a.label, 13, P.text, SANS, { Size = UDim2.new(1, -96, 1, 0), Parent = row })
 local key = button(App.keyText(a.id), nil, nil, {
 AnchorPoint = Vector2.new(1, 0.5),
 Position = UDim2.new(1, 0, 0.5, 0),
-AutomaticSize = Enum.AutomaticSize.None,
+AutomaticSize = Enum.AutomaticSize.X,
 Size = UDim2.fromOffset(84, 26),
 Font = SANS_B,
 Parent = row,
 })
+key:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+name.Size = UDim2.new(1, -(key.AbsoluteSize.X + 12), 1, 0)
+end)
 local lit = App.glow(key, 8, 0.8)
 key.MouseButton1Click:Connect(function()
 if App.capturingKey then
@@ -1582,7 +1588,7 @@ end)
 end)
 end
 local fixed = label(
-"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point.",
+"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 12,
 P.faint,
 SANS,
@@ -2577,6 +2583,11 @@ BackgroundColor3 = P.bg,
 ZIndex = 1,
 Parent = App.widget,
 })
+App.root.InputBegan:Connect(function(input)
+if App.panelKey then
+App.panelKey(input)
+end
+end)
 local head = col({
 BackgroundTransparency = App.blobsOn() and 1 or 0,
 BackgroundColor3 = P.bg,
@@ -3432,8 +3443,11 @@ end
 end
 local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 local lastKeyAt = {}
+local ANY_TIME =
+{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
 local function onKey(name)
-if App.mode == "Off" and name ~= "palette" then
+if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
 return
 end
 if os.clock() - (lastKeyAt[name] or 0) < 0.08 then
@@ -3509,18 +3523,22 @@ end
 local function charOf(key)
 return CHAR[key] or (#key == 1 and string.lower(key)) or nil
 end
-local function ctrlHeld()
-return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
-end
 local function actionFor(key)
 if App.capturingKey then
 return nil
 end
+local mods = App.modsHeld()
+local exact = App.combo(key, mods)
 for _, a in App.KEYMAP do
-if App.keyOf(a.id) == key then
-if #(charOf(key) or "") == 1 and ctrlHeld() then
+if App.keyOf(a.id) == exact then
+return a.id
+end
+end
+if mods.Ctrl or mods.Alt then
 return nil
 end
+for _, a in App.KEYMAP do
+if App.keyOf(a.id) == key then
 return a.id
 end
 end
@@ -3535,6 +3553,14 @@ if name then
 onKey(name)
 end
 end))
+App.panelKey = function(input)
+if input.UserInputType == Enum.UserInputType.Keyboard and not UIS:GetFocusedTextBox() then
+local name = actionFor(input.KeyCode.Name)
+if name then
+onKey(name)
+end
+end
+end
 local function shiftChanged(input)
 local k = input.KeyCode
 if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" then
@@ -3550,7 +3576,7 @@ track(UIS.InputBegan:Connect(shiftChanged))
 track(UIS.InputEnded:Connect(shiftChanged))
 mouse.KeyDown:Connect(function(k)
 for _, a in App.KEYMAP do
-local key = App.keyOf(a.id)
+local key = App.splitCombo(App.keyOf(a.id))
 if charOf(key) == k then
 local name = actionFor(key)
 if name then
