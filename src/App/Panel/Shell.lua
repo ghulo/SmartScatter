@@ -178,7 +178,7 @@ return function(App)
 
 	local function buildBar(parent)
 		local foot = box({
-			BackgroundTransparency = 0,
+			BackgroundTransparency = App.blobsOn() and 0.25 or 0,
 			BackgroundColor3 = P.header,
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.fromScale(0, 1),
@@ -788,8 +788,14 @@ return function(App)
 		end
 		App.ui = {}
 		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-		-- fixed top: title, area picker, tabs and search; only the page below scrolls
-		local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
+		App.backdrop(App.root) -- (the colour blobs, under everything)
+		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
+		local head = col({
+			BackgroundTransparency = App.blobsOn() and 1 or 0,
+			BackgroundColor3 = P.bg,
+			ZIndex = 2,
+			Parent = App.root,
+		}, { pad(14, 14, 12, 8), vlist(0) })
 		App.scroll = new("ScrollingFrame", {
 			Size = UDim2.new(1, 0, 1, -barH()),
 			CanvasSize = UDim2.new(),

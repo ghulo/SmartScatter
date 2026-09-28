@@ -28,6 +28,7 @@ local ORDER = {
 	"Panel/Tabs/Brush",
 	"Panel/Tabs/Map",
 	"Panel/Tabs/Settings",
+	"Panel/Backdrop",
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Grid",

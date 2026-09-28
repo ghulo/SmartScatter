@@ -100,7 +100,12 @@ return function(App)
 	-- one feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
 	local function card(parent, spec, order)
 		App.cardCount += 1
-		local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
+		local c = col({
+			BackgroundTransparency = App.blobsOn() and 0.15 or 0, -- (a hint of the colour blobs shows through)
+			BackgroundColor3 = P.card,
+			LayoutOrder = order,
+			Parent = parent,
+		}, {
 			corner(8),
 			stroke(P.line),
 			pad(14, 14, 12, 14),
