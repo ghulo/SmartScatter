@@ -71,6 +71,7 @@ textScale = 1.2,
 live = false,
 liveAsked = false,
 overlay = true,
+blobs = true,
 groups = {},
 walk = true,
 shadows = true,
@@ -1906,7 +1907,12 @@ end
 App.cardCount = 0
 local function card(parent, spec, order)
 App.cardCount += 1
-local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
+local c = col({
+BackgroundTransparency = App.blobsOn() and 0.15 or 0,
+BackgroundColor3 = P.card,
+LayoutOrder = order,
+Parent = parent,
+}, {
 corner(8),
 stroke(P.line),
 pad(14, 14, 12, 14),
@@ -6044,6 +6050,7 @@ local ORDER = {
 	"Panel/Tabs/Brush",
 	"Panel/Tabs/Map",
 	"Panel/Tabs/Settings",
+	"Panel/Backdrop",
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Grid",

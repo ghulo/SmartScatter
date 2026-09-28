@@ -76,6 +76,7 @@ return function(App)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
+		blobs = true, -- soft colour blobs behind the panel (Settings › Look)
 		groups = {},
 		walk = true,
 		shadows = true,

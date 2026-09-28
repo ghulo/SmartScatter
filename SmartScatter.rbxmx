@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX46"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX47"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 146
-local BUNDLED_VERSION = "9.82"
+local BUNDLED_BUILD = 147
+local BUNDLED_VERSION = "9.83"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -401,6 +401,7 @@ local ORDER = {
 	"Panel/Tabs/Brush",
 	"Panel/Tabs/Map",
 	"Panel/Tabs/Settings",
+	"Panel/Backdrop",
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Grid",
@@ -536,7 +537,12 @@ return function(App)
 	-- one feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
 	local function card(parent, spec, order)
 		App.cardCount += 1
-		local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
+		local c = col({
+			BackgroundTransparency = App.blobsOn() and 0.15 or 0, -- (a hint of the colour blobs shows through)
+			BackgroundColor3 = P.card,
+			LayoutOrder = order,
+			Parent = parent,
+		}, {
 			corner(8),
 			stroke(P.line),
 			pad(14, 14, 12, 14),
@@ -3134,6 +3140,7 @@ return function(App)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
+		blobs = true, -- soft colour blobs behind the panel (Settings › Look)
 		groups = {},
 		walk = true,
 		shadows = true,
@@ -3455,7 +3462,7 @@ return function(App)
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX22"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX8"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX23"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX8"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
 	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
 	and the welcome shown before there are any areas. Each builder fills the body it's given.
@@ -4312,7 +4319,128 @@ return function(App)
 	App.buildScanFix = buildScanFix
 	App.buildWelcome = buildWelcome
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">Backdrop</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent, a warm amber and a dusty
+	rose), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
+	little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
+	that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local G, P, new = App.G, App.P, App.new
+	local TweenService = game:GetService("TweenService")
+
+	-- where each blob sits (its centre, as a share of the panel), how wide (a share of the panel's width), its
+	-- colour, and how far and how slowly it wanders
+	local BLOBS = {
+		{ at = Vector2.new(0.95, 0.06), size = 1.15, color = "accent", drift = Vector2.new(-0.08, 0.05), secs = 17 },
+		{ at = Vector2.new(0.02, 0.48), size = 1.0, color = Color3.fromHex("E3A857"), drift = Vector2.new(0.07, -0.06), secs = 21 },
+		{ at = Vector2.new(0.9, 0.92), size = 1.1, color = Color3.fromHex("D98C9A"), drift = Vector2.new(-0.06, -0.05), secs = 19 },
+	}
+	local SIDE = 96 -- the soft circle's texture, in pixels
+
+	-- a white disc whose edge fades out smoothly (false when EditableImage isn't available here)
+	local soft
+	local function softContent()
+		if soft == nil then
+			local ok, c = pcall(function()
+				local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(SIDE, SIDE) })
+				local buf = buffer.create(SIDE * SIDE * 4)
+				local mid = (SIDE - 1) / 2
+				for y = 0, SIDE - 1 do
+					for x = 0, SIDE - 1 do
+						local d = math.min(math.sqrt((x - mid) ^ 2 + (y - mid) ^ 2) / mid, 1)
+						local a = (1 - d * d) ^ 2 -- full in the middle, gone at the rim, no hard edge anywhere
+						local i = (y * SIDE + x) * 4
+						buffer.writeu8(buf, i, 255)
+						buffer.writeu8(buf, i + 1, 255)
+						buffer.writeu8(buf, i + 2, 255)
+						buffer.writeu8(buf, i + 3, math.floor(a * 255 + 0.5))
+					end
+				end
+				img:WritePixelsBuffer(Vector2.zero, Vector2.new(SIDE, SIDE), buf)
+				return Content.fromObject(img)
+			end)
+			soft = ok and c or false
+		end
+		return soft or nil
+	end
+
+	-- one blob: a soft disc, or (without the texture) five stacked circles that add up to about the same falloff
+	local function blob(parent, color, strength)
+		local holder = new("Frame", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5), Active = false, Parent = parent }, {
+			new("UIAspectRatioConstraint", { AspectRatio = 1, DominantAxis = Enum.DominantAxis.Width }),
+		})
+		local c = softContent()
+		local img = c
+			and new("ImageLabel", {
+				BackgroundTransparency = 1,
+				Size = UDim2.fromScale(1, 1),
+				ImageColor3 = color,
+				ImageTransparency = 1 - strength,
+				Active = false,
+				Parent = holder,
+			})
+		if img and pcall(function()
+			img.ImageContent = c
+		end) then
+			return holder
+		elseif img then
+			img:Destroy()
+		end
+		for k = 1, 5 do
+			local s = 1 - (k - 1) * 0.18
+			new("Frame", {
+				BackgroundColor3 = color,
+				BackgroundTransparency = 1 - strength / 3.2,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromScale(s, s),
+				Active = false,
+				Parent = holder,
+			}, { App.corner(9999) })
+		end
+		return holder
+	end
+
+	-- the blobs behind `root` (under everything in it); nothing when they're turned off
+	App.backdrop = function(root)
+		if G.blobs == false then
+			return
+		end
+		local light = settings().Studio.Theme.Name == "Light"
+		local layer = new("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			ClipsDescendants = true,
+			Active = false,
+			ZIndex = 0,
+			Parent = root,
+		})
+		for _, b in BLOBS do
+			local color = b.color == "accent" and P.accent or b.color
+			local h = blob(layer, color, light and 0.2 or 0.3)
+			h.Size = UDim2.fromScale(b.size, b.size)
+			h.Position = UDim2.fromScale(b.at.X, b.at.Y)
+			local to = b.at + b.drift
+			TweenService
+				:Create(
+					h,
+					TweenInfo.new(b.secs, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+					{ Position = UDim2.fromScale(to.X, to.Y) }
+				)
+				:Play()
+		end
+		return layer
+	end
+
+	-- whether the panel's surfaces let the blobs through a little
+	App.blobsOn = function()
+		return G.blobs ~= false
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — HandTools: one object, by hand. Its tools come in two groups, each a tile that says what it does
 	without hovering: putting copies down (Stamp: one, aimed; Spray: many, where you brush) and changing how much of it
 	grows where (More, Less, Erase, Reset). Under the tiles, the picked tool's own panel: how to use it, its settings
@@ -4510,7 +4638,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -5049,7 +5177,7 @@ return function(App)
 	App.maskOp = maskOp
 	App.primaryButton = primaryButton
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
 	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
@@ -6103,7 +6231,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
 	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
 	settings (a card per rule), biomes, presets, the performance report and removing single copies.
@@ -7547,7 +7675,7 @@ return function(App)
 		return liveBox(parent, fillRemoveCopies)
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Palette: the search menu, like Blender's F3 (Space here, or whatever Settings › Shortcuts says).
 	Pressed anywhere in the viewport while the panel is open, it opens at the mouse: type a few letters of anything the
 	plugin can do, pick it with the arrow keys and Enter (or a click), and it's done. Actions that take things away
@@ -8436,7 +8564,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
 	Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
 	update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
@@ -8616,7 +8744,7 @@ return function(App)
 
 	local function buildBar(parent)
 		local foot = box({
-			BackgroundTransparency = 0,
+			BackgroundTransparency = App.blobsOn() and 0.25 or 0,
 			BackgroundColor3 = P.header,
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.fromScale(0, 1),
@@ -9226,8 +9354,14 @@ return function(App)
 		end
 		App.ui = {}
 		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-		-- fixed top: title, area picker, tabs and search; only the page below scrolls
-		local head = col({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 2, Parent = App.root }, { pad(14, 14, 12, 8), vlist(0) })
+		App.backdrop(App.root) -- (the colour blobs, under everything)
+		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
+		local head = col({
+			BackgroundTransparency = App.blobsOn() and 1 or 0,
+			BackgroundColor3 = P.bg,
+			ZIndex = 2,
+			Parent = App.root,
+		}, { pad(14, 14, 12, 8), vlist(0) })
 		App.scroll = new("ScrollingFrame", {
 			Size = UDim2.new(1, 0, 1, -barH()),
 			CanvasSize = UDim2.new(),
@@ -9296,7 +9430,7 @@ return function(App)
 	App.applyTheme = applyTheme
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
 	needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
 	area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
@@ -9425,7 +9559,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX20"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX21"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Brush</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Brush tab: working by hand in the viewport. Paint the area's ground, work one object by hand
 	(stamp or spray copies, paint where it grows more or less: Panel/HandTools), take single copies out; then which surfaces painting sticks to and cleaning up
 	the painted edge under More options.
@@ -9596,7 +9730,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Map</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Map tab: the map itself. The path (drawing it, its curve and its road); scanning a finished map
 	for kinds and keeping its originals in a snapshot; and telling the scan what the parts of the map are.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -9687,7 +9821,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Scatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Scatter tab: what fills the area. The objects and how much of everything, or one object's rules
 	when it's open; then the look of the whole area (pattern, colour zones, edges, wind), biomes, presets and the
 	performance report under More options.
@@ -9815,7 +9949,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
 	viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -9840,6 +9974,14 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(b, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
+		switchRow("Colour blobs in the background", function()
+			return G.blobs ~= false
+		end, function(v)
+			G.blobs = v
+			saveG()
+			task.defer(App.rebuildAll) -- (after this click: the whole panel is rebuilt)
+		end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
+			b
 		label("Text size", 13, P.text, SANS, { Parent = b })
 		App.segmented({ "Small", "Normal", "Large" }, function()
 			return App.TEXT_SIZES[G.textScale] or "Normal"
@@ -10030,7 +10172,7 @@ return function(App)
 			id = "look",
 			title = "Look",
 			sub = "Accent colour and text size",
-			keys = "theme accent colour color text size font",
+			keys = "theme accent colour color text size font blobs background",
 			build = buildLook,
 		})
 		cs.add({ id = "viewport", title = "Viewport", sub = "What's drawn over the 3D view", keys = "overlay", build = buildViewport })
@@ -10057,7 +10199,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
@@ -10527,7 +10669,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX31"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX32"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a touch so the tool stands out, and the viewport's top
 	left says what's going on, the way Blender's does: the tool, then what it works on, then how to stop. Small, plain
@@ -10700,7 +10842,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
 	ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
 	toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
@@ -10831,7 +10973,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Overlay: the widget and the painted-area overlay in the viewport.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -11182,7 +11324,7 @@ return function(App)
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -12295,7 +12437,7 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
 	round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
 	centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
@@ -12483,7 +12625,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -13560,7 +13702,7 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamp: one model, put down exactly where and how you want it, anywhere on the ground. No area,
 	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
 	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
@@ -13910,7 +14052,7 @@ return function(App)
 		clearGhost()
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Toolbar: the viewport's own tools, like Blender's. Down the left edge, a strip of small square
 	tool buttons in groups (painting the ground; stamping and spraying the object in hand; the path and removing
 	copies; the search menu), the one in use lit. Along the top, while a tool is on, a bar with just that tool's
@@ -14477,7 +14619,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX46"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -14507,7 +14649,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -15493,7 +15635,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16293,7 +16435,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -16744,7 +16886,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -17259,7 +17401,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -17894,7 +18036,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18972,7 +19114,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -19746,7 +19888,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -19878,7 +20020,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -20878,7 +21020,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX43"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -21203,7 +21345,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX43"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -21715,7 +21857,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or
