@@ -252,15 +252,15 @@ return function(App)
 	-- small group title inside a page
 	local function heading(parent, text, gapTop)
 		box({ Size = UDim2.new(1, 0, 0, gapTop or 8), Parent = parent })
-		label(string.upper(text), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
+		label(text, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
 	end
 
 	-- what an area is for: "Scatter" (painted ground to fill), "Path" (a curve things follow) or "Clear" (a keep-clear
 	-- zone no area places anything on). Chosen when it's made; older areas are read from what they have.
 	local KIND = {
-		Scatter = { icon = "area", title = "SCATTER AREA" },
-		Path = { icon = "spline", title = "PATH" },
-		Clear = { icon = "clear", title = "KEEP-CLEAR ZONE" },
+		Scatter = { icon = "area", title = "Scatter area" },
+		Path = { icon = "spline", title = "Path" },
+		Clear = { icon = "clear", title = "Keep-clear zone" },
 	}
 	App.kindOf = function(a)
 		if not a then
@@ -336,8 +336,8 @@ return function(App)
 
 	local function buildHeader(parent)
 		local kind = App.kindOf(App.area)
-		-- what's being worked on: "PATH", "SCATTER AREA"
-		label(kind and KIND[kind].title or "SMART SCATTER", 11, P.faint, SANS_B, {
+		-- what's being worked on: "Path", "Scatter area"
+		label(kind and KIND[kind].title or "Smart Scatter", 12, P.dim, SANS_B, {
 			Size = UDim2.new(1, 0, 0, 20),
 			Parent = parent,
 		})

@@ -2112,14 +2112,21 @@ end
 App.rebuildAll()
 end
 local function buildTabs(parent)
-local bar = box({ BackgroundTransparency = 0, BackgroundColor3 = P.raised, Size = UDim2.new(1, 0, 0, 36), Parent = parent }, {
-corner(10),
-pad(3, 3, 3, 3),
+local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
+local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
 new("UIGridLayout", {
-CellSize = UDim2.new(1 / #TABS, -3, 1, 0),
-CellPadding = UDim2.fromOffset(3, 0),
+CellSize = UDim2.new(1 / #TABS, 0, 1, 0),
+CellPadding = UDim2.fromOffset(0, 0),
 SortOrder = Enum.SortOrder.LayoutOrder,
 }),
+})
+box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.line,
+AnchorPoint = Vector2.new(0, 1),
+Position = UDim2.new(0, 0, 1, 0),
+Size = UDim2.new(1, 0, 0, 1),
+Parent = strip,
 })
 App.ui.tabs = {}
 local fits = {}
@@ -2128,13 +2135,20 @@ local on = G.page == t.name and not App.searching()
 local b = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
-BackgroundTransparency = on and 0 or 1,
-BackgroundColor3 = P.card,
+BackgroundTransparency = 1,
 LayoutOrder = i,
 Parent = bar,
-}, { corner(8) })
+})
 if on then
-App.stroke(P.accentLine).Parent = b
+box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.accent,
+AnchorPoint = Vector2.new(0.5, 1),
+Position = UDim2.fromScale(0.5, 1),
+Size = UDim2.new(1, -16, 0, 2),
+ZIndex = 3,
+Parent = b,
+})
 end
 local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
 new("UIListLayout", {
@@ -2144,10 +2158,16 @@ VerticalAlignment = Enum.VerticalAlignment.Center,
 Padding = UDim.new(0, 5),
 }),
 })
-local fg = on and P.accent or P.dim
-local ic = App.icon(t.icon, 13, fg)
+local fg = on and P.text or P.dim
+local ic = App.icon(t.icon, 13, on and P.accent or fg)
 ic.Parent = row
-local text = label(t.name, 12, fg, SANS_B, { Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
+local text = label(
+t.name,
+13,
+fg,
+on and SANS_B or App.SANS_M,
+{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row }
+)
 fits[ic] = text
 if not on then
 b.MouseEnter:Connect(function()
@@ -2166,7 +2186,7 @@ hintOn(b, t.hint)
 App.ui.tabs[t.name] = b
 end
 local function fit()
-local cell = bar.AbsoluteSize.X / #TABS - 3
+local cell = bar.AbsoluteSize.X / #TABS
 for ic, text in fits do
 ic.Visible = cell >= text.TextBounds.X + 13 + 5 + 12
 end

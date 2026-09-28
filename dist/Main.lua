@@ -367,7 +367,6 @@ return function(App)
 local TextService = game:GetService("TextService")
 local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 local SANS_M, SANS_B = App.SANS_M, App.SANS_B
-local TweenService = game:GetService("TweenService")
 local seqN = 0
 local function seq()
 seqN += 1
@@ -461,102 +460,25 @@ o.Size = UDim2.new(1, 0, 0, 0)
 o.LineHeight = 1.2
 return o
 end
-local grain
-local function grainContent()
-if grain == nil then
-local ok, c = pcall(function()
-local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(4, 4) })
-local buf = buffer.create(4 * 4 * 4)
-local i = (1 * 4 + 1) * 4
-buffer.writeu8(buf, i, 255)
-buffer.writeu8(buf, i + 1, 255)
-buffer.writeu8(buf, i + 2, 255)
-buffer.writeu8(buf, i + 3, 255)
-img:WritePixelsBuffer(Vector2.zero, Vector2.new(4, 4), buf)
-return Content.fromObject(img)
-end)
-grain = ok and c or false
-end
-return grain or nil
-end
-local function halftone(parent, strength, spacing, z)
-local c = grainContent()
-if not c then
+local function halftone()
 return nil
 end
-local l = new("ImageLabel", {
-BackgroundTransparency = 1,
-Size = UDim2.fromScale(1, 1),
-ScaleType = Enum.ScaleType.Tile,
-TileSize = UDim2.fromOffset(spacing or 4, spacing or 4),
-ResampleMode = Enum.ResamplerMode.Pixelated,
-ImageTransparency = 1 - (strength or 0.04),
-ImageColor3 = settings().Studio.Theme.Name == "Light" and Color3.new(0, 0, 0) or Color3.new(1, 1, 1),
-Active = false,
-ZIndex = z or 1,
-Parent = parent,
-})
-if not pcall(function()
-l.ImageContent = c
-end) then
-l:Destroy()
+local function sheen()
 return nil
 end
-return l
-end
-local function sheen(parent, strength, height, z)
-local f = new("Frame", {
-BackgroundColor3 = Color3.new(1, 1, 1),
-BackgroundTransparency = 0,
-Size = UDim2.new(1, 0, 0, height or 120),
-Active = false,
-ZIndex = z or 1,
-Parent = parent,
-})
-new("UIGradient", {
-Rotation = 90,
-Transparency = NumberSequence.new(1 - (strength or 0.04), 1),
-Parent = f,
-})
-return f
-end
-local function fadeLine(parent, edge, strength)
-local f = new("Frame", {
-BackgroundColor3 = P.text,
+local function fadeLine(parent)
+return new("Frame", {
+BackgroundColor3 = P.line,
 BackgroundTransparency = 0,
 Size = UDim2.new(1, 0, 0, 1),
 Parent = parent,
 })
-local a = 1 - (strength or 0.16)
-new("UIGradient", {
-Transparency = edge == "left" and NumberSequence.new({
-NumberSequenceKeypoint.new(0, a),
-NumberSequenceKeypoint.new(0.7, 1),
-NumberSequenceKeypoint.new(1, 1),
-}) or NumberSequence.new({
-NumberSequenceKeypoint.new(0, 1),
-NumberSequenceKeypoint.new(0.4, a),
-NumberSequenceKeypoint.new(0.6, a),
-NumberSequenceKeypoint.new(1, 1),
-}),
-Parent = f,
-})
-return f
 end
-local function shade(obj, amount)
-local d = 1 - (amount or 0.08)
-return new("UIGradient", {
-Rotation = 90,
-Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(d, d, d)),
-Parent = obj,
-})
+local function shade()
+return nil
 end
-local function topLight(obj, strength, inset)
-local f = fadeLine(obj, nil, strength or 0.07)
-f.Position = UDim2.fromOffset(inset or 10, 0)
-f.Size = UDim2.new(1, -(inset or 10) * 2, 0, 1)
-f.ZIndex = obj.ZIndex + 1
-return f
+local function topLight()
+return nil
 end
 local function ring(obj, radius, out, thickness, color, dy)
 local p = obj:FindFirstChildOfClass("UIPadding")
@@ -576,50 +498,25 @@ st.Transparency = 1
 st.Parent = f
 return st
 end
-local GLOW = { { 1, 1.5, 0.62 }, { 3, 4, 0.93 } }
-local function glow(obj, radius, strength, color)
-strength = strength or 1
-local rings, lit, pulses = {}, false, {}
-for i, g in GLOW do
-rings[i] = { st = ring(obj, radius or 8, g[1], g[2], color or P.accent), rest = 1 - (1 - g[3]) * strength }
-end
+local function glow(obj, radius, _strength, color)
+local st = ring(obj, radius or 8, 2, 1, color or P.accent)
 local c = {}
 function c:set(on, instant)
-lit = on
-for _, r in rings do
-local t = on and r.rest or 1
+local t = on and 0.35 or 1
 if instant then
-r.st.Transparency = t
+st.Transparency = t
 else
-tween(r.st, FAST, { Transparency = t })
-end
+tween(st, FAST, { Transparency = t })
 end
 end
 function c:pulse(on)
-for _, p in pulses do
-p:Cancel()
-end
-table.clear(pulses)
-if not on then
-self:set(lit, false)
-return
-end
-for _, r in rings do
-r.st.Transparency = r.rest
-local p = TweenService:Create(
-r.st,
-TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-{ Transparency = (r.rest + 1) / 2 }
-)
-p:Play()
-table.insert(pulses, p)
-end
+self:set(on and true or false, false)
 end
 return c
 end
 local function shadow(obj, radius)
 local st = ring(obj, radius or 12, 1, 3, Color3.new(0, 0, 0), 2)
-st.Transparency = settings().Studio.Theme.Name == "Light" and 0.93 or 0.75
+st.Transparency = settings().Studio.Theme.Name == "Light" and 0.95 or 0.86
 return st
 end
 local function pressable(b, amount)
@@ -634,45 +531,10 @@ end)
 end
 return sc
 end
-local function sweep(obj, strength)
-local f = new("Frame", {
-BackgroundColor3 = Color3.new(1, 1, 1),
-BackgroundTransparency = 0,
-Size = UDim2.fromScale(1, 1),
-Visible = false,
-Active = false,
-ZIndex = obj.ZIndex + 1,
-Parent = obj,
-}, { corner(8) })
-local a = 1 - (strength or 0.35)
-local g = new("UIGradient", {
-Transparency = NumberSequence.new({
-NumberSequenceKeypoint.new(0, 1),
-NumberSequenceKeypoint.new(0.4, 1),
-NumberSequenceKeypoint.new(0.5, a),
-NumberSequenceKeypoint.new(0.6, 1),
-NumberSequenceKeypoint.new(1, 1),
-}),
-Offset = Vector2.new(-1, 0),
-Parent = f,
-})
-local run
-local c = {}
-function c:play(on)
-if run then
-run:Cancel()
-run = nil
-end
-f.Visible = on
-if on then
-g.Offset = Vector2.new(-1, 0)
-run = TweenService:Create(g, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1), {
-Offset = Vector2.new(1, 0),
-})
-run:Play()
-end
-end
-return c
+local function sweep()
+return {
+play = function() end,
+}
 end
 local function hoverable(b, rest, over)
 b.MouseEnter:Connect(function()
@@ -707,9 +569,6 @@ end
 if not flat then
 shade(b, filled and 0.1 or 0.06)
 topLight(b, filled and 0.3 or 0.06, 6)
-end
-if filled then
-glow(b, 8, 0.55):set(true, true)
 end
 pressable(b)
 b.MouseEnter:Connect(function()
@@ -853,20 +712,21 @@ local f = box({ Size = UDim2.new(1, 0, 0, 50) })
 hintOn(f, hint and (def ~= nil and (hint .. "\nRight-click to reset.") or hint))
 local name = label(text, 13, P.text, SANS, { Size = UDim2.new(1, -94, 0, 26), Parent = f })
 local value = new("TextBox", {
-BackgroundTransparency = 0,
-BackgroundColor3 = P.raised,
+BackgroundTransparency = 1,
+BackgroundColor3 = P.field,
 Text = "",
-Font = SANS_B,
-TextSize = 12,
+Font = SANS_M,
+TextSize = 13,
 TextColor3 = P.dim,
-TextXAlignment = Enum.TextXAlignment.Center,
+TextXAlignment = Enum.TextXAlignment.Right,
 ClearTextOnFocus = false,
-Size = UDim2.new(0, 86, 0, 22),
+Size = UDim2.new(0, 96, 0, 22),
 AnchorPoint = Vector2.new(1, 0),
 Position = UDim2.new(1, 0, 0, 2),
 Parent = f,
-}, { corner(6), pad(4, 4, 0, 0) })
-local valueStroke = stroke(P.raised)
+}, { corner(5), pad(6, 6, 0, 0) })
+local valueStroke = stroke(P.line)
+valueStroke.Transparency = 1
 valueStroke.Parent = value
 local track = box({
 BackgroundTransparency = 0,
@@ -910,7 +770,7 @@ end
 value.Text = string.format(fmt, pct and v * 100 or v)
 local ok, bounds = pcall(TextService.GetTextSize, TextService, value.Text, value.TextSize, value.Font, Vector2.new(400, 40))
 if ok and typeof(bounds) == "Vector2" then
-local w = math.clamp(math.ceil(bounds.X) + 18, 46, 110)
+local w = math.clamp(math.ceil(bounds.X) + 20, 44, 110)
 value.Size = UDim2.new(0, w, 0, 22)
 name.Size = UDim2.new(1, -(w + 8), 0, 26)
 end
@@ -938,6 +798,11 @@ knobStroke.Transparency = hot and 0 or 1
 knobStroke.Color = P.accent
 knob.Size = UDim2.fromOffset(hot and 16 or 14, hot and 16 or 14)
 name.TextColor3 = P.text
+if not value:IsFocused() then
+value.BackgroundTransparency = hovering and 0 or 1
+valueStroke.Transparency = hovering and 0 or 1
+value.TextColor3 = hot and P.text or P.dim
+end
 end
 f.MouseEnter:Connect(function()
 hovering = true
@@ -999,10 +864,12 @@ end
 end)
 end
 value.Focused:Connect(function()
-valueStroke.Color = P.accent
+value.BackgroundTransparency, value.TextColor3 = 0, P.text
+valueStroke.Color, valueStroke.Transparency = P.accent, 0
 end)
 value.FocusLost:Connect(function()
-valueStroke.Color = P.raised
+valueStroke.Color = P.line
+look()
 local n = tonumber(string.match(value.Text, "%-?[%d%.]+"))
 if n and pct then
 n /= 100
@@ -1031,7 +898,6 @@ local dot = box({ BackgroundTransparency = 0, BackgroundColor3 = P.knob, Size = 
 local lit = glow(b, 11, 0.7)
 local function refresh(animate)
 local on = get()
-lit:set(on, not animate)
 local props = { Position = on and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2) }
 if animate then
 tween(dot, FAST, props)
@@ -1486,7 +1352,7 @@ local st = stroke(done and P.accent or P.faint)
 st.Thickness = 1.5
 st.Parent = dot
 end
-label(string.upper(text), 11, P.faint, SANS_B, { Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
+label(text, 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, Parent = row })
 return row
 end
 local function hintBox(parent, text)
@@ -2041,41 +1907,27 @@ App.cardCount = 0
 local function card(parent, spec, order)
 App.cardCount += 1
 local c = col({ BackgroundTransparency = 0, BackgroundColor3 = P.card, LayoutOrder = order, Parent = parent }, {
-corner(12),
+corner(8),
 stroke(P.line),
 pad(14, 14, 12, 14),
 vlist(8),
 })
-App.shade(c, 0.05)
-App.topLight(c, 0.06, 12)
 local head = col({ Parent = c })
-local x = 0
+local txt = col({ Parent = head }, { vlist(2) })
+local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
 local badgeIcon = spec.icon or ICON[spec.id]
 if badgeIcon then
-local badge = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.accent:Lerp(P.card, 0.86),
-Size = UDim2.fromOffset(28, 28),
-Parent = head,
-}, { corner(7) })
-local ic = icon(badgeIcon, 15, P.accent)
-ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
-ic.Parent = badge
-x = 38
+local ic = icon(badgeIcon, 14, P.accent)
+ic.Parent = titleRow
 end
-local txt = col({ Position = UDim2.fromOffset(x, 0), Size = UDim2.new(1, -x, 0, 0), Parent = head }, { vlist(1) })
-local titleRow = box({ Size = UDim2.new(1, 0, 0, 18), Parent = txt }, { hlist(8) })
-label(spec.title, 14, P.text, SANS_B, { Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
+label(spec.title, 15, P.text, SANS_B, { Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
 if spec.tag then
-local tag = label(spec.tag, 10, P.dim, SANS_B, {
-Size = UDim2.fromOffset(0, 18),
+local tag = label(spec.tag, 11, P.faint, App.SANS_M, {
+Size = UDim2.fromOffset(0, 20),
 AutomaticSize = Enum.AutomaticSize.X,
-BackgroundTransparency = 0,
-BackgroundColor3 = P.raised,
 Parent = titleRow,
 })
-corner(9).Parent = tag
-pad(7, 7, 0, 0).Parent = tag
+tag.TextYAlignment = Enum.TextYAlignment.Center
 end
 local sub = spec.sub or SUB[spec.id]
 if sub and sub ~= "" then
@@ -2216,7 +2068,6 @@ local toggleBtn = ctx.button
 App.widget = ctx.widget
 local overlayFolder
 local rowParts = {}
-local edgeStrips, edgeCount = {}, 0
 App.dirtyRows = {}
 local cellInfo = {}
 local MAX_OVERLAY = 80000
@@ -2268,8 +2119,6 @@ overlayFolder:Destroy()
 overlayFolder = nil
 end
 rowParts, App.dirtyRows = {}, {}
-table.clear(edgeStrips)
-edgeCount = 0
 end
 local classColor
 local QUIET = { Road = true, Dirt = true }
@@ -2348,9 +2197,7 @@ cls = cls or probe(cx, cz).cls
 return classColor(cls)
 end
 local FILL = 0.66
-local RIM, RIM_W = 0.3, 0.26
-local BREATHE_MAX = 300
-local EDGE_REST = RIM
+local RIM, RIM_W = 0.15, 0.24
 local pool, POOL_MAX = {}, 4000
 local function strip(props)
 local p = table.remove(pool)
@@ -2364,10 +2211,6 @@ p.Parent = overlayFolder
 return p
 end
 local function release(p)
-if edgeStrips[p] then
-edgeStrips[p] = nil
-edgeCount -= 1
-end
 if #pool < POOL_MAX and p.Parent then
 p.Parent = nil
 table.insert(pool, p)
@@ -2435,9 +2278,7 @@ local col = cellColor(cx, cz, zone)
 return col == VIEW.accent and VIEW.edge or col
 end
 local function line(cf, size, col)
-local p = strip({ Material = Enum.Material.Neon, Transparency = RIM, Color = col, Size = size, CFrame = cf })
-edgeStrips[p] = true
-edgeCount += 1
+local p = strip({ Material = Enum.Material.SmoothPlastic, Transparency = RIM, Color = col, Size = size, CFrame = cf })
 table.insert(parts, p)
 end
 for _, side in { -1, 1 } do
@@ -2496,21 +2337,9 @@ break
 end
 end
 end
-local breath, breathing = 0, false
-track(RunService.Heartbeat:Connect(function(dt)
+track(RunService.Heartbeat:Connect(function()
 if next(App.dirtyRows) then
 flushRows(0.004)
-end
-local paint = (App.mode == "Paint" or App.mode == "Erase") and overlayFolder ~= nil and edgeCount <= BREATHE_MAX
-if paint or breathing then
-breath += dt
-if breath >= 0.08 or not paint then
-local t = paint and EDGE_REST - 0.06 + 0.06 * math.sin(os.clock() * 2.4) or EDGE_REST
-breath, breathing = 0, paint
-for strip in edgeStrips do
-strip.Transparency = t
-end
-end
 end
 end))
 local function rebuildOverlay(fresh)
@@ -3396,12 +3225,12 @@ end
 end
 local function heading(parent, text, gapTop)
 box({ Size = UDim2.new(1, 0, 0, gapTop or 8), Parent = parent })
-label(string.upper(text), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
+label(text, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
 end
 local KIND = {
-Scatter = { icon = "area", title = "SCATTER AREA" },
-Path = { icon = "spline", title = "PATH" },
-Clear = { icon = "clear", title = "KEEP-CLEAR ZONE" },
+Scatter = { icon = "area", title = "Scatter area" },
+Path = { icon = "spline", title = "Path" },
+Clear = { icon = "clear", title = "Keep-clear zone" },
 }
 App.kindOf = function(a)
 if not a then
@@ -3474,7 +3303,7 @@ end
 local iconButton = App.iconButton
 local function buildHeader(parent)
 local kind = App.kindOf(App.area)
-label(kind and KIND[kind].title or "SMART SCATTER", 11, P.faint, SANS_B, {
+label(kind and KIND[kind].title or "Smart Scatter", 12, P.dim, SANS_B, {
 Size = UDim2.new(1, 0, 0, 20),
 Parent = parent,
 })
@@ -4007,7 +3836,7 @@ App.ui.refreshSplineBtn()
 keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 App.ui.splineInfo = para("", { Parent = parent })
 App.refreshSplineInfo()
-label("SHAPES", 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+label("Shapes", 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
 local shapes = chipGrid(parent, 3, 28)
 local looks = {}
 for _, def in Engine.SHAPES do
@@ -4062,7 +3891,7 @@ local card = col(
 { BackgroundTransparency = 0, BackgroundColor3 = P.raised, Parent = pointBox },
 { corner(10), stroke(P.line), pad(12, 12, 10, 10), vlist(2) }
 )
-label("SELECTED POINT", 11, P.faint, SANS_B, { Parent = card })
+label("Selected point", 12, P.dim, SANS_B, { Parent = card })
 local function pointSlider(key, text, hint)
 return slider(
 text,
@@ -4183,7 +4012,7 @@ hintOn(
 markHead,
 "The scan guesses what each part is from its material and name, to keep things off roads, out of water and off roofs. If it guesses wrong, select the part and mark it."
 )
-label("MARK SELECTED AS", 11, P.faint, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
+label("Mark selected as", 12, P.dim, SANS_B, { Size = UDim2.new(1, -120, 1, 0), Parent = markHead })
 hintOn(
 button("Remove mark", "ghost", function()
 App.markSelected(nil)
@@ -5956,7 +5785,7 @@ go.Parent = buttonRow(box)
 hintOn(go, "The selected models float under the mouse; click to put one down. Pick up where you left off with no selection.")
 local a = App.area
 if a and #a.layers > 0 then
-App.label("OR ONE OF THIS AREA'S OBJECTS", 11, P.faint, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
+App.label("Or one of this area's objects", 12, P.dim, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
 local grid = chipGrid(box, 3, 28, 104)
 for _, l in a.layers do
 chip(grid, l.inst.Name, nil, function()
@@ -6052,7 +5881,7 @@ SortOrder = Enum.SortOrder.LayoutOrder,
 local ic = App.icon(t.icon, 15, color)
 ic.LayoutOrder = 0
 ic.Parent = head
-label(string.upper(t.text) .. "  ·  " .. l.inst.Name, 12, color, SANS_B, {
+label(t.text .. "  ·  " .. l.inst.Name, 13, color, SANS_B, {
 Size = UDim2.fromOffset(0, 18),
 AutomaticSize = Enum.AutomaticSize.X,
 LayoutOrder = 1,
@@ -6108,7 +5937,7 @@ more = more,
 build = function(b)
 local groups = {}
 for _, g in GROUPS do
-label(string.upper(g.title), 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
+label(g.title, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
 local tiles = App.toolTiles(b, 2, 52, 120)
 for _, t in ipairs(g) do
 tiles.add({
