@@ -178,7 +178,7 @@ return function(App)
 
 	local function buildBar(parent)
 		local foot = box({
-			BackgroundTransparency = App.blobsOn() and 0.25 or 0,
+			BackgroundTransparency = 0,
 			BackgroundColor3 = P.header,
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.fromScale(0, 1),
@@ -187,6 +187,7 @@ return function(App)
 			Parent = parent,
 		})
 		App.ui.foot = foot
+		App.glass(foot)
 		App.fadeLine(foot, nil, 0.16)
 		-- progress of a running job: the accent filling along the top edge, with light sweeping through it
 		local line = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 4, Parent = foot })
@@ -609,6 +610,7 @@ return function(App)
 		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
 		local st = App.stroke(P.line)
 		st.Parent = row
+		App.glass(row)
 		local ic = App.icon("search", 13, P.faint)
 		ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
 		ic.Parent = row
@@ -637,7 +639,7 @@ return function(App)
 			st.Color = P.accentLine
 		end)
 		tb.FocusLost:Connect(function()
-			st.Color = P.line
+			st.Color = App.blobsOn() and Color3.new(1, 1, 1) or P.line -- (back to its glass edge)
 		end)
 		-- the results follow the typing, a moment after it pauses
 		local token = 0

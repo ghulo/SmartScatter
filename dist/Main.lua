@@ -368,6 +368,8 @@ return function(App)
 local TextService = game:GetService("TextService")
 local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 local SANS_M, SANS_B = App.SANS_M, App.SANS_B
+local TweenService = game:GetService("TweenService")
+local G = App.G
 local seqN = 0
 local function seq()
 seqN += 1
@@ -461,25 +463,134 @@ o.Size = UDim2.new(1, 0, 0, 0)
 o.LineHeight = 1.2
 return o
 end
-local function halftone()
+local grain
+local function grainContent()
+if grain == nil then
+local ok, c = pcall(function()
+local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(4, 4) })
+local buf = buffer.create(4 * 4 * 4)
+local i = (1 * 4 + 1) * 4
+buffer.writeu8(buf, i, 255)
+buffer.writeu8(buf, i + 1, 255)
+buffer.writeu8(buf, i + 2, 255)
+buffer.writeu8(buf, i + 3, 255)
+img:WritePixelsBuffer(Vector2.zero, Vector2.new(4, 4), buf)
+return Content.fromObject(img)
+end)
+grain = ok and c or false
+end
+return grain or nil
+end
+local function halftone(parent, strength, spacing, z)
+local c = grainContent()
+if not c then
 return nil
 end
-local function sheen()
+local l = new("ImageLabel", {
+BackgroundTransparency = 1,
+Size = UDim2.fromScale(1, 1),
+ScaleType = Enum.ScaleType.Tile,
+TileSize = UDim2.fromOffset(spacing or 4, spacing or 4),
+ResampleMode = Enum.ResamplerMode.Pixelated,
+ImageTransparency = 1 - (strength or 0.04),
+ImageColor3 = settings().Studio.Theme.Name == "Light" and Color3.new(0, 0, 0) or Color3.new(1, 1, 1),
+Active = false,
+ZIndex = z or 1,
+Parent = parent,
+})
+if not pcall(function()
+l.ImageContent = c
+end) then
+l:Destroy()
 return nil
 end
-local function fadeLine(parent)
-return new("Frame", {
-BackgroundColor3 = P.line,
+return l
+end
+local function sheen(parent, strength, height, z)
+local f = new("Frame", {
+BackgroundColor3 = Color3.new(1, 1, 1),
+BackgroundTransparency = 0,
+Size = UDim2.new(1, 0, 0, height or 120),
+Active = false,
+ZIndex = z or 1,
+Parent = parent,
+})
+new("UIGradient", {
+Rotation = 90,
+Transparency = NumberSequence.new(1 - (strength or 0.04), 1),
+Parent = f,
+})
+return f
+end
+local function fadeLine(parent, edge, strength)
+local f = new("Frame", {
+BackgroundColor3 = P.text,
 BackgroundTransparency = 0,
 Size = UDim2.new(1, 0, 0, 1),
 Parent = parent,
 })
+local a = 1 - (strength or 0.16)
+new("UIGradient", {
+Transparency = edge == "left" and NumberSequence.new({
+NumberSequenceKeypoint.new(0, a),
+NumberSequenceKeypoint.new(0.7, 1),
+NumberSequenceKeypoint.new(1, 1),
+}) or NumberSequence.new({
+NumberSequenceKeypoint.new(0, 1),
+NumberSequenceKeypoint.new(0.4, a),
+NumberSequenceKeypoint.new(0.6, a),
+NumberSequenceKeypoint.new(1, 1),
+}),
+Parent = f,
+})
+return f
 end
-local function shade()
-return nil
+local function shade(obj, amount)
+local d = 1 - (amount or 0.08)
+return new("UIGradient", {
+Rotation = 90,
+Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(d, d, d)),
+Parent = obj,
+})
 end
-local function topLight()
-return nil
+local function topLight(obj, strength, inset)
+local f = fadeLine(obj, nil, strength or 0.07)
+f.Position = UDim2.fromOffset(inset or 10, 0)
+f.Size = UDim2.new(1, -(inset or 10) * 2, 0, 1)
+f.ZIndex = obj.ZIndex + 1
+return f
+end
+local function glass(obj)
+if G.blobs == false then
+return
+end
+local light = settings().Studio.Theme.Name == "Light"
+local base = obj.BackgroundColor3
+obj.BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), light and 0.3 or 0.07)
+obj.BackgroundTransparency = 0
+local k = light and 0.97 or 0.86
+new("UIGradient", {
+Rotation = 90,
+Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(k, k, k)),
+Transparency = NumberSequence.new({
+NumberSequenceKeypoint.new(0, light and 0.1 or 0.12),
+NumberSequenceKeypoint.new(1, light and 0.2 or 0.32),
+}),
+Parent = obj,
+})
+local st = obj:FindFirstChildOfClass("UIStroke") or stroke(P.line)
+st.Color = Color3.new(1, 1, 1)
+st.Transparency = 0
+st.Parent = obj
+new("UIGradient", {
+Rotation = 90,
+Transparency = NumberSequence.new({
+NumberSequenceKeypoint.new(0, light and 0.1 or 0.7),
+NumberSequenceKeypoint.new(0.35, light and 0.5 or 0.88),
+NumberSequenceKeypoint.new(1, light and 0.6 or 0.93),
+}),
+Parent = st,
+})
 end
 local function ring(obj, radius, out, thickness, color, dy)
 local p = obj:FindFirstChildOfClass("UIPadding")
@@ -499,25 +610,50 @@ st.Transparency = 1
 st.Parent = f
 return st
 end
-local function glow(obj, radius, _strength, color)
-local st = ring(obj, radius or 8, 2, 1, color or P.accent)
+local GLOW = { { 1, 1.5, 0.62 }, { 3, 4, 0.93 } }
+local function glow(obj, radius, strength, color)
+strength = strength or 1
+local rings, lit, pulses = {}, false, {}
+for i, g in GLOW do
+rings[i] = { st = ring(obj, radius or 8, g[1], g[2], color or P.accent), rest = 1 - (1 - g[3]) * strength }
+end
 local c = {}
 function c:set(on, instant)
-local t = on and 0.35 or 1
+lit = on
+for _, r in rings do
+local t = on and r.rest or 1
 if instant then
-st.Transparency = t
+r.st.Transparency = t
 else
-tween(st, FAST, { Transparency = t })
+tween(r.st, FAST, { Transparency = t })
+end
 end
 end
 function c:pulse(on)
-self:set(on and true or false, false)
+for _, p in pulses do
+p:Cancel()
+end
+table.clear(pulses)
+if not on then
+self:set(lit, false)
+return
+end
+for _, r in rings do
+r.st.Transparency = r.rest
+local p = TweenService:Create(
+r.st,
+TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+{ Transparency = (r.rest + 1) / 2 }
+)
+p:Play()
+table.insert(pulses, p)
+end
 end
 return c
 end
 local function shadow(obj, radius)
 local st = ring(obj, radius or 12, 1, 3, Color3.new(0, 0, 0), 2)
-st.Transparency = settings().Studio.Theme.Name == "Light" and 0.95 or 0.86
+st.Transparency = settings().Studio.Theme.Name == "Light" and 0.93 or 0.75
 return st
 end
 local function pressable(b, amount)
@@ -532,10 +668,45 @@ end)
 end
 return sc
 end
-local function sweep()
-return {
-play = function() end,
-}
+local function sweep(obj, strength)
+local f = new("Frame", {
+BackgroundColor3 = Color3.new(1, 1, 1),
+BackgroundTransparency = 0,
+Size = UDim2.fromScale(1, 1),
+Visible = false,
+Active = false,
+ZIndex = obj.ZIndex + 1,
+Parent = obj,
+}, { corner(8) })
+local a = 1 - (strength or 0.35)
+local g = new("UIGradient", {
+Transparency = NumberSequence.new({
+NumberSequenceKeypoint.new(0, 1),
+NumberSequenceKeypoint.new(0.4, 1),
+NumberSequenceKeypoint.new(0.5, a),
+NumberSequenceKeypoint.new(0.6, 1),
+NumberSequenceKeypoint.new(1, 1),
+}),
+Offset = Vector2.new(-1, 0),
+Parent = f,
+})
+local run
+local c = {}
+function c:play(on)
+if run then
+run:Cancel()
+run = nil
+end
+f.Visible = on
+if on then
+g.Offset = Vector2.new(-1, 0)
+run = TweenService:Create(g, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1), {
+Offset = Vector2.new(1, 0),
+})
+run:Play()
+end
+end
+return c
 end
 local function hoverable(b, rest, over)
 b.MouseEnter:Connect(function()
@@ -570,6 +741,9 @@ end
 if not flat then
 shade(b, filled and 0.1 or 0.06)
 topLight(b, filled and 0.3 or 0.06, 6)
+end
+if filled then
+glow(b, 8, 0.55):set(true, true)
 end
 pressable(b)
 b.MouseEnter:Connect(function()
@@ -899,6 +1073,7 @@ local dot = box({ BackgroundTransparency = 0, BackgroundColor3 = P.knob, Size = 
 local lit = glow(b, 11, 0.7)
 local function refresh(animate)
 local on = get()
+lit:set(on, not animate)
 local props = { Position = on and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2) }
 if animate then
 tween(dot, FAST, props)
@@ -1782,6 +1957,7 @@ App.para = para
 App.explain = explain
 App.hoverable = hoverable
 App.halftone = halftone
+App.glass = glass
 App.sheen = sheen
 App.fadeLine = fadeLine
 App.shade = shade
@@ -1908,7 +2084,7 @@ App.cardCount = 0
 local function card(parent, spec, order)
 App.cardCount += 1
 local c = col({
-BackgroundTransparency = App.blobsOn() and 0.15 or 0,
+BackgroundTransparency = 0,
 BackgroundColor3 = P.card,
 LayoutOrder = order,
 Parent = parent,
@@ -1918,6 +2094,7 @@ stroke(P.line),
 pad(14, 14, 12, 14),
 vlist(8),
 })
+App.glass(c)
 local head = col({ Parent = c })
 local txt = col({ Parent = head }, { vlist(2) })
 local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })

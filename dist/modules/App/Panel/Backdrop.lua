@@ -1,6 +1,6 @@
 --[[
-	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent, a warm amber and a dusty
-	rose), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
+	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
+	shades of it, so they follow the colour theme), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
 	little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
 	that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -10,13 +10,18 @@ return function(App)
 	local G, P, new = App.G, App.P, App.new
 	local TweenService = game:GetService("TweenService")
 
-	-- where each blob sits (its centre, as a share of the panel), how wide (a share of the panel's width), its
-	-- colour, and how far and how slowly it wanders
+	-- where each blob sits (its centre, as a share of the panel), how wide (a share of the panel's width), its colour
+	-- (the accent turned round the colour wheel by `hue`, a little richer or brighter), and how far and how slowly
+	-- it wanders. So the blobs are always the accent's own family: sage gives greens and teals, rose gives pinks.
 	local BLOBS = {
-		{ at = Vector2.new(0.95, 0.06), size = 1.15, color = "accent", drift = Vector2.new(-0.08, 0.05), secs = 17 },
-		{ at = Vector2.new(0.02, 0.48), size = 1.0, color = Color3.fromHex("E3A857"), drift = Vector2.new(0.07, -0.06), secs = 21 },
-		{ at = Vector2.new(0.9, 0.92), size = 1.1, color = Color3.fromHex("D98C9A"), drift = Vector2.new(-0.06, -0.05), secs = 19 },
+		{ at = Vector2.new(0.95, 0.06), size = 1.15, hue = 0, sat = 1.15, val = 1.0, drift = Vector2.new(-0.08, 0.05), secs = 17 },
+		{ at = Vector2.new(0.02, 0.48), size = 1.0, hue = 0.08, sat = 1.25, val = 0.95, drift = Vector2.new(0.07, -0.06), secs = 21 },
+		{ at = Vector2.new(0.9, 0.92), size = 1.1, hue = -0.07, sat = 1.1, val = 1.05, drift = Vector2.new(-0.06, -0.05), secs = 19 },
 	}
+	local function shadeOf(b)
+		local h, sa, v = P.accent:ToHSV()
+		return Color3.fromHSV((h + b.hue) % 1, math.clamp(sa * b.sat, 0, 1), math.clamp(v * b.val, 0, 1))
+	end
 	local SIDE = 96 -- the soft circle's texture, in pixels
 
 	-- a white disc whose edge fades out smoothly (false when EditableImage isn't available here)
@@ -98,8 +103,7 @@ return function(App)
 			Parent = root,
 		})
 		for _, b in BLOBS do
-			local color = b.color == "accent" and P.accent or b.color
-			local h = blob(layer, color, light and 0.2 or 0.3)
+			local h = blob(layer, shadeOf(b), light and 0.2 or 0.3)
 			h.Size = UDim2.fromScale(b.size, b.size)
 			h.Position = UDim2.fromScale(b.at.X, b.at.Y)
 			local to = b.at + b.drift
