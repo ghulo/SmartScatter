@@ -1647,7 +1647,8 @@ end)()
 MODULES["App/Panel/Backdrop"] = (function()
 --[[
 Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
-shades of it, so they follow the colour theme), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
+shades of it, so they follow the colour theme), wandering slowly round their spots and gently changing shape.
+They sit under everything, the page scrolls over them and they carry on across panel rebuilds; cards let a
 little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
 that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -1725,33 +1726,83 @@ Parent = holder,
 end
 return holder
 end
-App.backdrop = function(root)
-if G.blobs == false then
+local rng = Random.new()
+local function wander(h, b)
+local shape = h:FindFirstChildOfClass("UIAspectRatioConstraint")
+local reach = math.sqrt(b.drift.X ^ 2 + b.drift.Y ^ 2) * 1.5
+local function go()
+if not h.Parent then
 return
 end
+local a = rng:NextNumber(0, math.pi * 2)
+local r = reach * rng:NextNumber(0.35, 1)
+local toX, toY = b.at.X + math.cos(a) * r, b.at.Y + math.sin(a) * r
+local k = b.size * rng:NextNumber(0.92, 1.08)
+local info = TweenInfo.new(b.secs * rng:NextNumber(0.25, 0.45), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+local tw = TweenService:Create(h, info, {
+Position = UDim2.fromScale(toX, toY),
+Size = UDim2.fromScale(k, k),
+Rotation = h.Rotation + rng:NextNumber(-40, 40),
+})
+if shape then
+TweenService:Create(shape, info, { AspectRatio = rng:NextNumber(0.8, 1.25) }):Play()
+end
+tw.Completed:Connect(function(state)
+if state == Enum.PlaybackState.Completed then
+go()
+end
+end)
+tw:Play()
+end
+go()
+end
+local layer, made
+App.backdrop = function(widget)
 local light = settings().Studio.Theme.Name == "Light"
-local layer = new("Frame", {
-BackgroundTransparency = 1,
+local key = G.blobs ~= false and (P.accent:ToHex() .. (light and "L" or "D")) or "off"
+if layer and layer.Parent == widget and made == key then
+return key ~= "off"
+end
+if layer then
+layer:Destroy()
+layer = nil
+end
+for _, old in widget:GetChildren() do
+if old.Name == "SS_Backdrop" then
+old:Destroy()
+end
+end
+made = key
+if key == "off" then
+return false
+end
+layer = new("Frame", {
+BackgroundTransparency = 0,
+BackgroundColor3 = P.bg,
 Size = UDim2.fromScale(1, 1),
 ClipsDescendants = true,
 Active = false,
 ZIndex = 0,
-Parent = root,
+Name = "SS_Backdrop",
+Parent = widget,
 })
 for _, b in BLOBS do
 local h = blob(layer, shadeOf(b), light and 0.2 or 0.3)
 h.Size = UDim2.fromScale(b.size, b.size)
 h.Position = UDim2.fromScale(b.at.X, b.at.Y)
-local to = b.at + b.drift
-TweenService
-:Create(
-h,
-TweenInfo.new(b.secs, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-{ Position = UDim2.fromScale(to.X, to.Y) }
-)
-:Play()
+wander(h, b)
 end
-return layer
+for _, d in layer:GetDescendants() do
+if d:IsA("GuiObject") then
+d.ZIndex = 0
+end
+if d:IsA("ImageLabel") then
+local t = d.ImageTransparency
+d.ImageTransparency = 1
+App.tween(d, TweenInfo.new(0.8, Enum.EasingStyle.Quad), { ImageTransparency = t })
+end
+end
+return true
 end
 App.blobsOn = function()
 return G.blobs ~= false
@@ -2235,6 +2286,7 @@ App.setMode("Off")
 end
 App.rebuildAll()
 end
+local shownTab
 local function buildTabs(parent)
 local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
 local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
@@ -2264,15 +2316,23 @@ LayoutOrder = i,
 Parent = bar,
 })
 if on then
-box({
+local from = shownTab and shownTab ~= i and (shownTab - i) or 0
+local u = box({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.accent,
 AnchorPoint = Vector2.new(0.5, 1),
-Position = UDim2.fromScale(0.5, 1),
-Size = UDim2.new(1, -16, 0, 2),
+Position = UDim2.fromScale(0.5 + from, 1),
+Size = UDim2.new(from == 0 and 1 or 1.3, -16, 0, 2),
 ZIndex = 3,
 Parent = b,
+}, { corner(1) })
+if from ~= 0 then
+tween(u, TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+Position = UDim2.fromScale(0.5, 1),
+Size = UDim2.new(1, -16, 0, 2),
 })
+end
+shownTab = i
 end
 local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
 new("UIListLayout", {
@@ -2318,7 +2378,7 @@ end
 bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 task.defer(fit)
 end
-local buildPage
+local buildPage, enterCards
 local function buildSearch(parent)
 local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
 local st = App.stroke(P.line)
@@ -2474,7 +2534,29 @@ tween(sc, MED, { CanvasPosition = Vector2.new(0, math.max(top - 10, 0)) })
 end)
 end)
 end
+local ENTER = TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+function enterCards()
+local k = 0
+for _, c in App.scroll:GetDescendants() do
+if k >= 8 then
+break
+end
+if c:IsA("GuiObject") and c:GetAttribute("SS_Card") then
+local sc = new("UIScale", { Scale = 0.97, Parent = c })
+local rest = c.BackgroundTransparency
+c.BackgroundTransparency = 1
+task.delay(k * 0.045, function()
+if c.Parent then
+tween(sc, ENTER, { Scale = 1 })
+tween(c, MED, { BackgroundTransparency = rest })
+end
+end)
+k += 1
+end
+end
+end
 local builtPage
+local firstBuild = true
 App.rebuildAll = function()
 if not TAB[G.page] then
 G.page = homeTab()
@@ -2487,8 +2569,14 @@ App.pruneThumbs()
 App.root:Destroy()
 end
 App.ui = {}
-App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-App.backdrop(App.root)
+local blobs = App.backdrop(App.widget)
+App.root = box({
+Size = UDim2.fromScale(1, 1),
+BackgroundTransparency = blobs and 1 or 0,
+BackgroundColor3 = P.bg,
+ZIndex = 1,
+Parent = App.widget,
+})
 local head = col({
 BackgroundTransparency = App.blobsOn() and 1 or 0,
 BackgroundColor3 = P.bg,
@@ -2537,6 +2625,10 @@ if turned then
 scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
 tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
 end
+if turned or firstBuild then
+enterCards()
+end
+firstBuild = false
 if App.tour and App.renderTour then
 App.renderTour()
 end

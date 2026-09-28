@@ -1,6 +1,7 @@
 --[[
 	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
-	shades of it, so they follow the colour theme), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
+	shades of it, so they follow the colour theme), wandering slowly round their spots and gently changing shape.
+	They sit under everything, the page scrolls over them and they carry on across panel rebuilds; cards let a
 	little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
 	that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -88,34 +89,92 @@ return function(App)
 		return holder
 	end
 
-	-- the blobs behind `root` (under everything in it); nothing when they're turned off
-	App.backdrop = function(root)
-		if G.blobs == false then
-			return
+	-- one blob wandering round its home: every few seconds it heads for a new spot near home, stretching a little
+	-- one way or the other and turning as it goes, so it looks alive rather than sliding back and forth. It stops by
+	-- itself when the blob is gone.
+	local rng = Random.new()
+	local function wander(h, b)
+		local shape = h:FindFirstChildOfClass("UIAspectRatioConstraint")
+		local reach = math.sqrt(b.drift.X ^ 2 + b.drift.Y ^ 2) * 1.5
+		local function go()
+			if not h.Parent then
+				return
+			end
+			local a = rng:NextNumber(0, math.pi * 2)
+			local r = reach * rng:NextNumber(0.35, 1)
+			local toX, toY = b.at.X + math.cos(a) * r, b.at.Y + math.sin(a) * r
+			local k = b.size * rng:NextNumber(0.92, 1.08)
+			local info = TweenInfo.new(b.secs * rng:NextNumber(0.25, 0.45), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+			local tw = TweenService:Create(h, info, {
+				Position = UDim2.fromScale(toX, toY),
+				Size = UDim2.fromScale(k, k),
+				Rotation = h.Rotation + rng:NextNumber(-40, 40),
+			})
+			if shape then
+				TweenService:Create(shape, info, { AspectRatio = rng:NextNumber(0.8, 1.25) }):Play()
+			end
+			tw.Completed:Connect(function(state)
+				if state == Enum.PlaybackState.Completed then
+					go()
+				end
+			end)
+			tw:Play()
 		end
+		go()
+	end
+
+	-- the backdrop: the panel's background colour with the blobs on it, under everything in `widget`. It stays across
+	-- panel rebuilds (so the blobs keep drifting rather than jumping back), and is made again only when the accent,
+	-- the Studio theme or the switch changes. Returns true when it's there (the panel's own background then goes).
+	local layer, made
+	App.backdrop = function(widget)
 		local light = settings().Studio.Theme.Name == "Light"
-		local layer = new("Frame", {
-			BackgroundTransparency = 1,
+		local key = G.blobs ~= false and (P.accent:ToHex() .. (light and "L" or "D")) or "off"
+		if layer and layer.Parent == widget and made == key then
+			return key ~= "off"
+		end
+		if layer then
+			layer:Destroy()
+			layer = nil
+		end
+		for _, old in widget:GetChildren() do -- (one left by the plugin before it updated)
+			if old.Name == "SS_Backdrop" then
+				old:Destroy()
+			end
+		end
+		made = key
+		if key == "off" then
+			return false
+		end
+		layer = new("Frame", {
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.bg,
 			Size = UDim2.fromScale(1, 1),
 			ClipsDescendants = true,
 			Active = false,
 			ZIndex = 0,
-			Parent = root,
+			Name = "SS_Backdrop",
+			Parent = widget,
 		})
 		for _, b in BLOBS do
 			local h = blob(layer, shadeOf(b), light and 0.2 or 0.3)
 			h.Size = UDim2.fromScale(b.size, b.size)
 			h.Position = UDim2.fromScale(b.at.X, b.at.Y)
-			local to = b.at + b.drift
-			TweenService
-				:Create(
-					h,
-					TweenInfo.new(b.secs, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-					{ Position = UDim2.fromScale(to.X, to.Y) }
-				)
-				:Play()
+			wander(h, b)
 		end
-		return layer
+		-- fading in when it's (re)made: a new accent washes over instead of snapping. Everything in it sits at ZIndex 0,
+		-- under the panel whichever way the widget stacks its children.
+		for _, d in layer:GetDescendants() do
+			if d:IsA("GuiObject") then
+				d.ZIndex = 0
+			end
+			if d:IsA("ImageLabel") then
+				local t = d.ImageTransparency
+				d.ImageTransparency = 1
+				App.tween(d, TweenInfo.new(0.8, Enum.EasingStyle.Quad), { ImageTransparency = t })
+			end
+		end
+		return true
 	end
 
 	-- whether the panel's surfaces let the blobs through a little

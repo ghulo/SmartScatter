@@ -2095,6 +2095,16 @@ pad(14, 14, 12, 14),
 vlist(8),
 })
 App.glass(c)
+local edge = c:FindFirstChildOfClass("UIStroke")
+if edge then
+local rest = edge.Color
+c.MouseEnter:Connect(function()
+App.tween(edge, App.MED, { Color = P.accent:Lerp(Color3.new(1, 1, 1), 0.25) })
+end)
+c.MouseLeave:Connect(function()
+App.tween(edge, App.MED, { Color = rest })
+end)
+end
 local head = col({ Parent = c })
 local txt = col({ Parent = head }, { vlist(2) })
 local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
@@ -2182,6 +2192,20 @@ open = not open
 G.groups[key] = open or nil
 saveG()
 look()
+chev.Rotation = open and 0 or 90
+App.tween(chev, App.MED, { Rotation = open and 90 or 0 })
+if open then
+local k = 0
+for _, c in foldBody:GetChildren() do
+if c:IsA("GuiObject") and c:GetAttribute("SS_Card") and k < 8 then
+local sc = App.new("UIScale", { Scale = 0.97, Parent = c })
+task.delay(k * 0.04, function()
+App.tween(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+end)
+k += 1
+end
+end
+end
 end)
 return foldBody
 end

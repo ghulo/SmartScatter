@@ -24,8 +24,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 148
-local BUNDLED_VERSION = "9.84"
+local BUNDLED_BUILD = 149
+local BUNDLED_VERSION = "9.85"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -549,6 +549,17 @@ return function(App)
 			vlist(8),
 		})
 		App.glass(c) -- (see-through, with a sheen and a lit top edge, over the colour blobs)
+		-- under the mouse its edge takes on the accent, softly
+		local edge = c:FindFirstChildOfClass("UIStroke")
+		if edge then
+			local rest = edge.Color
+			c.MouseEnter:Connect(function()
+				App.tween(edge, App.MED, { Color = P.accent:Lerp(Color3.new(1, 1, 1), 0.25) })
+			end)
+			c.MouseLeave:Connect(function()
+				App.tween(edge, App.MED, { Color = rest })
+			end)
+		end
 		local head = col({ Parent = c })
 		local txt = col({ Parent = head }, { vlist(2) })
 		-- the title, with its icon small and quiet before it (no badge)
@@ -640,6 +651,20 @@ return function(App)
 				G.groups[key] = open or nil
 				saveG()
 				look()
+				chev.Rotation = open and 0 or 90 -- (from where it was: the arrow turns over)
+				App.tween(chev, App.MED, { Rotation = open and 90 or 0 })
+				if open then -- the folded cards arrive one after another
+					local k = 0
+					for _, c in foldBody:GetChildren() do
+						if c:IsA("GuiObject") and c:GetAttribute("SS_Card") and k < 8 then
+							local sc = App.new("UIScale", { Scale = 0.97, Parent = c })
+							task.delay(k * 0.04, function()
+								App.tween(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+							end)
+							k += 1
+						end
+					end
+				end
 			end)
 			return foldBody
 		end
@@ -4508,7 +4533,8 @@ return function(App)
 end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">Backdrop</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
-	shades of it, so they follow the colour theme), drifting very slowly. They sit under everything and stay put while the page scrolls over them; cards let a
+	shades of it, so they follow the colour theme), wandering slowly round their spots and gently changing shape.
+	They sit under everything, the page scrolls over them and they carry on across panel rebuilds; cards let a
 	little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
 	that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -4596,34 +4622,92 @@ return function(App)
 		return holder
 	end
 
-	-- the blobs behind `root` (under everything in it); nothing when they're turned off
-	App.backdrop = function(root)
-		if G.blobs == false then
-			return
+	-- one blob wandering round its home: every few seconds it heads for a new spot near home, stretching a little
+	-- one way or the other and turning as it goes, so it looks alive rather than sliding back and forth. It stops by
+	-- itself when the blob is gone.
+	local rng = Random.new()
+	local function wander(h, b)
+		local shape = h:FindFirstChildOfClass("UIAspectRatioConstraint")
+		local reach = math.sqrt(b.drift.X ^ 2 + b.drift.Y ^ 2) * 1.5
+		local function go()
+			if not h.Parent then
+				return
+			end
+			local a = rng:NextNumber(0, math.pi * 2)
+			local r = reach * rng:NextNumber(0.35, 1)
+			local toX, toY = b.at.X + math.cos(a) * r, b.at.Y + math.sin(a) * r
+			local k = b.size * rng:NextNumber(0.92, 1.08)
+			local info = TweenInfo.new(b.secs * rng:NextNumber(0.25, 0.45), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+			local tw = TweenService:Create(h, info, {
+				Position = UDim2.fromScale(toX, toY),
+				Size = UDim2.fromScale(k, k),
+				Rotation = h.Rotation + rng:NextNumber(-40, 40),
+			})
+			if shape then
+				TweenService:Create(shape, info, { AspectRatio = rng:NextNumber(0.8, 1.25) }):Play()
+			end
+			tw.Completed:Connect(function(state)
+				if state == Enum.PlaybackState.Completed then
+					go()
+				end
+			end)
+			tw:Play()
 		end
+		go()
+	end
+
+	-- the backdrop: the panel's background colour with the blobs on it, under everything in `widget`. It stays across
+	-- panel rebuilds (so the blobs keep drifting rather than jumping back), and is made again only when the accent,
+	-- the Studio theme or the switch changes. Returns true when it's there (the panel's own background then goes).
+	local layer, made
+	App.backdrop = function(widget)
 		local light = settings().Studio.Theme.Name == "Light"
-		local layer = new("Frame", {
-			BackgroundTransparency = 1,
+		local key = G.blobs ~= false and (P.accent:ToHex() .. (light and "L" or "D")) or "off"
+		if layer and layer.Parent == widget and made == key then
+			return key ~= "off"
+		end
+		if layer then
+			layer:Destroy()
+			layer = nil
+		end
+		for _, old in widget:GetChildren() do -- (one left by the plugin before it updated)
+			if old.Name == "SS_Backdrop" then
+				old:Destroy()
+			end
+		end
+		made = key
+		if key == "off" then
+			return false
+		end
+		layer = new("Frame", {
+			BackgroundTransparency = 0,
+			BackgroundColor3 = P.bg,
 			Size = UDim2.fromScale(1, 1),
 			ClipsDescendants = true,
 			Active = false,
 			ZIndex = 0,
-			Parent = root,
+			Name = "SS_Backdrop",
+			Parent = widget,
 		})
 		for _, b in BLOBS do
 			local h = blob(layer, shadeOf(b), light and 0.2 or 0.3)
 			h.Size = UDim2.fromScale(b.size, b.size)
 			h.Position = UDim2.fromScale(b.at.X, b.at.Y)
-			local to = b.at + b.drift
-			TweenService
-				:Create(
-					h,
-					TweenInfo.new(b.secs, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-					{ Position = UDim2.fromScale(to.X, to.Y) }
-				)
-				:Play()
+			wander(h, b)
 		end
-		return layer
+		-- fading in when it's (re)made: a new accent washes over instead of snapping. Everything in it sits at ZIndex 0,
+		-- under the panel whichever way the widget stacks its children.
+		for _, d in layer:GetDescendants() do
+			if d:IsA("GuiObject") then
+				d.ZIndex = 0
+			end
+			if d:IsA("ImageLabel") then
+				local t = d.ImageTransparency
+				d.ImageTransparency = 1
+				App.tween(d, TweenInfo.new(0.8, Enum.EasingStyle.Quad), { ImageTransparency = t })
+			end
+		end
+		return true
 	end
 
 	-- whether the panel's surfaces let the blobs through a little
@@ -9277,6 +9361,7 @@ return function(App)
 		App.rebuildAll()
 	end
 
+	local shownTab -- which tab's underline was last drawn (the next one slides over from there)
 	local function buildTabs(parent)
 		-- plain tabs over a hairline; the open one is marked by a short accent line under its name
 		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
@@ -9307,15 +9392,25 @@ return function(App)
 				Parent = bar,
 			})
 			if on then
-				box({
+				-- the underline slides over from the tab that was open (the tabs are all one width, so the old one is
+				-- a whole number of widths away), stretching a little on the way
+				local from = shownTab and shownTab ~= i and (shownTab - i) or 0
+				local u = box({
 					BackgroundTransparency = 0,
 					BackgroundColor3 = P.accent,
 					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5, 1),
-					Size = UDim2.new(1, -16, 0, 2),
+					Position = UDim2.fromScale(0.5 + from, 1),
+					Size = UDim2.new(from == 0 and 1 or 1.3, -16, 0, 2),
 					ZIndex = 3,
 					Parent = b,
-				})
+				}, { corner(1) })
+				if from ~= 0 then
+					tween(u, TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+						Position = UDim2.fromScale(0.5, 1),
+						Size = UDim2.new(1, -16, 0, 2),
+					})
+				end
+				shownTab = i
 			end
 			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
 				new("UIListLayout", {
@@ -9362,7 +9457,7 @@ return function(App)
 		task.defer(fit) -- once the labels have measured their text
 	end
 
-	local buildPage -- (below)
+	local buildPage, enterCards -- (below)
 	local function buildSearch(parent)
 		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
 		local st = App.stroke(P.line)
@@ -9533,7 +9628,32 @@ return function(App)
 		end)
 	end
 
+	-- the page's cards arriving one after another: each fades in and settles from a touch smaller, a beat after the
+	-- one above it (the first several; the rest are below the fold anyway)
+	local ENTER = TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	function enterCards()
+		local k = 0
+		for _, c in App.scroll:GetDescendants() do
+			if k >= 8 then
+				break
+			end
+			if c:IsA("GuiObject") and c:GetAttribute("SS_Card") then
+				local sc = new("UIScale", { Scale = 0.97, Parent = c })
+				local rest = c.BackgroundTransparency
+				c.BackgroundTransparency = 1
+				task.delay(k * 0.045, function()
+					if c.Parent then
+						tween(sc, ENTER, { Scale = 1 })
+						tween(c, MED, { BackgroundTransparency = rest })
+					end
+				end)
+				k += 1
+			end
+		end
+	end
+
 	local builtPage
+	local firstBuild = true
 	App.rebuildAll = function()
 		if not TAB[G.page] then
 			G.page = homeTab()
@@ -9546,8 +9666,14 @@ return function(App)
 			App.root:Destroy()
 		end
 		App.ui = {}
-		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-		App.backdrop(App.root) -- (the colour blobs, under everything)
+		local blobs = App.backdrop(App.widget) -- (the colour blobs, under everything; it outlives rebuilds)
+		App.root = box({
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = blobs and 1 or 0,
+			BackgroundColor3 = P.bg,
+			ZIndex = 1,
+			Parent = App.widget,
+		})
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,
@@ -9597,6 +9723,10 @@ return function(App)
 			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
 			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
 		end
+		if turned or firstBuild then
+			enterCards()
+		end
+		firstBuild = false
 		if App.tour and App.renderTour then
 			App.renderTour()
 		end
