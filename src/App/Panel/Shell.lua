@@ -520,6 +520,7 @@ return function(App)
 		App.rebuildAll()
 	end
 
+	local shownTab -- which tab's underline was last drawn (the next one slides over from there)
 	local function buildTabs(parent)
 		-- plain tabs over a hairline; the open one is marked by a short accent line under its name
 		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
@@ -550,15 +551,25 @@ return function(App)
 				Parent = bar,
 			})
 			if on then
-				box({
+				-- the underline slides over from the tab that was open (the tabs are all one width, so the old one is
+				-- a whole number of widths away), stretching a little on the way
+				local from = shownTab and shownTab ~= i and (shownTab - i) or 0
+				local u = box({
 					BackgroundTransparency = 0,
 					BackgroundColor3 = P.accent,
 					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5, 1),
-					Size = UDim2.new(1, -16, 0, 2),
+					Position = UDim2.fromScale(0.5 + from, 1),
+					Size = UDim2.new(from == 0 and 1 or 1.3, -16, 0, 2),
 					ZIndex = 3,
 					Parent = b,
-				})
+				}, { corner(1) })
+				if from ~= 0 then
+					tween(u, TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+						Position = UDim2.fromScale(0.5, 1),
+						Size = UDim2.new(1, -16, 0, 2),
+					})
+				end
+				shownTab = i
 			end
 			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
 				new("UIListLayout", {
@@ -605,7 +616,7 @@ return function(App)
 		task.defer(fit) -- once the labels have measured their text
 	end
 
-	local buildPage -- (below)
+	local buildPage, enterCards -- (below)
 	local function buildSearch(parent)
 		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
 		local st = App.stroke(P.line)
@@ -776,7 +787,32 @@ return function(App)
 		end)
 	end
 
+	-- the page's cards arriving one after another: each fades in and settles from a touch smaller, a beat after the
+	-- one above it (the first several; the rest are below the fold anyway)
+	local ENTER = TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	function enterCards()
+		local k = 0
+		for _, c in App.scroll:GetDescendants() do
+			if k >= 8 then
+				break
+			end
+			if c:IsA("GuiObject") and c:GetAttribute("SS_Card") then
+				local sc = new("UIScale", { Scale = 0.97, Parent = c })
+				local rest = c.BackgroundTransparency
+				c.BackgroundTransparency = 1
+				task.delay(k * 0.045, function()
+					if c.Parent then
+						tween(sc, ENTER, { Scale = 1 })
+						tween(c, MED, { BackgroundTransparency = rest })
+					end
+				end)
+				k += 1
+			end
+		end
+	end
+
 	local builtPage
+	local firstBuild = true
 	App.rebuildAll = function()
 		if not TAB[G.page] then
 			G.page = homeTab()
@@ -789,8 +825,14 @@ return function(App)
 			App.root:Destroy()
 		end
 		App.ui = {}
-		App.root = box({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0, BackgroundColor3 = P.bg, Parent = App.widget })
-		App.backdrop(App.root) -- (the colour blobs, under everything)
+		local blobs = App.backdrop(App.widget) -- (the colour blobs, under everything; it outlives rebuilds)
+		App.root = box({
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = blobs and 1 or 0,
+			BackgroundColor3 = P.bg,
+			ZIndex = 1,
+			Parent = App.widget,
+		})
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,
@@ -840,6 +882,10 @@ return function(App)
 			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
 			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
 		end
+		if turned or firstBuild then
+			enterCards()
+		end
+		firstBuild = false
 		if App.tour and App.renderTour then
 			App.renderTour()
 		end
