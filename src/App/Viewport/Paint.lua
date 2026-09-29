@@ -747,9 +747,8 @@ return function(App)
 			App.stampDown()
 			return
 		end
-		if App.clickSplinePoint and App.clickSplinePoint() then -- clicked a spline point: edit it instead of painting
-			return
-		end
+		-- (a path's point under the brush doesn't take the click: painting paints. With no tool on, a click on a
+		-- point opens the path editor: Viewport/Spline)
 		if not App.area then
 			newArea({ keepMode = true })
 		end

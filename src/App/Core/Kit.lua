@@ -748,9 +748,10 @@ return function(App)
 			if n and pct then
 				n /= 100
 			end
+			local was = get()
 			apply(n, true)
 			show(get(), true)
-			if onCommit then
+			if onCommit and get() ~= was then -- (a click in and out again changes nothing: no empty undo step)
 				onCommit()
 			end
 		end)

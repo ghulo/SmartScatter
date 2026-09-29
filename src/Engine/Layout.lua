@@ -233,16 +233,17 @@ return function(E, I)
 				end
 			end
 		end
-		-- 3. fill the holes, their middles first. The typical spacing is the median gap to the nearest neighbour, so
-		-- half the copies stand closer than it: a random fill matches it with gaps of about 0.85 of it, a little uneven
-		-- like the rest
+		-- 3. fill the holes from their edges in, so the fill carries on the spacing of the copies round it (middles first
+		-- left a sparse diamond: one spot in the middle kept the ring round it empty). The typical spacing is the median
+		-- gap to the nearest neighbour, so half the copies stand closer than it: a random fill matches it with gaps of
+		-- about 0.85 of it, a little uneven like the rest
 		local list = {}
 		for s in inHole do
 			table.insert(list, s)
 		end
 		table.sort(list, function(a, b)
 			if D[a] ~= D[b] then
-				return D[a] > D[b]
+				return D[a] < D[b]
 			end
 			return a < b
 		end)

@@ -6,9 +6,9 @@
 return function(App)
 	local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
 	local new, refreshParams = App.new, App.refreshParams
-	local rebuildOverlay, saveArea, canGenerate, runGenerate = App.rebuildOverlay, App.saveArea, App.canGenerate, App.runGenerate
+	local saveArea, canGenerate, runGenerate = App.saveArea, App.canGenerate, App.runGenerate
 	local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
-	local gizmoFolder, setLabel, mouseHit = App.gizmoFolder, App.setLabel, App.mouseHit
+	local gizmoFolder, setLabel = App.gizmoFolder, App.setLabel
 
 	--------------------------------------------------------------------------------
 	-- Spline editing: click to add points, drag to move them along any surface (Shift+drag = height),
@@ -369,14 +369,29 @@ return function(App)
 		return nil
 	end
 	-- skip(cv, seg) -> true leaves a stretch of curve out
+	-- (every mouse move asks this: each curve is looked over at every STRIDE-th sample first, then sample by sample
+	-- only round the closest of those, instead of projecting every sample of every curve)
+	local STRIDE = 4
 	local function pickCurve(skip)
 		local best, bd = nil, CURVE_PX
 		for _, c in sv.curves or {} do
-			for k, p in c.P do
+			local P, n = c.P, #c.P
+			local near, nd = nil, math.huge
+			for k = 1, n, STRIDE do
 				if not (skip and skip(c.cv, c.S[k])) then
-					local d = screenDist(p + c.U[k] * 0.3)
-					if d < bd then
-						best, bd = { cv = c.cv, p = p, n = c.U[k], seg = c.S[k] }, d
+					local d = screenDist(P[k] + c.U[k] * 0.3)
+					if d < nd then
+						near, nd = k, d
+					end
+				end
+			end
+			if near then
+				for k = math.max(1, near - STRIDE), math.min(n, near + STRIDE) do
+					if not (skip and skip(c.cv, c.S[k])) then
+						local d = screenDist(P[k] + c.U[k] * 0.3)
+						if d < bd then
+							best, bd = { cv = c.cv, p = P[k], n = c.U[k], seg = c.S[k] }, d
+						end
 					end
 				end
 			end
@@ -461,17 +476,52 @@ return function(App)
 		)
 	end
 
-	-- after any spline change: rebuild the strip area if it has one, save (inside the undo step), then regenerate
+	-- the rays a path's points are put down with: the ground as painting sees it, less this path's own road (a point
+	-- dragged along the road it makes would otherwise ride on top of it, a little higher with every edit)
+	local function pointParams()
+		local skip = App.templates()
+		local road = App.area and Engine.roadOf(App.area)
+		if road then
+			table.insert(skip, road)
+		end
+		return (Engine.rayParams(skip))
+	end
+	-- after any spline change: rebuild the strip area if it has one, save (inside the undo step), then regenerate.
+	-- Kept light: only the overlay rows whose strip changed are redrawn (the ground under them is still known), and
+	-- the ground is read again only when the strip changed or the path's road matters to what's scattered.
 	local function commitSpline(rec)
 		local sp = App.area.spline
+		local stripChanged = false
 		if sp and (sp.width or 0) > 0 then
+			local before = App.area.rows
 			refreshParams()
-			Engine.maskFromSpline(App.area, App.probeParams)
-			rebuildOverlay(true)
+			Engine.maskFromSpline(App.area, pointParams())
+			local after = App.area.rows
+			for _, pair in { { before, after }, { after, before } } do
+				for cz, row in pair[1] do
+					local other = pair[2][cz]
+					for cx in row do
+						if not (other and other[cx]) then
+							App.dirtyRows[cz] = true
+							stripChanged = true
+							break
+						end
+					end
+				end
+			end
 		end
 		saveArea()
 		endRec(rec) -- the undo step holds the curve; the objects are rebuilt after it, and again on undo
-		App.analysisDirty = true
+		-- a road down the path is ground the scan reads (objects keep off it or gather by it): only those care
+		local roadMatters = false
+		if sp and Engine.roadWidth(sp) > 0 then
+			for _, l in App.area.layers do
+				roadMatters = roadMatters or not Engine.isLine(l)
+			end
+		end
+		if stripChanged or roadMatters then
+			App.analysisDirty = true
+		end
 		if G.live and canGenerate() then
 			runGenerate(false)
 		end
@@ -492,10 +542,12 @@ return function(App)
 	end
 	-- where a click lands: on the ground under a wall unless this spline allows points on walls
 	local function pointHit()
-		local hit = mouseHit()
+		local rp = pointParams()
+		local ray = rawMouse.UnitRay
+		local hit = Engine.cast(ray.Origin, ray.Direction * 5000, rp)
 		local sp = App.area and App.area.spline
 		if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-			local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
+			local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), rp)
 			if down and down.Normal.Y >= 0.55 then
 				return down
 			end
@@ -605,7 +657,7 @@ return function(App)
 						if t > 0 then
 							q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
 							-- raised off the ground: the curve keeps this height instead of snapping down
-							local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+							local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, pointParams())
 							q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 						end
 					end
@@ -640,6 +692,7 @@ return function(App)
 			end
 			return
 		end
+		local wasHandle, wasPt = hoverHandle, hoverPt
 		hoverHandle = pickHandle()
 		hoverPt = not hoverHandle and pickPoint() or nil
 		hoverIns = not hoverHandle and not hoverPt and pickCurve() or nil
@@ -650,8 +703,10 @@ return function(App)
 				sv.ghost.Radius = handleRadius(hoverIns.p) * 0.8
 			end
 		end
-		updateHandles()
-		local hit = mouseHit()
+		if hoverHandle ~= wasHandle or ((hoverPt or wasPt) and not samePt(hoverPt, wasPt)) then
+			updateHandles() -- (only what's lit changed: the handles are redrawn when it does, not on every move)
+		end
+		local hit = pointHit()
 		local text
 		if hoverHandle then
 			text = "Drag to bend the curve · Shift for height"
@@ -949,7 +1004,7 @@ return function(App)
 			deletePoint(hoverPt)
 		end
 	end)
-	-- a click on a spline point while the editor is off (or while painting) opens the editor on that point
+	-- a click on a spline point with no tool on opens the editor on that point (your selection stays as it was)
 	App.clickSplinePoint = function(at)
 		if App.mode == "Spline" or not sv.folder or not App.area or not App.area.spline or App.area.locked then
 			return false
@@ -973,9 +1028,10 @@ return function(App)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 or App.mode ~= "Off" or not App.widget.Enabled then
 			return
 		end
+		local before = App.Selection:Get() -- (what was selected before Studio's own click changes it)
 		if App.clickSplinePoint(Vector2.new(input.Position.X, input.Position.Y)) then
-			task.defer(function() -- Studio's own click selected whatever was under the point
-				App.Selection:Set({})
+			task.defer(function() -- Studio's own click selected whatever was under the point: put back what was
+				App.Selection:Set(before)
 			end)
 		end
 	end))
@@ -1016,10 +1072,7 @@ return function(App)
 		sp.branches = {}
 		hoverPt = nil
 		selectPt(nil)
-		if (sp.width or 0) > 0 then
-			App.area.rows, App.area.count = {}, 0
-		end
-		commitSpline(rec)
+		commitSpline(rec) -- (a strip goes with its curve: commitSpline redraws the rows it leaves)
 	end
 
 	-- "New spline" from the area menu: a fresh area that starts as a spline

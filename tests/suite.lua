@@ -177,7 +177,7 @@ local function run(a)
 	return total or 0, (t1 - t0) * 1000, (os.clock() - t1) * 1000, an
 end
 
-local ok, err = pcall(function()
+local ok, err = xpcall(function()
 	local top = ground(O + Vector3.new(120, 0, 0))
 	check("test world built", top and top.Position.Y > 20, "hill top at " .. (top and string.format("%.1f", top.Position.Y) or "nothing"))
 	-- 1. scatter over flat ground, a road, a house, a pond and the hill
@@ -1275,7 +1275,7 @@ local ok, err = pcall(function()
 		paintRect(a, -30, -30, 30, 30)
 		local total, _, _, an = run(a)
 		local l = a.layers[1]
-		local p = E.stampPin(O.X - 20, O.Z + 20, 0, 1, 1, 3) -- (on the side that's erased)
+		local p = E.stampPin(O.X - 20, O.Z - 20, 0, 1, 1, 3) -- (on the side that's erased, and clear of test 14's keep-clear zone)
 		l.pins = { p }
 		E.generate(a, an, 1, templates, {})
 		local stamp
@@ -1299,7 +1299,14 @@ local ok, err = pcall(function()
 		check(
 			"erasing ground takes the copies on it away at once, and leaves stamps",
 			total > 0 and expect > 0 and gone == expect and left == 0 and stamp ~= nil and stamp.Parent ~= nil,
-			string.format("%d placed, %d on the erased side, %d taken, %d left", total, expect, gone, left)
+			string.format(
+				"%d placed, %d on the erased side, %d taken, %d left, stamp %s",
+				total,
+				expect,
+				gone,
+				left,
+				stamp == nil and "never placed" or stamp.Parent == nil and "taken" or "stays"
+			)
 		)
 	end
 
@@ -1383,7 +1390,8 @@ local ok, err = pcall(function()
 		local back = E.restoreSnapshot()
 		local roofs, lonely = 0, 0
 		for _, m in map:GetChildren() do
-			if m.Name == "Hut" and m:FindFirstChild("Roof") and m.Roof.Color == Color3.new(0.6, 0.2, 0.1) then
+			local c = m:FindFirstChild("Roof") and m.Roof.Color -- (stored as 8-bit: 0.1 comes back as 25/255, so not exactly)
+			if m.Name == "Hut" and c and math.abs(c.R - 0.6) < 0.01 and math.abs(c.G - 0.2) < 0.01 and math.abs(c.B - 0.1) < 0.01 then
 				roofs += 1
 			elseif m.Name == "Lonely" then
 				lonely += 1
@@ -1504,7 +1512,9 @@ local ok, err = pcall(function()
 		map.Parent = world
 		local at = O + Vector3.new(120, 36, 0) -- over the terrain mound's top
 		local green, brown, wallC = Color3.fromRGB(70, 140, 60), Color3.fromRGB(110, 80, 50), Color3.fromRGB(150, 120, 100)
-		local leaves = part({ Name = "Leaves", Size = Vector3.new(8, 8, 8), CFrame = CFrame.new(at), Color = green, Parent = map })
+		-- (a MeshPart: Studio lets a SurfaceAppearance go only on one)
+		local leaves =
+			part({ class = "MeshPart", Name = "Leaves", Size = Vector3.new(8, 8, 8), CFrame = CFrame.new(at), Color = green, Parent = map })
 		local trunk =
 			part({ Name = "Trunk", Size = Vector3.new(1, 6, 1), CFrame = CFrame.new(at - Vector3.new(0, 7, 0)), Color = brown, Parent = map })
 		local roof =
@@ -1781,7 +1791,170 @@ local ok, err = pcall(function()
 		E.clearSnapshot()
 		map:Destroy()
 	end
-end)
+
+	-- undo and redo rebuild only what the step changed (the plugin's Core/Lifecycle, with the engine above and every
+	-- other part of the plugin stood in for, so what it asks for is recorded instead of done)
+	do
+		local lifecycle = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Core") and SRC.App.Core:FindFirstChild("Lifecycle")
+		if lifecycle then
+			local rec, conns = {}, {}
+			local function signal()
+				return {
+					Connect = function()
+						return { Disconnect = function() end }
+					end,
+				}
+			end
+			local App = {
+				ChangeHistoryService = game:GetService("ChangeHistoryService"),
+				ctx = { plugin = {} },
+				plugin = {},
+				Engine = E,
+				conns = conns,
+				track = function(c)
+					table.insert(conns, c)
+					return c
+				end,
+				LAYER_MODES = {},
+				toggleBtn = { Click = signal(), SetActive = function() end },
+				widget = {
+					Enabled = false,
+					GetPropertyChangedSignal = function()
+						return signal()
+					end,
+				},
+				G = { live = false },
+				mode = "Off",
+				dirtyRows = {},
+				cellKey = function(cx, cz)
+					return cx * 1000003 + cz
+				end,
+				canGenerate = function()
+					return true
+				end,
+			}
+			for _, k in
+				{
+					"clearOverlay",
+					"eachThumb",
+					"closePopup",
+					"removeGizmo",
+					"removeSplineViz",
+					"maybeStartTour",
+					"resetSplineDrag",
+					"stopGestures",
+					"rebuildAll",
+					"recolorOverlay",
+					"refreshParams",
+					"drawSpline",
+					"countPlaced",
+					"cancelJob",
+					"setMode",
+					"rebuildOverlay",
+				}
+			do
+				App[k] = function() end
+			end
+			App.markPending = function()
+				rec.pending = true
+			end
+			App.dropErased = function(gone)
+				rec.dropped = next(gone) ~= nil
+			end
+			App.runGenerate = function(recorded, from, region, real)
+				table.insert(
+					rec.runs,
+					string.format(
+						"%s %s %s%s",
+						recorded and "recorded" or "quick",
+						from and from.inst.Name or "all",
+						region and "patch" or "whole",
+						real and " real" or ""
+					)
+				)
+			end
+			App.snapshotArea = function()
+				App.savedAttrs = App.area and { folder = App.area.folder, attrs = App.area.folder:GetAttributes() } or nil
+			end
+			App.switchArea = function(f)
+				App.area = f and E.loadArea(f) or nil
+				App.snapshotArea()
+			end
+			loadstring(lifecycle.Source)()(App)
+			local area = E.createArea("SS_Test_Undo", {})
+			table.insert(made, area)
+			paintRect(area, -40, 240, 40, 320)
+			area.layers = { E.makeLayer(tree), E.makeLayer(rock, "Rock") }
+			E.saveArea(area)
+			local base = E.loadArea(area.folder)
+			local c = area.cell
+			-- from the saved area, `change` makes what an undo brings back; then what the plugin does about it
+			local function case(name, live, step, change, want)
+				E.saveArea(base)
+				App.area = E.loadArea(area.folder)
+				App.snapshotArea()
+				local b = E.loadArea(area.folder)
+				change(b)
+				E.saveArea(b)
+				App.G.live = live
+				App.analysisDirty = false
+				rec = { runs = {} }
+				App.afterHistory(step)
+				local got = string.format(
+					"runs [%s]%s%s%s",
+					table.concat(rec.runs, "; "),
+					rec.pending and " pending" or "",
+					rec.dropped and " dropped" or "",
+					App.analysisDirty and " rescan" or ""
+				)
+				check("undo: " .. name .. (live and " (Live)" or ""), got == want, got .. (got ~= want and ("  (wanted " .. want .. ")") or ""))
+			end
+			local noop = function() end
+			case("a stamp touches nothing of the area", false, "Smart Scatter: Stamp X", noop, "runs []")
+			case("a setting waits for Generate", false, "Smart Scatter: Change settings", function(b)
+				b.layers[2].s.spacing += 0.5
+			end, "runs [] pending")
+			case("a setting rebuilds just its object", true, "Smart Scatter: Change settings", function(b)
+				b.layers[2].s.spacing += 0.5
+			end, "runs [quick TestRock whole]")
+			case("Spray rebuilds its object now", false, "Smart Scatter: Paint Layer", function(b)
+				b.layers[2].pins = { { O.X, O.Z + 280, 7 } }
+			end, "runs [recorded TestRock whole real]")
+			case("New look rebuilds its object now", false, "Smart Scatter: New look", function(b)
+				b.layers[1].s.seed = 5
+			end, "runs [recorded TestTree whole real]")
+			case("painted ground gone takes its copies, nothing rebuilt", false, "Smart Scatter: Paint Area", function(b)
+				for cx = math.floor((O.X - 40) / c), math.floor((O.X + 40) / c) do
+					E.setCell(b, cx, math.floor((O.Z + 280) / c), false)
+				end
+			end, "runs [] dropped rescan")
+			case("erased ground back rebuilds its patch", false, "Smart Scatter: Paint Area", function(b)
+				E.setCell(b, math.floor((O.X + 60) / c), math.floor((O.Z + 280) / c), true)
+			end, "runs [quick all patch real] rescan")
+			case("Shuffle rebuilds everything", false, "Smart Scatter: Shuffle", function(b)
+				b.seed = 12345
+			end, "runs [recorded all whole real]")
+			case("a removed copy comes back in its patch", false, "Smart Scatter: Remove copy", function(b)
+				b.removed = { [101] = { { O.X + 3, O.Z + 283 } } }
+			end, "runs [quick all patch real]")
+			case("Clear rebuilds everything", false, "Smart Scatter: Clear", noop, "runs [recorded all whole real]")
+			case("an object taken back out goes, nothing rebuilt", false, "Smart Scatter: Change settings", function(b)
+				table.remove(b.layers, 2)
+			end, "runs []")
+			case("the area's own setting waits for Generate", false, "Smart Scatter: Size", function(b)
+				b.size = 1.5
+			end, "runs [] pending")
+			case("a timeline jump over Clear rebuilds everything", false, { ["Smart Scatter: Clear"] = true }, noop, "runs [recorded all whole real]")
+			for _, cn in conns do
+				pcall(function()
+					cn:Disconnect()
+				end)
+			end
+		else
+			check("undo: the plugin's Core/Lifecycle is in the live copy", false, "not found (an older, flattened release?)")
+		end
+	end
+end, debug.traceback) -- (an error says where it came from)
 if not ok then
 	check("suite ran without errors", false, tostring(err))
 end

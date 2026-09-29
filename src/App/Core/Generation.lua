@@ -138,6 +138,9 @@ return function(App)
 	-- a job under ~80 ms finishes in the frame it started (feels instant); a longer one works 30 ms per frame,
 	-- so Studio still redraws and the Generate button can stop it
 	local FIRST_SLICE, SLICE = 0.08, 0.03
+	-- a live preview (dragging a slider starts one every frame, each retiring the last) works in short slices from the
+	-- start, so the panel keeps up with the mouse instead of stalling 80 ms a frame
+	local LIVE_SLICE = 0.015
 	local HEAVY_PARTS = 25000 -- more than this is a slowdown on most machines: Live update stops and asks
 	local LIGHT_PARTS = 3000 -- up to this, Live places the real models (quick enough); above it, see-through boxes
 	local heavyAsked = setmetatable({}, { __mode = "k" }) -- [area folder] = true once the pop-up was shown
@@ -221,14 +224,14 @@ return function(App)
 		App.heavyWarning = nil
 		local area = App.area
 		local t0, slice = os.clock(), os.clock()
-		local budget = FIRST_SLICE
+		local budget = (me.live and not region) and LIVE_SLICE or FIRST_SLICE
 		local phase = "Scanning"
 		local function tick(progress)
 			if me.cancel or App.area ~= area then
 				return false
 			end
 			if os.clock() - slice > budget then
-				budget = SLICE
+				budget = (me.live and not me.region) and LIVE_SLICE or SLICE
 				if App.showProgress then
 					App.showProgress(phase, progress)
 				end
