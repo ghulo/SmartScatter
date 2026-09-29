@@ -21,17 +21,9 @@ return function(App)
 	local function gap(parent, h)
 		box({ Size = UDim2.new(1, 0, 0, h), Parent = parent })
 	end
-	-- the page shows something else now (an object opened or closed): rebuild it, and stop a brush that belonged there
+	-- an object opened (its Object tab) or none: the selection's active object (Core/Selection)
 	local function showObject(l)
-		if App.LAYER_MODES[App.mode] then
-			App.setMode("Off")
-		end
-		App.expanded = l
-		if App.heatLayer and App.heatLayer ~= l then -- the heatmap belongs to the object whose page it was
-			App.heatLayer = nil
-			rebuildOverlay()
-		end
-		App.rebuildAll()
+		App.selectObject(l)
 	end
 	-- takes an object out of the area, with what it placed, right away (Live on or off); one undo step, and undo
 	-- rebuilds its copies from the settings it brings back. Back to the list.
@@ -756,15 +748,6 @@ return function(App)
 			end, { Parent = actions }),
 			"Rerolls just this object: new positions, same settings. The other objects stay where they are."
 		)
-		if not (Engine.isLine(l) and l.s.follow == "Spline") then -- (objects along a path aren't brushed)
-			hintOn(
-				button("Brush by hand", nil, function()
-					App.handLayer = l
-					App.openCard("Brush", "objectbrush")
-				end, { Parent = actions }),
-				"Spray copies of it, or brush where it grows more or less: the Brush tab, with this object picked."
-			)
-		end
 	end
 
 	local function layerRules(l, parent, c)
@@ -787,7 +770,18 @@ return function(App)
 		if not line then
 			buildSpread(cs, c)
 		end
-		-- (brushing it by hand is on the Brush tab: the page's "Brush by hand" goes there)
+		if not onSpline then -- what was done to it by hand (the strip's Spray, More, Less… act on the active object)
+			cs.add({
+				id = "byhand",
+				title = "By hand",
+				icon = "spray",
+				sub = "Spray it, or brush where it grows more or less, with the viewport's tools",
+				keys = "brush more less erase reset place spray pins by hand painted",
+				build = function(b)
+					App.buildHandWork(l, b)
+				end,
+			})
+		end
 		if not line then
 			buildGroups(l, cs, c)
 		end
@@ -971,10 +965,30 @@ return function(App)
 			return
 		end
 		App.status(added == 1 and "Added 1 object." or string.format("Added %d objects.", added))
-		G.page = "Scatter"
-		saveG()
 		commit()
 		showObject(added == 1 and last or nil) -- one new object: open it; several: show the list
+	end
+
+	-- + New › Zone from selected models: the models selected in the Explorer become a new zone's objects, the first one
+	-- active, and the brush starts, so the next thing is painting where they go
+	App.newZoneFromSelection = function()
+		local any = false
+		for _, sel in Selection:Get() do
+			for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+				any = any or ((inst:IsA("Model") or inst:IsA("BasePart")) and not Engine.isGround(inst))
+			end
+		end
+		if not any then
+			App.status("Select models (or a folder of them) in the Explorer first, then make a zone from them.")
+			return
+		end
+		newArea({ keepMode = true })
+		addSelected()
+		if App.area and App.area.layers[1] then
+			App.selectObject(App.area.layers[1])
+		end
+		App.setTool(G.tool)
+		App.status("Paint the ground where they should go.")
 	end
 
 	-- adds ready-made objects (a preset, a biome) to the area, skipping models it already has. from: where they came
@@ -1333,27 +1347,19 @@ return function(App)
 		)
 	end
 
-	-- single copies: take out the one that looks wrong, or bring them all back
+	-- single copies taken out (the strip's Remove copies tool): bring them all back
 	local function fillRemoveCopies(b)
-		local fix = buttonRow(b)
-		local pick, refresh = App.dangerButton("Remove single copies", function()
-			App.setMode("Remove")
-		end, {
-			on = function()
-				return App.mode == "Remove"
-			end,
-		})
-		pick.Parent = fix
-		hintOn(pick, "Lit: click placed copies in the viewport to take them out; click here again when done. Generating again keeps them out.")
-		App.ui.refreshRemoveBtn = refresh
 		local n = App.area and Engine.removedCount(App.area) or 0
-		if n > 0 then
-			button(string.format("Bring back %d removed", n), "ghost", function()
-				App.area.removed = {}
-				App.applyNow(nil, "Bring back removed")
-				App.refreshObjects()
-			end, { Parent = fix })
+		if n == 0 then
+			local t = para("None taken out. The Remove copies tool in the viewport's strip takes out one that looks wrong.", { Parent = b })
+			t.TextColor3 = P.faint
+			return
 		end
+		button(string.format("Bring back %d removed", n), nil, function()
+			App.area.removed = {}
+			App.applyNow(nil, "Bring back removed")
+			App.refreshObjects()
+		end, { Parent = buttonRow(b) })
 	end
 
 	-- a column that refreshObjects empties and fills again with fill(column) after any change to the objects
@@ -1366,12 +1372,9 @@ return function(App)
 
 	-- redraws what the panel shows of the objects (after any change to them)
 	App.refreshObjects = function()
-		if App.expanded and not (App.area and table.find(App.area.layers, App.expanded)) then
-			App.expanded = nil
-			if App.ui.inspector then -- the open object is gone (removed, undone): back to the list
-				App.rebuildAll()
-				return
-			end
+		if App.active and not (App.area and table.find(App.area.layers, App.active)) then
+			App.selectObject(nil) -- the open object is gone (removed, undone): none is active (the panel follows)
+			return
 		end
 		if App.area and (App.area.relinked or 0) > 0 then
 			App.status(
@@ -1422,6 +1425,9 @@ return function(App)
 	App.refreshCounts = function()
 		App.refreshPerf()
 		App.checkShape()
+		if App.ui.outlinerCount and App.ui.outlinerCount.Parent then -- (the selected row's count in the outliner)
+			App.ui.outlinerCount.Text = App.lastTotal > 0 and num(App.lastTotal) or ""
+		end
 		local most = 1 -- the bars are relative to the object placed most
 		for l in rowRefs do
 			most = math.max(most, (l.s.enabled and App.lastCounts[l]) or 0)
@@ -1467,8 +1473,8 @@ return function(App)
 	end
 	App.objectInspector = function(parent)
 		App.ui.inspector = liveBox(parent, function(h)
-			if App.expanded then
-				objectPage(App.expanded, h)
+			if App.active then
+				objectPage(App.active, h)
 			end
 		end)
 		return App.ui.inspector

@@ -203,7 +203,7 @@ return function(App)
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local smoothUp, lastRingAt -- the ring's eased tilt, and where it was last drawn
 	local function updateGizmo(hit)
-		if App.mode == "Stamp" then -- the stamp shows the model itself (Viewport/Stamp), not a brush
+		if App.mode == "Stamp" or App.mode == "Select" then -- the stamp shows the model itself, Select names things
 			gizmoFolder()
 			for _, k in { "ring", "disc", "halo", "sq", "dot" } do
 				if App.gz[k] then
@@ -211,7 +211,7 @@ return function(App)
 				end
 			end
 		end
-		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" then
+		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" or App.mode == "Select" then
 			if App.clearGrid then -- (no grid for these tools)
 				App.clearGrid()
 			end
@@ -694,6 +694,10 @@ return function(App)
 			App.stampMove()
 			return
 		end
+		if App.mode == "Select" then -- (Viewport/Select)
+			App.selectMove()
+			return
+		end
 		if sizing then
 			sizeTo()
 			return
@@ -741,6 +745,10 @@ return function(App)
 			if App.area and not App.area.locked then
 				removeUnderMouse()
 			end
+			return
+		end
+		if App.mode == "Select" then -- (Viewport/Select: what a click picks)
+			App.selectDown()
 			return
 		end
 		if App.mode == "Stamp" then -- (anywhere: a stamp needs no area)
@@ -1073,6 +1081,7 @@ return function(App)
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
+		Select = "Click a zone's ground, a path or a placed copy to work on it.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -1092,7 +1101,7 @@ return function(App)
 		if App.refreshFocus then
 			App.refreshFocus()
 		end
-		for _, k in { "refreshMode", "refreshLayerBrush", "refreshSplineBtn", "refreshShapes", "refreshPoint", "refreshRemoveBtn" } do
+		for _, k in { "refreshMode", "refreshShapes", "refreshPoint" } do
 			if App.ui[k] then
 				App.ui[k]()
 			end
@@ -1115,7 +1124,7 @@ return function(App)
 		if m == App.mode and (not LAYER_MODES[m] or layer == App.paintLayer) then
 			m = "Off"
 		end
-		if m ~= "Off" and m ~= "Stamp" and App.area and App.area.locked then -- (a stamp is no area's)
+		if not App.NO_AREA_MODES[m] and App.area and App.area.locked then -- (a stamp is no area's)
 			App.status("This area is locked. Unlock it in the area menu to paint or edit.")
 			m = "Off"
 		end
@@ -1124,7 +1133,7 @@ return function(App)
 			m = "Off"
 		end
 		stopGestures()
-		if m ~= "Off" and m ~= "Stamp" and not App.area then -- painting needs an area, drawing a path needs a path
+		if not App.NO_AREA_MODES[m] and not App.area then -- painting needs an area, drawing a path needs a path
 			if m == "Spline" then
 				App.newSplineFn({ keepMode = true })
 			else
@@ -1164,6 +1173,67 @@ return function(App)
 			updateGizmo(mouseHit())
 		end
 	end
+
+	-- the viewport's tools this module owns (Core/Registry): painting the ground, erasing it, taking single copies
+	-- out. Ground tools are for zones and keep-clear zones; with nothing selected, painting makes a new zone.
+	local GROUND_ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
+	local function groundOK()
+		local k = App.selected and App.selected.kind
+		return k ~= "Path" and k ~= "Stamps"
+	end
+	for i, t in App.TOOLS do
+		App.registerTool({
+			id = "ground:" .. t,
+			group = "Ground",
+			order = i,
+			icon = GROUND_ICON[t],
+			name = t,
+			key = "tool" .. i,
+			when = groundOK,
+			on = function()
+				return App.mode == "Paint" and G.tool == t
+			end,
+			click = function()
+				if App.mode == "Paint" and G.tool == t then
+					App.setMode("Off")
+				else
+					App.setTool(t)
+				end
+			end,
+		})
+	end
+	App.registerTool({
+		id = "ground:erase",
+		group = "Ground",
+		order = 10,
+		icon = "trash",
+		name = "Erase ground",
+		key = "erase",
+		danger = true,
+		when = groundOK,
+		on = function()
+			return App.mode == "Erase"
+		end,
+		click = function()
+			App.setMode(App.mode == "Erase" and "Off" or "Erase")
+		end,
+	})
+	App.registerTool({
+		id = "remove",
+		group = "Remove",
+		icon = "close",
+		name = "Remove single copies",
+		danger = true,
+		when = function()
+			return App.area ~= nil and App.kindOf(App.area) ~= "Clear"
+		end,
+		on = function()
+			return App.mode == "Remove"
+		end,
+		click = function()
+			App.setMode("Remove")
+		end,
+	})
 
 	-- another tool took over the viewport (Move, Select…): our mode ends too
 	track(plugin.Deactivation:Connect(function()

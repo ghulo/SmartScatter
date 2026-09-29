@@ -96,8 +96,8 @@ return function(App)
 		history = true, -- the history timeline over the bottom bar
 		focus = true, -- the world steps back while a tool is on (Viewport/Focus)
 		grid = true, -- the floor grid round the brush (Viewport/Grid)
-		toolbar = true, -- the viewport's tool strip and tool options bar (Viewport/Toolbar)
-		page = "", -- the open tab: Scatter · Brush · Map · Settings ("" opens the area's home tab)
+		tabs = {}, -- the properties tab last used for each kind of thing: [kind] = tab id (Panel/Properties)
+		outliner = true, -- the outliner is open (Panel/Outliner)
 	}
 	do
 		local saved = plugin:GetSetting(KEY)
@@ -112,7 +112,6 @@ return function(App)
 			G.live, G.liveAsked = false, true
 		end
 	end
-	G.page = "" -- every session opens on the area's home tab
 	-- the logo: the mark (a sage tile of scattered dots on a curve) and the card with the name under it
 	App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 	local function saveG()
@@ -131,7 +130,7 @@ return function(App)
 	refreshFilter()
 
 	-- App.area: current area (Engine.loadArea / createArea)
-	-- App.expanded: layer whose rules are open
+	-- App.selected, App.active: what's being worked on (Core/Selection)
 	-- App.lastAnalysis: cached scan
 	--------------------------------------------------------------------------------
 	-- Shortcuts: every action a key can do, its default key, and the one the user picked (G.keys). Painting reads
@@ -330,6 +329,8 @@ return function(App)
 	--   "Stamp" (any model, no area: Viewport/Stamp) · "Spline" · "Remove" · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
 	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+	-- the modes that need no area (nothing to paint on, no lock to respect): off, the stamp (it's no area's), Select
+	App.NO_AREA_MODES = { Off = true, Stamp = true, Select = true }
 	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
 	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
 	App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }

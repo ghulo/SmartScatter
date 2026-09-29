@@ -96,12 +96,11 @@ return function(App)
 	App.cardCount = 0 -- cards built since the panel was last built (the search tells empty tabs from ones with hits)
 
 	-- one feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
-	local function card(parent, spec, order)
+	local function card(parent, spec)
 		App.cardCount += 1
 		local c = col({
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.card,
-			LayoutOrder = order,
 			Parent = parent,
 		}, {
 			corner(8),
@@ -154,7 +153,6 @@ return function(App)
 	-- cards.add(spec): spec.more puts the card under the fold. Returns the card, or nil when the search skips it.
 	App.cards = function(parent, id)
 		local cs = {}
-		local order = 0
 		local fold, foldBody, foldCount
 		local function moreBody()
 			if App.searching() then -- search results show flat
@@ -165,7 +163,8 @@ return function(App)
 			end
 			local key = "more:" .. id
 			local open = G.groups[key] == true
-			fold = col({ LayoutOrder = 100000, Parent = parent }, { vlist(10) })
+			-- (last in the column, whatever comes after it: everything else keeps the order it was made in, Kit's new)
+			fold = col({ LayoutOrder = 2 ^ 30, Parent = parent }, { vlist(10) })
 			local head = new("TextButton", {
 				Text = "",
 				AutoButtonColor = false,
@@ -240,24 +239,26 @@ return function(App)
 				if foldCount then
 					foldCount.Text = string.format("More options  ·  %d", nMore)
 				end
-				order += 1
-				return card(into, spec, order)
+				return card(into, spec)
 			end
-			order += 1
-			return card(parent, spec, order)
+			return card(parent, spec)
 		end
 		return cs
 	end
 
-	-- opens a tab at one of its cards (by id), unfolding "More options" if it's in there (fold: the tab's cards id),
-	-- scrolls to it and lights its edge for a moment. Returns false when the card isn't there (not for this area).
+	-- opens a property tab (by id: Panel/Properties) at one of its cards (by id), unfolding "More options" if it's in
+	-- there (fold: the tab's cards id), scrolls to it and lights its edge for a moment. Returns false when the card
+	-- isn't there (not for what's selected).
 	App.openCard = function(tab, id, fold)
 		if fold then
 			G.groups["more:" .. fold] = true
 			saveG()
 		end
-		App.goPage(tab)
-		App.rebuildAll()
+		if tab == "settings" then
+			App.openSettings(true)
+		else
+			App.openTab(tab)
+		end
 		for _, d in App.root:GetDescendants() do
 			if d:GetAttribute("SS_Card") == id then
 				App.scrollIntoView(d)
@@ -274,13 +275,13 @@ return function(App)
 		return false
 	end
 
-	-- a note, with a button that goes to another tab when given ("Paint an area first" → Brush)
+	-- a note, with a button that opens another property tab when given (by its id)
 	App.goNote = function(parent, text, buttonText, tab)
 		local wrap = col({ Parent = parent }, { vlist(8) })
 		App.hintBox(wrap, text)
 		if buttonText then
 			App.button(buttonText, "accent", function()
-				App.goPage(tab)
+				App.openTab(tab)
 			end, { Parent = App.buttonRow(wrap) })
 		end
 		return wrap

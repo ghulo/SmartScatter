@@ -472,24 +472,25 @@ return function(App)
 		end
 	end
 
-	local function switchArea(folder)
+	-- loads an area (nil: none) as the one being worked on; the selection follows (Core/Selection), and with it the
+	-- panel. keep (optional): the key of an object to keep active (an undo reloads the same area).
+	local function switchArea(folder, keep)
 		cancelJob()
 		App.area = folder and Engine.loadArea(folder) or nil
 		snapshot()
 		App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil -- its last Generate failed
-		App.expanded = nil
 		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
 		App.paintLayer = nil
 		App.countPlaced()
-		if App.setMode and App.mode ~= "Off" and App.mode ~= "Stamp" and (not App.area or App.area.locked) then
+		if App.setMode and not App.NO_AREA_MODES[App.mode] and (not App.area or App.area.locked) then
 			App.setMode("Off") -- nothing to paint on, or not allowed to
 		end
 		rebuildOverlay(true)
 		if App.drawSpline then
 			App.drawSpline()
 		end
-		if App.rebuildAll then
-			App.rebuildAll()
+		if App.onAreaSwitched then -- (the selection, then everything that shows it)
+			App.onAreaSwitched(App.area and App.area.folder, keep)
 		end
 		if App.refreshCounts then
 			App.refreshCounts()
@@ -508,7 +509,6 @@ return function(App)
 		local a = Engine.createArea((clear and "Keep clear " or "Area ") .. n, nil)
 		a.folder:SetAttribute("SS_Kind", clear and "Clear" or "Scatter")
 		endRec(rec)
-		G.page = "" -- its home tab: where its first step is
 		switchArea(a.folder)
 		if not (opts and opts.keepMode) then
 			App.setMode("Paint")

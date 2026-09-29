@@ -4,7 +4,7 @@
 ]]
 
 return function(App)
-	local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
+	local beginRec, endRec, Engine, track, G, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.num
 	local new, refreshParams = App.new, App.refreshParams
 	local saveArea, canGenerate, runGenerate = App.saveArea, App.canGenerate, App.runGenerate
 	local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
@@ -1085,8 +1085,6 @@ return function(App)
 		local a = Engine.createArea("Path " .. n, nil)
 		a.folder:SetAttribute("SS_Kind", "Path")
 		endRec(rec)
-		G.page = "" -- its home tab: where its first step is
-		saveG()
 		switchArea(a.folder)
 		ensureSpline()
 		if not (opts and opts.keepMode) then
@@ -1119,6 +1117,31 @@ return function(App)
 				or "That curve already has plenty of points."
 		)
 	end
+
+	-- the path tool in the viewport's strip: it draws the selected zone's or path's curve; with anything else (or
+	-- nothing) selected it makes a new path
+	App.registerTool({
+		id = "path",
+		group = "Path",
+		icon = "spline",
+		name = "Draw a path",
+		when = function()
+			return not (App.selected and App.selected.kind == "Clear")
+		end,
+		on = function()
+			return App.mode == "Spline"
+		end,
+		click = function()
+			if App.mode == "Spline" then
+				App.setMode("Off")
+			elseif App.area and App.selected and (App.selected.kind == "Zone" or App.selected.kind == "Path") then
+				ensureSpline()
+				App.setMode("Spline")
+			else
+				App.newSplineFn()
+			end
+		end,
+	})
 
 	App.commitSplineFn = commitSpline
 	App.ensureSplineFn = ensureSpline

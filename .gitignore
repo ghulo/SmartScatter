@@ -1,3 +1,5 @@
 # the plugin file is built by build.py (attach it to a GitHub release; dist/ is what installed copies update from)
 /SmartScatter.rbxmx
 __pycache__/
+# the panel preview's dumps and drawings (tools/preview)
+/tools/preview/out/

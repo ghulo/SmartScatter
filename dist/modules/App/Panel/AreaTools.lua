@@ -11,19 +11,19 @@ return function(App)
 	local box, col, label, para = App.box, App.col, App.label, App.para
 	local pad, SANS_B, icon = App.pad, App.SANS_B, App.icon
 	local button, buttonRow = App.button, App.buttonRow
-	local hintOn, slider, switchRow, segmented = App.hintOn, App.slider, App.switchRow, App.segmented
+	local hintOn, slider, switchRow = App.hintOn, App.slider, App.switchRow
 	local rebuildOverlay, saveArea, runGenerate, requestLive = App.rebuildOverlay, App.saveArea, App.runGenerate, App.requestLive
-	local commit, heading, NICE, TOOLS, TOOL_HINT = App.commit, App.heading, App.NICE, App.TOOLS, App.TOOL_HINT
-	local FILTER_SURFACES, maskOp, primaryButton = App.FILTER_SURFACES, App.maskOp, App.primaryButton
-	local setIconColor, keyChips = App.setIconColor, App.keyChips
-	local chip, chipGrid = App.chip, App.chipGrid
+	local commit, heading, NICE = App.commit, App.heading, App.NICE
+	local FILTER_SURFACES, maskOp = App.FILTER_SURFACES, App.maskOp
+	local keyChips = App.keyChips
+	local chip, chipGrid, num = App.chip, App.chipGrid, App.num
 
 	local function gap(parent, h)
 		box({ Size = UDim2.new(1, 0, 0, h), Parent = parent })
 	end
 
 	--------------------------------------------------------------------------------
-	-- Scatter area, step 1: the tools that mark ground (inside the step card)
+	-- A zone's ground: the overlay's key, the Ground card, cleaning up the painted edge
 	--------------------------------------------------------------------------------
 	-- the overlay's colours and what they mean (App.overlayLegend): a compact key, a swatch and a word or two each, in
 	-- two columns; the whole sentence shows on hover
@@ -62,92 +62,24 @@ return function(App)
 		App.status("Area erased. Objects and settings are kept, paint a new one.")
 	end
 
-	local function buildPaintTools(parent)
-		local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-		local tiles = App.toolTiles(parent, 3, 36, 88)
-		for _, t in TOOLS do
-			tiles.add({
-				icon = ICON[t],
-				text = t,
-				hint = t .. ": " .. (TOOL_HINT[t] or ""),
-				on = function()
-					return G.tool == t and App.mode == "Paint"
-				end,
-				click = function()
-					if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
-						App.setMode("Off")
-					else
-						App.setTool(t)
-					end
-				end,
-			})
-		end
-		tiles.add({
-			icon = "trash",
-			text = "Erase",
-			color = P.danger,
-			tinted = true,
-			hint = "Erase: take ground out of the area (Shift does it while painting).",
-			on = function()
-				return App.mode == "Erase"
-			end,
-			click = function()
-				App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-			end,
-		})
-		local refresh = tiles.refresh
-		App.ui.refreshMode = refresh
-		-- the tool in use's own options, right under the tiles (brush size and shape, or a fill's reach)
-		local brushOpts = col({ Parent = parent }, { vlist(6) })
-		slider(
-			"Brush size",
-			4,
-			200,
-			function()
-				return G.radius
-			end,
-			function(v)
-				G.radius = v
-			end,
-			"%.0f studs",
-			1,
-			nil,
-			saveG,
-			"Radius of the brush. While painting, press "
-				.. App.keyText("size")
-				.. " and move the mouse to set it (click to keep), or step it with "
-				.. App.keyText("shrink")
-				.. " and "
-				.. App.keyText("grow")
-				.. ".",
-			24
-		).Parent =
-			brushOpts
-		segmented({ "Circle", "Square" }, function()
-			return G.shape
-		end, function(v)
-			G.shape = v
-		end, function()
-			saveG()
-		end).Parent =
-			brushOpts
-		local fillOpts = col({ Parent = parent }, { vlist(6) })
-		slider("Reach", 16, 400, function()
-			return G.fillReach
-		end, function(v)
-			G.fillReach = v
-		end, "%.0f studs", 4, nil, saveG, "How far a fill can spread from where you click.", 120).Parent =
-			fillOpts
-		local function showTool()
-			brushOpts.Visible = G.tool == "Brush"
-			fillOpts.Visible = G.tool == "Fill"
-		end
-		showTool()
-		App.ui.refreshTool = function()
-			refresh()
-			showTool()
-		end
-
+	-- The Ground card (a zone's Zone tab): the painted ground, how much there is and what it is, what the overlay's
+	-- colours mean and the painting keys; then filling it from parts and erasing it all. (The painting tools and their
+	-- size, shape and reach are the viewport's: its tool strip and options bar.)
+	local function buildGround(parent)
+		local a = App.area
+		local cells = a and a.count or 0
+		local what = para(
+			cells > 0
+					and string.format(
+						"%s studs² painted. Paint more, or erase, with the ground tools in the viewport's strip.",
+						num(cells * a.cell * a.cell)
+					)
+				or "Nothing painted yet. Pick Brush, Lasso, Box, Polygon or Fill in the viewport's strip (or press "
+					.. App.keyText("tool1")
+					.. ") and paint the ground.",
+			{ Parent = parent }
+		)
+		what.TextColor3 = cells > 0 and P.text or P.dim
 		-- then its keys and what the overlay's colours mean
 		keyChips(parent, {
 			{ "Shift", "erase" },
@@ -349,54 +281,17 @@ return function(App)
 		return App.area ~= nil and App.area.spline ~= nil and #App.area.spline.pts > 0
 	end
 
-	local function buildDrawTools(parent)
-		local drawBtn = primaryButton("Draw path", function()
-			if App.mode == "Spline" then
-				App.setMode("Off")
-			else
-				App.ensureSplineFn()
-				App.setMode("Spline")
-			end
-		end)
-		drawBtn.Parent = parent
-		hintOn(
-			drawBtn,
-			"Click to add points or hold and drag to draw. Drag a point to move it. Select a point and click the ground to branch off. Drop an end on a point or curve to join them; on the first point to close a loop."
-		)
-		App.ui.refreshSplineBtn = function()
-			local editing = App.mode == "Spline"
-			drawBtn.Text = editing and "Done" or (hasPath() and "+  Keep drawing" or "+  Draw path")
-			drawBtn:SetAttribute("secondary", editing)
-			drawBtn.BackgroundColor3 = editing and P.raised or P.accent
-			drawBtn.TextColor3 = editing and P.text or P.onAccent
-		end
-		App.ui.refreshSplineBtn()
-		keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
+	-- The path's own card (the Curve tab): how long it is and what it's made of, then Subdivide, Clear and the
+	-- selected point. (Drawing it, and the shape presets, are the viewport's: the strip's Path tool and its bar.)
+	local function buildPathInfo(parent)
 		App.ui.splineInfo = para("", { Parent = parent })
 		App.refreshSplineInfo()
-
-		-- shape presets: pick one, then drag it out in the viewport (Viewport/Shapes)
-		label("Shapes", 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
-		local shapes = chipGrid(parent, 3, 28)
-		local looks = {}
-		for _, def in Engine.SHAPES do
-			local b, look = chip(shapes, def.name, function()
-				return App.shapeTool == def.name
-			end, function()
-				App.pickShape(def.name)
-			end)
-			hintOn(
-				b,
-				def.name == "Rectangle" and "Then drag from one corner to the opposite one."
-					or "Then drag from its centre outward. It turns in 15° steps; Shift turns it freely."
-			)
-			table.insert(looks, look)
+		if not hasPath() then
+			local how =
+				para("Pick Path in the viewport's strip, then click the ground to place points, or hold and drag to draw.", { Parent = parent })
+			how.TextColor3 = P.dim
 		end
-		App.ui.refreshShapes = function()
-			for _, look in looks do
-				look()
-			end
-		end
+		keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 
 		if hasPath() then
 			local acts = buttonRow(parent)
@@ -748,7 +643,7 @@ return function(App)
 		end
 		App.ui.welcomeChoice = choice(
 			"area",
-			"Scatter area",
+			"Zone",
 			"Paint a patch of ground and fill it. Things keep off roads, water and roofs by themselves.",
 			{ "Forests", "Flower fields", "Rocks", "Rubble" },
 			App.newArea
@@ -796,11 +691,11 @@ return function(App)
 		end
 		return tostring((a.count or 0) > 0) .. tostring(a.spline ~= nil and #a.spline.pts >= 2) .. tostring(#a.layers > 0)
 	end
-	-- the tabs show what comes next once a step gets done (the path's road once it's drawn, objects once there's
-	-- ground): rebuild when that changes
+	-- the properties show what comes next once a step gets done (the path's Curve and Road tabs once it's drawn):
+	-- rebuild when that changes
 	local pending = false
 	local function stale()
-		return G.page ~= "Settings" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
+		return not App.settingsOpen and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
 	end
 	App.checkShape = function()
 		if pending or not stale() then
@@ -845,14 +740,14 @@ return function(App)
 
 	-- used by later modules
 	App.hasPath = hasPath
-	App.buildPaintTools = buildPaintTools
+	App.buildGround = buildGround
 	App.buildTidy = buildTidy
 	App.buildPaintFilter = buildPaintFilter
 	App.buildEdges = buildEdges
 	App.buildPattern = buildPattern
 	App.buildZones = buildZones
 	App.buildWind = buildWind
-	App.buildDrawTools = buildDrawTools
+	App.buildPathInfo = buildPathInfo
 	App.buildCurve = buildCurve
 	App.buildRoad = buildRoad
 	App.buildScanFix = buildScanFix

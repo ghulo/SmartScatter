@@ -85,8 +85,8 @@ return function(App)
 				models = #stamp.models > 0 and stamp.models or nil
 				from = stamp.from
 			end
-			if not models and App.handLayer then
-				from = App.handLayer
+			if not models and App.brushTarget() then -- (the active object, or the selected zone's first)
+				from = App.brushTarget()
 				models = {}
 				for _, v in from.variants do
 					table.insert(models, v.inst)
@@ -354,6 +354,25 @@ return function(App)
 		roll()
 		refresh()
 	end
+
+	-- the stamp in the viewport's strip: the models selected in the Explorer, else the last ones, else the object in
+	-- hand
+	App.registerTool({
+		id = "stamp",
+		group = "Stamp",
+		icon = "stamp",
+		name = "Stamp (the selected models, or the last ones)",
+		on = function()
+			return App.mode == "Stamp"
+		end,
+		click = function()
+			if App.mode == "Stamp" then
+				App.setMode("Off")
+			else
+				App.startStamp()
+			end
+		end,
+	})
 
 	-- leaving the stamp (another mode, Esc, the plugin closing): the model under the mouse goes
 	App.clearStamp = function()

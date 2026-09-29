@@ -6,29 +6,21 @@
 ]]
 
 return function(App)
-	local plugin, P, G, RunService = App.plugin, App.P, App.G, App.RunService
+	local plugin, P, RunService = App.plugin, App.P, App.RunService
 	local SANS, SANS_M, SANS_B = App.SANS, App.SANS_M, App.SANS_B
 	local new, corner, stroke, pad, vlist, hlist, box, col, label, para =
 		App.new, App.corner, App.stroke, App.pad, App.vlist, App.hlist, App.box, App.col, App.label, App.para
 
 	local TOUR_KEY = "SmartScatter_tour"
-	local TOUR_V = 3 -- raise when the tour changes enough that everyone should see it again
+	local TOUR_V = 4 -- raise when the tour changes enough that everyone should see it again
 
 	local function ui(name)
 		local o = App.ui[name]
 		return o and o.Parent and o or nil
 	end
-	local function inArea()
-		return App.area ~= nil
-	end
-
-	-- the tab a step about ground or objects is on
-	local function shapeTab()
-		return inArea() and App.kindOf(App.area) == "Path" and "Map" or "Brush"
-	end
 
 	-- each step: its chapter, a title, text, the part of the panel it points at (nil: a card in the middle), and
-	-- the tab that part is on (the tour opens it)
+	-- the property tab that part is on (the tour opens it when the selection has it)
 	local STEPS = {
 		{
 			chapter = "Welcome",
@@ -49,18 +41,19 @@ return function(App)
 				.. "Not for: one special prop you'd rather place by hand.",
 		},
 		{
-			chapter = "Areas",
-			title = "Your areas",
-			text = "Everything you make lives in an area. Click here to switch between them, rename one, lock it so nothing "
-				.. "changes, bake it into plain models when you're done, or delete it.",
+			chapter = "The panel",
+			title = "Everything you make",
+			text = "The outliner lists it all: zones you paint and fill, paths you draw, keep-clear zones, and your stamps. "
+				.. "Click one to work on it. A zone opens to show its objects; click an object to open its rules.\n\n"
+				.. "The small arrow at the end of a row renames, locks, bakes or deletes it. Double-click a name to rename it.",
 			target = function()
-				return ui("areaPick")
+				return ui("outliner")
 			end,
 		},
 		{
-			chapter = "Areas",
-			title = "Three kinds",
-			text = "Scatter area: paint ground and fill it.\n"
+			chapter = "The panel",
+			title = "Make something new",
+			text = "Zone: paint ground and fill it.\n"
 				.. "Path: draw a curve for fences, lamps, tiled paths or a road.\n"
 				.. "Keep-clear zone: ground no area may put anything on, like a spawn, a doorway or a quest spot.",
 			target = function()
@@ -68,70 +61,66 @@ return function(App)
 			end,
 		},
 		{
-			chapter = "Areas",
-			title = "Four tabs",
-			text = "Scatter: what fills the area, its objects and their rules.\n"
-				.. "Brush: work by hand, painting ground or one object, removing copies.\n"
-				.. "Map: the path and its road; scanning a finished map to swap, re-space or re-season it.\n"
-				.. "Settings: the plugin itself.\n\n"
-				.. "Each tab shows the basics first; the rest is under More options. Lost? Type in the search box "
-				.. "below the tabs, like road or spacing.",
+			chapter = "The panel",
+			title = "Its settings, as tabs",
+			text = "These tabs are for what's selected. A zone has Objects, Zone and World; a path has Curve and Road too; "
+				.. "an object you click opens its Object tab. World is always there: scanning a finished map, swapping its "
+				.. "models, seasons and the snapshot.\n\n"
+				.. "Lost? Type in the search box above, like road or spacing.",
 			target = function()
-				local t = App.ui.tabs and App.ui.tabs.Scatter
-				return t and t.Parent or nil
+				return ui("tabRow")
 			end,
 		},
 		{
-			chapter = "Shape",
-			title = "Mark the ground",
+			chapter = "Tools",
+			title = "Tools live in the viewport",
 			text = function()
-				if inArea() and App.kindOf(App.area) == "Path" then
-					return "Press Draw path, then click in the viewport to place points. Hold and drag to draw freely."
-				end
-				return "Brush paints, Lasso and Box fill a shape, Polygon clicks corners, Fill takes a whole field in one click. "
-					.. "Shift erases, "
+				return "Down the viewport's left edge: painting the ground (Brush, Lasso, Box, Polygon, Fill; "
+					.. App.keyText("tool1")
+					.. " to "
+					.. App.keyText("tool5")
+					.. ", "
+					.. App.keyText("erase")
+					.. " erases), the selected object's Spray, More and Less, Stamp, Path, Remove copies, and Search ("
+					.. App.keyText("palette")
+					.. ").\n\n"
+					.. "Along the top, the tool in use: what it acts on and its settings. Shift erases while painting, "
 					.. App.keyText("size")
 					.. " resizes the brush with the mouse, "
 					.. App.keyText("cancel")
-					.. " stops.\n\n"
-					.. "Fill selected parts turns the tops of picked parts (an island, a roof) into ground."
-			end,
-			tab = shapeTab,
-			target = function()
-				return ui("step1Card") or ui("welcomeChoice")
+					.. " stops."
 			end,
 		},
 		{
-			chapter = "Shape",
+			chapter = "Tools",
 			title = "It reads the map for you",
-			text = "Each area is scanned: roads, paths, water, roofs and walls are found by their material and names, so "
+			text = "Each zone is scanned: roads, paths, water, roofs and walls are found by their material and names, so "
 				.. "trees stay off the road and out of the pond on their own.\n\n"
-				.. "If it guesses wrong, select the part and use Mark selected as. Soft edges thin things out toward the "
-				.. "border so an area fades into its surroundings.",
+				.. "If it guesses wrong, select the part and use Fix what the scan sees on the World tab. Soft edges thin "
+				.. "things out toward the border so a zone fades into its surroundings.",
 		},
 		{
-			chapter = "Paths",
+			chapter = "Tools",
 			title = "Drawing paths",
 			text = function()
-				return "Click to add points; drag one to move it. Shift+drag changes its height, "
+				return "Pick Path in the viewport's strip and click to add points; drag one to move it. Shift+drag changes its "
+					.. "height, "
 					.. App.keyText("corner")
 					.. " makes a sharp corner, "
 					.. App.keyText("delete")
-					.. " deletes a point. Select a point and click the ground to branch off; drop an end on another "
-					.. "point to join them.\n\n"
-					.. "Give the path a width and turn on Road to lay a real road or dirt path along it."
+					.. " deletes a point. Select a point and click the ground to branch off; drop an end on another point to "
+					.. "join them.\n\n"
+					.. "With a zone selected the path runs through it. Give it a width and turn on Road to lay a real road."
 			end,
 		},
 		{
 			chapter = "Objects",
 			title = "Add your models",
-			text = "Select models in the Explorer and press Add selected models. Keep the originals outside the "
-				.. "area, for example in ServerStorage.\n\n"
-				.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. "
-				.. "Save a set you like as a preset to reuse it in any area.",
-			tab = function()
-				return "Scatter"
-			end,
+			text = "Select models in the Explorer and press Add selected models. Keep the originals outside the zone, for "
+				.. "example in ServerStorage.\n\n"
+				.. "No models yet? Start from a biome (Forest, Meadow, Desert, Town) or Get sample models. Save a set you "
+				.. "like as a preset to reuse it anywhere.",
+			tab = "objects",
 			target = function()
 				return ui("step2Card")
 			end,
@@ -139,15 +128,16 @@ return function(App)
 		{
 			chapter = "Objects",
 			title = "Rules for each object",
-			text = "Click an object for its settings. Its type (tree, rock, bush…) sets smart defaults; then tune amount, "
-				.. "size, spacing and clumping, piles, which ground it grows on, what it keeps away from, slopes and looks.\n\n"
+			text = "Click an object, in the list or the outliner, for its rules. Its type (tree, rock, bush…) sets smart "
+				.. "defaults; then tune amount, size, spacing and clumping, piles, which ground it grows on, what it keeps "
+				.. "away from, slopes and looks.\n\n"
 				.. "Mix several models in one object, Swap one for another in place, or Lock an object to keep its copies "
 				.. "exactly where they are.",
 		},
 		{
 			chapter = "Objects",
 			title = "Along a line",
-			text = "Set an object to Along and it follows a line instead of spreading out: a road edge, the area's border "
+			text = "Set an object to Along and it follows a line instead of spreading out: a road edge, the zone's border "
 				.. "or your path. Fences and walls resize so their pieces meet end to end, even round bends; lamps keep a "
 				.. "steady gap and face the road.",
 		},
@@ -166,17 +156,17 @@ return function(App)
 			chapter = "Placing",
 			title = "Settings",
 			text = "Text size, the overlay, and game-ready output: no collision on plants, fewer shadows, streaming "
-				.. "chunks for big maps. Preview as boxes places quick stand-ins while you tune a huge area.\n\n"
-				.. "Every shortcut is listed here too.",
+				.. "chunks for big maps.\n\n"
+				.. "Every shortcut is listed there too.",
 			target = function()
-				return App.ui.tabs and App.ui.tabs.Settings
+				return ui("gearBtn")
 			end,
 		},
 		{
 			chapter = "Finish",
 			title = "When you're done",
-			text = "Areas stay editable, so you can come back and change anything. When an area is final, Bake it from the area menu: its "
-				.. "objects become plain models and the area steps aside.\n\n"
+			text = "Zones stay editable, so you can come back and change anything. When one is final, Bake it (the arrow at "
+				.. "the end of its row in the outliner): its objects become plain models and the zone steps aside.\n\n"
 				.. "Hover over anything for a tip, and right-click a slider to reset it. The plugin updates itself.",
 		},
 		{
@@ -231,9 +221,10 @@ return function(App)
 		end
 		local i = App.tour.i
 		local step = STEPS[i]
-		local tab = step.tab and inArea() and step.tab()
-		if tab and G.page ~= tab then
-			App.goPage(tab) -- rebuilds the panel, which shows this step again
+		local tab = step.tab and App.tabById(step.tab)
+		local open = App.currentTab()
+		if tab and open and open.id ~= step.tab and table.find(App.tabsFor(App.selected, App.active), tab) then
+			App.openTab(step.tab) -- rebuilds the panel, which shows this step again
 			return
 		end
 		local target = step.target and step.target()
@@ -443,8 +434,8 @@ return function(App)
 			App.setMode("Off")
 		end
 		App.tour = { i = 1 }
-		if G.page == "Settings" then
-			App.goPage("") -- the area's home tab; rebuilds the panel, which shows the tour
+		if App.settingsOpen then
+			App.openSettings(false) -- back to the outliner and tabs; the rebuild shows the tour
 		else
 			App.renderTour()
 		end

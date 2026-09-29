@@ -32,7 +32,8 @@ return function(App)
 		["By hand"] = "stamp",
 		Path = "spline",
 		Areas = "area",
-		Map = "search",
+		World = "search",
+		Tools = "cursor",
 		View = "settings",
 		["Go to"] = "right",
 	}
@@ -43,28 +44,31 @@ return function(App)
 		{ "Less", "Less", "minus", "thinner paint" },
 		{ "None", "Erase", "trash", "none remove paint" },
 	}
-	local CARDS = { -- features that live in a card: the action opens it { name, tab, card id, fold (More options), words }
-		{ "Map scan", "Map", "mapscan", nil, "find kinds repeated models duplicates" },
-		{ "Swap models", "Map", "swap", nil, "replace kind" },
-		{ "Improve layout", "Map", "layout", nil, "respace even gaps crowded" },
-		{ "Seasons", "Map", "seasons", nil, "snow snowy autumn winter dry fall" },
-		{ "Snapshot and restore", "Map", "snapshot", nil, "backup originals put back" },
-		{ "Fix what the scan sees", "Map", "scanfix", nil, "mark road building water" },
-		{ "Curve of the path", "Map", "curve", nil, "strip width snap walls loop closed" },
-		{ "Road", "Map", "road", nil, "asphalt surface style" },
-		{ "Objects", "Scatter", "objects", nil, "models list amount size" },
-		{ "Start from a biome", "Scatter", "biomes", nil, "forest meadow desert town" },
-		{ "Pattern", "Scatter", "pattern", "scatter", "groves islands veins spots bands" },
-		{ "Colour zones", "Scatter", "zones", "scatter", "color mood autumn lush frost" },
-		{ "Edges and wind", "Scatter", "edges", "scatter", "soft edge lean" },
-		{ "Presets", "Scatter", "presets", "scatter", "save load share code" },
-		{ "Performance", "Scatter", "performance", "scatter", "report parts heavy" },
-		{ "Paint only on", "Brush", "paintfilter", "brush", "surfaces filter" },
-		{ "Tidy the edge", "Brush", "tidy", "brush", "holes smooth grow shrink" },
-		{ "Look: accent and text size", "Settings", "look", nil, "theme colour font" },
-		{ "Viewport settings", "Settings", "viewport", nil, "overlay focus grid history" },
-		{ "Game-ready output", "Settings", "output", nil, "collision shadows streaming chunks boxes" },
-		{ "Shortcuts", "Settings", "shortcuts", "settings", "keys keybind hotkey" },
+	-- features that live in a card: the action opens it { name, property tab (or "settings"), card id, fold (More
+	-- options), words }. One not there for what's selected says so.
+	local CARDS = {
+		{ "Map scan", "world", "mapscan", nil, "find kinds repeated models duplicates" },
+		{ "Swap models", "world", "swap", nil, "replace kind" },
+		{ "Improve layout", "world", "layout", nil, "respace even gaps crowded" },
+		{ "Seasons", "world", "seasons", nil, "snow snowy autumn winter dry fall" },
+		{ "Snapshot and restore", "world", "snapshot", nil, "backup originals put back" },
+		{ "Fix what the scan sees", "world", "scanfix", "world", "mark road building water" },
+		{ "Curve of the path", "curve", "curve", nil, "strip width snap walls loop closed" },
+		{ "Road", "road", "road", nil, "asphalt surface style" },
+		{ "Objects", "objects", "objects", nil, "models list amount size" },
+		{ "Start from a biome", "objects", "biomes", "objects", "forest meadow desert town" },
+		{ "Presets", "objects", "presets", "objects", "save load share code" },
+		{ "Performance", "objects", "performance", "objects", "report parts heavy" },
+		{ "Ground", "zone", "ground", nil, "painted overlay colours fill selected parts erase all" },
+		{ "Pattern", "zone", "pattern", nil, "groves islands veins spots bands" },
+		{ "Colour zones", "zone", "zones", "zone", "color mood autumn lush frost" },
+		{ "Edges and wind", "zone", "edges", "zone", "soft edge lean" },
+		{ "Paint only on", "zone", "paintfilter", "zone", "surfaces filter" },
+		{ "Tidy the edge", "zone", "tidy", "zone", "holes smooth grow shrink" },
+		{ "Look: accent and text size", "settings", "look", nil, "theme colour font" },
+		{ "Viewport settings", "settings", "viewport", nil, "overlay focus grid history" },
+		{ "Game-ready output", "settings", "output", nil, "collision shadows streaming chunks boxes" },
+		{ "Shortcuts", "settings", "shortcuts", "settings", "keys keybind hotkey" },
 	}
 
 	local function actions()
@@ -201,7 +205,6 @@ return function(App)
 					group = "Objects",
 					words = "open rules object " .. l.type,
 					run = function()
-						App.goPage("Scatter")
 						App.showObject(l)
 					end,
 				})
@@ -295,15 +298,40 @@ return function(App)
 				})
 			end
 		end
+		-- every other tool the features registered (Core/Registry): a new tool is found here with no change to this list.
+		-- (The ground, object, stamp, path and remove tools have their richer entries above; the search is this menu.)
+		local COVERED = { search = true, remove = true, stamp = true, path = true }
+		for _, g in App.toolGroups() do
+			for _, t in g.tools do
+				if not (COVERED[t.id] or string.match(t.id, "^ground:") or string.match(t.id, "^object:")) then
+					add({
+						id = "tool:" .. t.id,
+						name = string.match(t.name, "^([^:]+)") or t.name,
+						group = "Tools",
+						icon = t.icon,
+						key = t.key,
+						words = t.name,
+						run = t.click,
+					})
+				end
+			end
+		end
 		-- Areas
 		add({
 			id = "newarea",
-			name = "New scatter area",
+			name = "New zone",
 			group = "Areas",
-			words = "create add",
+			words = "create add scatter area",
 			run = function()
 				App.newArea()
 			end,
+		})
+		add({
+			id = "newzonefrom",
+			name = "New zone from the selected models",
+			group = "Areas",
+			words = "create add scatter area selection explorer",
+			run = App.newZoneFromSelection,
 		})
 		add({
 			id = "newpath",
@@ -359,7 +387,7 @@ return function(App)
 			add({
 				id = "card:" .. c[3],
 				name = c[1],
-				group = c[2] == "Map" and "Map" or "Go to",
+				group = c[2] == "world" and "World" or "Go to",
 				words = c[5],
 				run = function()
 					if not App.openCard(c[2], c[3], c[4]) then
@@ -368,17 +396,26 @@ return function(App)
 				end,
 			})
 		end
-		for _, t in { "Scatter", "Brush", "Map", "Settings" } do
+		for _, t in App.tabsFor(App.selected, App.active) do -- the selection's tabs, and Settings
 			add({
-				id = "tab:" .. t,
-				name = t .. " tab",
+				id = "tab:" .. t.id,
+				name = t.title .. " tab",
 				group = "Go to",
-				words = "page open",
+				words = "page open properties",
 				run = function()
-					App.goPage(t)
+					App.openTab(t.id)
 				end,
 			})
 		end
+		add({
+			id = "tab:settings",
+			name = "Settings",
+			group = "Go to",
+			words = "page open preferences options",
+			run = function()
+				App.openSettings(true)
+			end,
+		})
 		-- View
 		add({
 			id = "overlay",
@@ -881,9 +918,27 @@ return function(App)
 		end
 	end
 	pcall(function()
+		if App.ctx.preview then -- (the panel preview leaves the real plugin's alone)
+			return
+		end
 		local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterPalette")
 		if g then
 			g:Destroy()
 		end
 	end)
+
+	-- the search menu in the viewport's strip
+	App.registerTool({
+		id = "search",
+		group = "Search",
+		icon = "search",
+		name = "Search every action",
+		key = "palette",
+		on = function()
+			return false
+		end,
+		click = function()
+			App.openPalette()
+		end,
+	})
 end

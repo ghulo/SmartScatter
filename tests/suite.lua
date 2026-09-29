@@ -4,7 +4,8 @@
 	path against it, checks the results against fixed limits, and removes everything it made.
 	Returns one line per check: PASS/FAIL, the numbers, and a final summary.
 ]]
-local SRC = game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")
+-- the code under test: the live copy, or (a dev run of what's on disk: tools/preview/run_suite.lua) the tree it built
+local SRC = _G.SS_SuiteSource or game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")
 -- a fresh engine: a module tree is required from a copy (require caches by instance; the live copy isn't
 -- archivable, so it's copied by hand), a flattened one (older loaders) is compiled from its source
 local function fresh(m)
@@ -1816,6 +1817,7 @@ local ok, err = xpcall(function()
 					return c
 				end,
 				LAYER_MODES = {},
+				NO_AREA_MODES = { Off = true, Stamp = true, Select = true },
 				toggleBtn = { Click = signal(), SetActive = function() end },
 				widget = {
 					Enabled = false,
@@ -1851,6 +1853,7 @@ local ok, err = xpcall(function()
 					"cancelJob",
 					"setMode",
 					"rebuildOverlay",
+					"onAreaSwitched",
 				}
 			do
 				App[k] = function() end
@@ -1952,6 +1955,116 @@ local ok, err = xpcall(function()
 			end
 		else
 			check("undo: the plugin's Core/Lifecycle is in the live copy", false, "not found (an older, flattened release?)")
+		end
+	end
+
+	-- the registry (the plugin's Core/Registry): tabs for a selection, in order, less the ones not for now
+	do
+		local reg = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Core") and SRC.App.Core:FindFirstChild("Registry")
+		if reg then
+			local App = {}
+			loadstring(reg.Source)()(App)
+			local function build() end
+			App.registerTab({ id = "b", title = "B", order = 20, kinds = { Zone = true }, build = build })
+			App.registerTab({ id = "a", title = "A", order = 10, kinds = { Zone = true, Path = true }, build = build })
+			App.registerTab({ id = "w", title = "W", order = 90, kinds = "all", build = build })
+			App.registerTab({
+				id = "o",
+				title = "O",
+				order = 15,
+				kinds = { Zone = true },
+				when = function(_, active)
+					return active ~= nil
+				end,
+				build = build,
+			})
+			local function ids(list)
+				local t = {}
+				for _, s in list do
+					table.insert(t, s.id)
+				end
+				return table.concat(t, ",")
+			end
+			local zone, zoneActive, path, none =
+				ids(App.tabsFor({ kind = "Zone" })),
+				ids(App.tabsFor({ kind = "Zone" }, {})),
+				ids(App.tabsFor({ kind = "Path" })),
+				ids(App.tabsFor(nil))
+			check(
+				"registry: a selection's tabs, in order, only when they apply",
+				zone == "a,b,w" and zoneActive == "a,o,b,w" and path == "a,w" and none == "w",
+				string.format("zone %s · with an object %s · path %s · nothing %s", zone, zoneActive, path, none)
+			)
+			App.registerTool({ id = "t2", group = "Path", order = 1, name = "t2", on = function() end, click = function() end })
+			App.registerTool({ id = "t1", group = "Ground", order = 1, name = "t1", on = function() end, click = function() end })
+			App.registerTool({
+				id = "t3",
+				group = "Ground",
+				order = 2,
+				name = "t3",
+				when = function()
+					return false
+				end,
+				on = function() end,
+				click = function() end,
+			})
+			local groups = {}
+			for _, g in App.toolGroups() do
+				table.insert(groups, g.group .. ":" .. ids(g.tools))
+			end
+			check(
+				"registry: the tool strip's groups in order, less tools not for now",
+				table.concat(groups, " ") == "Ground:t1 Path:t2",
+				table.concat(groups, " ")
+			)
+		end
+	end
+
+	-- the selection (the plugin's Core/Selection, with the engine and stand-ins): one selected thing, one active
+	-- object, and a thing that went falls back to what's there
+	do
+		local selMod = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Core") and SRC.App.Core:FindFirstChild("Selection")
+		if selMod then
+			local App = { Engine = E, LAYER_MODES = {}, mode = "Off" }
+			App.setMode = function() end
+			App.rebuildOverlay = function() end
+			App.switchArea = function(folder)
+				App.area = folder and E.loadArea(folder) or nil
+				App.onAreaSwitched(App.area and App.area.folder)
+			end
+			loadstring(selMod.Source)()(App)
+			local heard = 0
+			App.onSelect(function()
+				heard += 1
+			end)
+			local z = E.createArea("SS_Test_Select", {})
+			table.insert(made, z)
+			z.folder:SetAttribute("SS_Kind", "Scatter")
+			z.layers = { E.makeLayer(tree), E.makeLayer(rock, "Rock") }
+			E.saveArea(z)
+			App.select(App.thingOf(z.folder))
+			local okZone = App.area and App.area.folder == z.folder and App.selected.kind == "Zone" and App.active == nil
+			App.selectObject(App.area.layers[2])
+			local okObject = App.active == App.area.layers[2] and App.brushTarget() == App.active
+			App.select(App.stampsThing())
+			local okStamps = App.area == nil and App.selected.kind == "Stamps" and App.active == nil and App.brushTarget() == nil
+			App.select(App.thingOf(z.folder))
+			z.folder.Parent = nil -- the selected zone goes (a delete, an undo)
+			App.select(App.selected)
+			local okGone = App.selected == nil or (App.selected.folder ~= z.folder and App.selected.folder:IsDescendantOf(workspace))
+			z.folder.Parent = E.getOut()
+			check(
+				"selection: a zone, its object, the stamps, and a zone that went",
+				okZone and okObject and okStamps and okGone and heard > 0,
+				string.format(
+					"zone %s, object %s, stamps %s, gone %s, heard %d",
+					tostring(okZone),
+					tostring(okObject),
+					tostring(okStamps),
+					tostring(okGone),
+					heard
+				)
+			)
 		end
 	end
 end, debug.traceback) -- (an error says where it came from)

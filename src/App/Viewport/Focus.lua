@@ -44,6 +44,8 @@ return function(App)
 			return "Stamp", inst and inst.Name or nil, false
 		elseif m == "Remove" then
 			return "Remove copies", on(area, "click one"), true
+		elseif m == "Select" then
+			return "Select", "click a zone, a path or a copy", false
 		elseif LAYER_MODES[m] then
 			local act = shift and App.LAYER_OPPOSITE[m] or m
 			local name = App.paintLayer and App.paintLayer.inst.Name or nil
@@ -158,13 +160,16 @@ return function(App)
 			gui = nil
 		end
 	end
-	-- (one left by an earlier load of the plugin)
+	-- (one left by an earlier load of the plugin; the panel preview leaves the real plugin's alone)
 	local cam = workspace.CurrentCamera
-	local old = cam and cam:FindFirstChild("SmartScatterFocus")
+	local old = cam and not App.ctx.preview and cam:FindFirstChild("SmartScatterFocus")
 	if old then
 		old:Destroy()
 	end
 	pcall(function()
+		if App.ctx.preview then -- (the panel preview leaves the real plugin's alone)
+			return
+		end
 		local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterFocus")
 		if g then
 			g:Destroy()

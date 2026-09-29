@@ -1,7 +1,8 @@
 --[[
-	Smart Scatter — Shell: the panel around the tabs. The header (area picker), the tab bar (Scatter · Brush · Map ·
-	Settings), the search box, the page that scrolls under them, the bar pinned to the bottom (Generate, Live
-	update, Shuffle, Undo) and toasts; and the whole-panel rebuild. Each tab is its own module in Panel/Tabs.
+	Smart Scatter — Shell: the panel's frame. At the top the name with + New and Settings, the search box, the
+	outliner (Panel/Outliner) and the selection's tabs (Panel/Properties); under them the page that scrolls; the bar
+	pinned to the bottom (Generate, Live update, Shuffle, Undo, the history) and toasts; and the whole-panel rebuild,
+	which follows the selection.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -10,7 +11,7 @@ return function(App)
 	local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
-	local runGenerate, commit, buildHeader = App.runGenerate, App.commit, App.buildHeader
+	local runGenerate, commit = App.runGenerate, App.commit
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -465,158 +466,62 @@ return function(App)
 	end
 
 	--------------------------------------------------------------------------------
-	-- Tabs and search
+	-- The head: the name, + New, Settings; the search box; the outliner; the selection's tabs
 	--------------------------------------------------------------------------------
-	local TABS = {
-		{ name = "Scatter", icon = "layers", hint = "What fills the area: objects, their rules, pattern and presets.", build = "buildScatterTab" },
-		{ name = "Brush", icon = "brush", hint = "Work by hand: paint the ground, brush one object, remove copies.", build = "buildBrushTab" },
-		{
-			name = "Map",
-			icon = "spline",
-			hint = "The path and its road; scanning a finished map, swapping its models, seasons and the snapshot.",
-			build = "buildMapTab",
-		},
-		{ name = "Settings", icon = "settings", hint = "The plugin's look, output and shortcuts.", build = "buildSettingsTab" },
-	}
-	local TAB = {}
-	for _, t in TABS do
-		TAB[t.name] = t
-	end
-	-- a viewport tool belongs to the tab its controls are on: leaving that tab stops it
-	local OWNER =
-		{ Paint = "Brush", Erase = "Brush", More = "Brush", Less = "Brush", Clear = "Brush", Place = "Brush", Remove = "Brush", Spline = "Map" }
-
-	-- the tab an area opens on: where its next step is
-	local function homeTab()
-		local a = App.area
-		if not a then
-			return "Scatter"
-		end
-		local kind = App.kindOf(a)
-		if kind == "Path" then
-			return App.hasPath() and "Scatter" or "Map"
-		end
-		if kind == "Clear" or (a.count or 0) == 0 then
-			return "Brush"
-		end
-		return "Scatter"
-	end
-
 	local searchText = "" -- the search box's text (kept while the panel is rebuilt)
 	local function clearSearch()
 		searchText = ""
 		App.setSearch("")
 	end
+	App.clearSearch = clearSearch
 
-	-- switch tab ("" picks the area's home tab); tools that belong to the old tab stop
-	App.goPage = function(name)
-		if G.page == name and not App.searching() then
-			return
-		end
+	-- the settings page in place of the outliner and the properties (the ⚙; its back arrow returns)
+	App.settingsOpen = false
+	App.openSettings = function(on)
+		App.settingsOpen = on
 		clearSearch()
-		G.page = name
-		saveG()
-		local owner = OWNER[App.mode]
-		if owner and owner ~= (TAB[name] and name or homeTab()) then
-			App.setMode("Off")
-		end
 		App.rebuildAll()
 	end
 
-	local shownTab -- which tab's underline was last drawn (the next one slides over from there)
-	local function buildTabs(parent)
-		-- plain tabs over a hairline; the open one is marked by a short accent line under its name
-		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
-		local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
-			new("UIGridLayout", {
-				CellSize = UDim2.new(1 / #TABS, 0, 1, 0),
-				CellPadding = UDim2.fromOffset(0, 0),
-				SortOrder = Enum.SortOrder.LayoutOrder,
-			}),
-		})
-		box({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.line,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 0, 1, 0),
-			Size = UDim2.new(1, 0, 0, 1),
-			Parent = strip,
-		})
-		App.ui.tabs = {}
-		local fits = {} -- [icon] = the label beside it: icons hide when the panel is too narrow for both
-		for i, t in TABS do
-			local on = G.page == t.name and not App.searching()
-			local b = new("TextButton", {
-				Text = "",
-				AutoButtonColor = false,
-				BackgroundTransparency = 1,
-				LayoutOrder = i,
-				Parent = bar,
-			})
-			if on then
-				-- the underline slides over from the tab that was open (the tabs are all one width, so the old one is
-				-- a whole number of widths away), stretching a little on the way
-				local from = shownTab and shownTab ~= i and (shownTab - i) or 0
-				local u = box({
-					BackgroundTransparency = 0,
-					BackgroundColor3 = P.accent,
-					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5 + from, 1),
-					Size = UDim2.new(from == 0 and 1 or 1.3, -16, 0, 2),
-					ZIndex = 3,
-					Parent = b,
-				}, { corner(1) })
-				if from ~= 0 then
-					tween(u, TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-						Position = UDim2.fromScale(0.5, 1),
-						Size = UDim2.new(1, -16, 0, 2),
-					})
-				end
-				shownTab = i
-			end
-			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-				new("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					HorizontalAlignment = Enum.HorizontalAlignment.Center,
-					VerticalAlignment = Enum.VerticalAlignment.Center,
-					Padding = UDim.new(0, 5),
-				}),
-			})
-			local fg = on and P.text or P.dim
-			local ic = App.icon(t.icon, 13, on and P.accent or fg)
-			ic.Parent = row
-			local text = label(
-				t.name,
-				13,
-				fg,
-				on and SANS_B or App.SANS_M,
-				{ Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, Parent = row }
-			)
-			fits[ic] = text
-			if not on then
-				b.MouseEnter:Connect(function()
-					text.TextColor3 = P.text
-					App.setIconColor(ic, P.text)
-				end)
-				b.MouseLeave:Connect(function()
-					text.TextColor3 = P.dim
-					App.setIconColor(ic, P.dim)
-				end)
-			end
-			b.MouseButton1Click:Connect(function()
-				App.goPage(t.name)
+	-- the top line: the plugin's mark and name (or, on the settings page, the way back), + New and ⚙
+	local function buildTitle(parent)
+		local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
+		if App.settingsOpen then
+			App.pageHead(row, "Settings", nil, function()
+				App.openSettings(false)
 			end)
-			hintOn(b, t.hint)
-			App.ui.tabs[t.name] = b
+		else
+			new("ImageLabel", {
+				Image = App.LOGO.mark,
+				BackgroundTransparency = 1,
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 0, 0.5, 0),
+				Size = UDim2.fromOffset(20, 20),
+				Parent = row,
+			})
+			label("Smart Scatter", 14, P.text, SANS_B, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -110, 1, 0), Parent = row })
 		end
-		local function fit()
-			local cell = bar.AbsoluteSize.X / #TABS
-			for ic, text in fits do
-				ic.Visible = cell >= text.TextBounds.X + 13 + 5 + 12
-			end
+		local right = box({
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.fromScale(1, 0),
+			Size = UDim2.fromOffset(0, 30),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Parent = row,
+		}, { hlist(6) })
+		if not App.settingsOpen then
+			local plus = App.iconButton("plus", "New: a zone, a path or a keep-clear zone", function(b)
+				App.openNewMenu(b)
+			end, false, 30)
+			plus.LayoutOrder = 1
+			plus.Parent = right
+			App.ui.plusBtn = plus
 		end
-		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-		task.defer(fit) -- once the labels have measured their text
+		local gear = App.iconButton("settings", App.settingsOpen and "Back to your things" or "Settings", function()
+			App.openSettings(not App.settingsOpen)
+		end, App.settingsOpen, 30)
+		gear.LayoutOrder = 2
+		gear.Parent = right
+		App.ui.gearBtn = gear
 	end
 
 	local buildPage, enterCards -- (below)
@@ -678,12 +583,14 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- The panel
 	--------------------------------------------------------------------------------
-	-- what stays across a page rebuild: the header, the tabs, the search box, the bar and the toast
+	-- what stays across a page rebuild: the head (title, search, outliner, tabs), the bar and the toast
 	local SHELL = {
-		"areaPick",
-		"areaName",
 		"plusBtn",
+		"gearBtn",
+		"outliner",
+		"outlinerCount",
 		"tabs",
+		"tabRow",
 		"search",
 		"foot",
 		"progress",
@@ -697,54 +604,7 @@ return function(App)
 		"popup",
 	}
 
-	-- search results: every tab's matching cards, under the tab's name
-	local function buildResults(page)
-		local any = false
-		for _, t in TABS do
-			local holder = col({ Parent = page }, { vlist(10) })
-			-- the tab's name heads its results, and opens it (the search clears)
-			local head = new("TextButton", {
-				Text = "",
-				AutoButtonColor = false,
-				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 0, 20),
-				Parent = holder,
-			}, { hlist(4) })
-			local name = label(
-				string.upper(t.name),
-				11,
-				P.faint,
-				SANS_B,
-				{ Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = head }
-			)
-			local go = App.icon("right", 10, P.faint)
-			go.Parent = head
-			head.MouseEnter:Connect(function()
-				name.TextColor3 = P.accent
-				App.setIconColor(go, P.accent)
-			end)
-			head.MouseLeave:Connect(function()
-				name.TextColor3 = P.faint
-				App.setIconColor(go, P.faint)
-			end)
-			head.MouseButton1Click:Connect(function()
-				App.goPage(t.name)
-			end)
-			hintOn(head, "Open the " .. t.name .. " tab.")
-			local before = App.cardCount
-			App[t.build](holder)
-			if App.cardCount == before then
-				holder:Destroy()
-			else
-				any = true
-			end
-		end
-		if not any then
-			App.emptyState(page, "Nothing found", "Try another word, like road, colour, spacing or shortcut.")
-		end
-	end
-
-	-- the scrolling page under the header: the open tab, the search results, or the welcome
+	-- the scrolling page under the head: the selection's open tab, the search results, the settings or the welcome
 	function buildPage()
 		local sc = App.scroll
 		if not sc then
@@ -764,12 +624,10 @@ return function(App)
 		end
 		App.ui.builtShape = App.shapeKey()
 		local page = col({ Parent = sc }, { vlist(10) })
-		if App.searching() then
-			buildResults(page)
-		elseif not App.area and (G.page == "Scatter" or G.page == "Brush") then
-			App.buildWelcome(page)
+		if App.settingsOpen and not App.searching() then
+			App.buildSettingsPage(page)
 		else
-			App[TAB[G.page].build](page)
+			App.buildProperties(page) -- (the open tab, the search results, or the welcome: Panel/Properties)
 		end
 		App.refreshScan()
 		App.refreshObjects()
@@ -816,13 +674,24 @@ return function(App)
 
 	local builtPage
 	local firstBuild = true
-	App.rebuildAll = function()
-		if not TAB[G.page] then
-			G.page = homeTab()
+	-- what the page shows: the settings, or a tab of a thing (another one slides in; the same one keeps its scroll)
+	local function pageKey()
+		if App.settingsOpen then
+			return "settings"
 		end
-		local keepScroll = builtPage == G.page and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
-		local turned = builtPage ~= nil and builtPage ~= G.page -- another tab: it slides in
-		builtPage = G.page
+		local t = App.currentTab()
+		local sel = App.selected
+		local what = "none"
+		if sel then
+			what = sel.kind .. ":" .. (sel.folder and sel.folder:GetFullName() or "")
+		end
+		return what .. "|" .. (t and t.id or "")
+	end
+	App.rebuildAll = function()
+		local key = pageKey()
+		local keepScroll = builtPage == key and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
+		local turned = builtPage ~= nil and builtPage ~= key -- another tab or thing: it slides in
+		builtPage = key
 		if App.root then
 			App.pruneThumbs() -- (out of the panel before it goes, to be reused)
 			App.root:Destroy()
@@ -846,7 +715,8 @@ return function(App)
 				App.releaseMouse()
 			end
 		end)
-		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
+		-- fixed top: title, search, the outliner and the selection's tabs; only the page below scrolls (see-through
+		-- over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,
 			BackgroundColor3 = P.bg,
@@ -872,13 +742,20 @@ return function(App)
 		App.scroll.MouseLeave:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
 		end)
-		buildHeader(head)
-		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
-		buildTabs(head)
+		buildTitle(head)
 		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
 		buildSearch(head)
-		box({ Size = UDim2.new(1, 0, 0, 10), Parent = head })
-		App.fadeLine(head, nil, 0.16)
+		if not App.settingsOpen then
+			box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
+			App.buildOutliner(head)
+			if App.toolbarAvailable and not App.toolbarAvailable() then -- (no tool strip here: the same tools here)
+				box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
+				App.buildToolRow(head)
+			end
+			box({ Size = UDim2.new(1, 0, 0, 4), Parent = head })
+			App.buildTabRow(head)
+		end
+		box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
 		App.sheen(App.root, 0.04, 140, 150)
 		App.halftone(App.root, 0.07, 4, 150)
 		local function fit()
@@ -923,5 +800,19 @@ return function(App)
 		end
 	end
 	App.applyTheme = applyTheme
+
+	-- the selection changed (Core/Selection): the outliner, the tabs and the page follow, rebuilt once however many
+	-- changes came together
+	local rebuildQueued = false
+	App.onSelect(function()
+		if rebuildQueued then
+			return
+		end
+		rebuildQueued = true
+		task.defer(function()
+			rebuildQueued = false
+			App.rebuildAll()
+		end)
+	end)
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end

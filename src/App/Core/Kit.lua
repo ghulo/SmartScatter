@@ -1051,6 +1051,9 @@ return function(App)
 			bar(0.5, 0.78, 0.5, 0.66)
 			bar(0.5, 0.48, 0.5, 0.4)
 			bar(0.5, 0.24, 0.5, 0.2)
+		elseif name == "cursor" then -- selecting: a pointer, its tip at the top left
+			path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
+			path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
 		elseif name == "pin" then -- marking what the scan sees
 			ring(0.5, 0.38, 0.2)
 			bar(0.5, 0.58, 0.5, 0.86)

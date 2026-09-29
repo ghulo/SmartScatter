@@ -1,5 +1,7 @@
 --[[
-	Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
+	Smart Scatter — Header: what's done to areas (lock, clear, bake, delete, copy settings), the three area kinds as the
+	outliner lists them (Zone, Path, Keep-clear zone) with their menus, the + New menu, a small popup menu, marking
+	surfaces, dialogs, and helpers the panel shares.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -7,13 +9,9 @@ return function(App)
 	local Selection, beginRec, endRec = App.Selection, App.beginRec, App.endRec
 	local Engine, G, num, P, SANS, SANS_M = App.Engine, App.G, App.num, App.P, App.SANS, App.SANS_M
 	local SANS_B, new, corner, stroke, pad, vlist, box = App.SANS_B, App.new, App.corner, App.stroke, App.pad, App.vlist, App.box
-	local label, hoverable, hintOn, flushRows, saveArea = App.label, App.hoverable, App.hintOn, App.flushRows, App.saveArea
-	local canGenerate, runGenerate, switchArea, newArea = App.canGenerate, App.runGenerate, App.switchArea, App.newArea
+	local label, hoverable, flushRows, saveArea = App.label, App.hoverable, App.flushRows, App.saveArea
+	local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
 	local deleteArea = App.deleteArea
-
-	--------------------------------------------------------------------------------
-	-- Build
-	--------------------------------------------------------------------------------
 
 	local function closePopup()
 		if App.ui.popup then
@@ -79,129 +77,153 @@ return function(App)
 		App.status(string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name))
 	end
 
-	-- the area menu: switch area, rename, lock, bake, delete. pick (optional): { title, onPick(folder) } lists the
-	-- other areas instead, to choose one (the source for "Copy settings from…")
-	local function openAreaMenu(pick)
+	-- A small menu over the panel, under `anchor` (a GuiObject) or at the mouse: items { { text, run, color?, tag? } }
+	-- (color: P.danger for one that takes something away; tag: a quiet word on the right); a title line first if
+	-- given. A click on an item runs it; any click closes the menu.
+	App.popupMenu = function(anchor, items, title)
 		closePopup()
-		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
+		local root = App.root
+		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = root })
 		catcher.MouseButton1Click:Connect(closePopup)
 		App.ui.popup = catcher
+		local x, y
+		if anchor then
+			x = anchor.AbsolutePosition.X - root.AbsolutePosition.X
+			y = anchor.AbsolutePosition.Y - root.AbsolutePosition.Y + anchor.AbsoluteSize.Y + 4
+		else
+			local m = App.widget:GetRelativeMousePosition()
+			x, y = m.X, m.Y
+		end
+		local w = math.min(250, root.AbsoluteSize.X - 24)
 		local menu = new("Frame", {
 			BackgroundColor3 = P.card,
-			Position = UDim2.fromOffset(
-				12,
-				App.ui.areaPick and (App.ui.areaPick.AbsolutePosition.Y - App.root.AbsolutePosition.Y + App.ui.areaPick.AbsoluteSize.Y + 4) or 76
-			),
-			Size = UDim2.new(1, -24, 0, 0),
+			Position = UDim2.fromOffset(math.clamp(x, 12, math.max(12, root.AbsoluteSize.X - w - 12)), y),
+			Size = UDim2.fromOffset(w, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 51,
 			Parent = catcher,
 		}, { corner(10), stroke(P.line), pad(5), vlist(2) })
-		local function item(t, onClick, color)
+		if title then
+			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
+			label(title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
+		end
+		for _, it in items do
+			if it == "-" then -- a line between groups of items
+				box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
+				continue
+			end
 			local b = new("TextButton", {
-				Text = t,
+				Text = it[1],
 				Font = SANS,
 				TextSize = 13,
-				TextColor3 = color or P.text,
+				TextColor3 = it[3] or P.text,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				BackgroundColor3 = P.card,
 				BackgroundTransparency = 1,
 				AutoButtonColor = false,
-				Size = UDim2.new(1, 0, 0, 32),
+				Size = UDim2.new(1, 0, 0, 30),
 				ZIndex = 52,
 				Parent = menu,
 			}, { corner(6), pad(10, 10, 0, 0) })
 			hoverable(b, P.card, P.hover)
-			b.MouseButton1Click:Connect(function()
-				closePopup()
-				onClick()
-			end)
-			return b
-		end
-		if pick then
-			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
-			label(pick.title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
-			for _, f in Engine.listAreas() do
-				if f ~= (App.area and App.area.folder) and f:GetAttribute("SS_Kind") ~= "Clear" then
-					item(f.Name, function()
-						pick.onPick(f)
-					end)
-				end
-			end
-			item("Cancel", function() end, P.dim)
-			return
-		end
-		for _, f in Engine.listAreas() do
-			local b = item(f.Name, function()
-				switchArea(f)
-			end)
-			if App.area and f == App.area.folder then
-				b.Font = SANS_B
-				b.TextColor3 = P.accent
-			end
-			local k = f:GetAttribute("SS_Kind")
-			if k then
-				label(k == "Clear" and "Keep clear" or k, 12, k == "Clear" and P.danger or P.accent, SANS_M, {
+			if it[4] then
+				label(it[4], 12, P.accent, SANS_M, {
 					AnchorPoint = Vector2.new(1, 0),
 					Position = UDim2.new(1, 0, 0, 0),
-					Size = UDim2.fromOffset(60, 32),
+					Size = UDim2.fromOffset(70, 30),
 					TextXAlignment = Enum.TextXAlignment.Right,
 					ZIndex = 53,
 					Parent = b,
 				})
 			end
-		end
-		if App.area then
-			box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-			local rename = new("TextBox", {
-				Text = App.area.folder.Name,
-				PlaceholderText = "Rename",
-				Font = SANS,
-				TextSize = 14,
-				TextColor3 = P.text,
-				PlaceholderColor3 = P.faint,
-				BackgroundTransparency = 1,
-				ClearTextOnFocus = false,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Size = UDim2.new(1, 0, 0, 30),
-				ZIndex = 52,
-				Parent = menu,
-			}, { pad(10, 10, 0, 0) })
-			rename.FocusLost:Connect(function()
-				local n = string.gsub(rename.Text, "^%s*(.-)%s*$", "%1")
-				if n ~= "" and App.area and n ~= App.area.folder.Name then
-					App.area.folder.Name = n
-					if App.ui.areaName then
-						App.ui.areaName.Text = n
-					end
-				end
+			b.MouseButton1Click:Connect(function()
+				closePopup()
+				it[2]()
 			end)
 		end
-		if App.area then
-			box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-			item(App.area.locked and "Unlock area" or "Lock area", App.toggleLock, P.dim)
-			if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
-				item("Copy settings from…", function()
-					task.defer(openAreaMenu, {
-						title = "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM",
-						onPick = function(f)
-							-- the look replaces this area's; objects are added (ones it has are kept as they are).
-							-- One undo step: adding the objects saves the area with the new look.
-							local src = Engine.loadArea(f)
-							Engine.copyLook(src, App.area)
-							App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
-							App.rebuildAll()
-						end,
-					})
-				end, P.dim)
+	end
+
+	--------------------------------------------------------------------------------
+	-- The area kinds, as the outliner lists them. Each thing's menu acts on it (selecting it first: the actions work
+	-- on the area being worked on).
+	--------------------------------------------------------------------------------
+	local function areasOf(kind)
+		return function()
+			local out = {}
+			for _, f in Engine.listAreas() do
+				local t = App.thingOf(f)
+				if t.kind == kind then
+					table.insert(out, t)
+				end
 			end
-			if App.kindOf(App.area) ~= "Clear" then
-				item("Clear placed objects", App.clearPlaced, P.dim)
-			end
-			item("Bake to plain models", App.bakeArea, P.dim)
-			item("Delete area", deleteArea, P.danger)
+			return out
 		end
 	end
+	local function on(thing, fn)
+		return function()
+			if not App.sameThing(App.selected, thing) then
+				App.select(thing)
+			end
+			fn()
+		end
+	end
+	local function areaMenu(thing)
+		local items = {
+			{
+				"Rename",
+				function()
+					if App.startRename then
+						App.startRename(thing)
+					end
+				end,
+			},
+			{ thing.folder:GetAttribute("SS_Locked") and "Unlock" or "Lock", on(thing, App.toggleLock), P.dim },
+		}
+		if thing.kind ~= "Clear" and #Engine.listAreas() > 1 then
+			table.insert(items, {
+				"Copy settings from…",
+				on(thing, function()
+					local others = {}
+					for _, f in Engine.listAreas() do
+						if f ~= thing.folder and f:GetAttribute("SS_Kind") ~= "Clear" then
+							table.insert(others, {
+								f.Name,
+								function()
+									-- the look replaces this area's; objects are added (ones it has stay as they are). One
+									-- undo step: adding the objects saves the area with the new look.
+									local src = Engine.loadArea(f)
+									Engine.copyLook(src, App.area)
+									App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
+								end,
+							})
+						end
+					end
+					task.defer(App.popupMenu, nil, others, "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM")
+				end),
+				P.dim,
+			})
+		end
+		table.insert(items, "-")
+		if thing.kind ~= "Clear" then
+			table.insert(items, { "Clear placed objects", on(thing, App.clearPlaced), P.dim })
+		end
+		table.insert(items, { "Bake to plain models", on(thing, App.bakeArea), P.dim })
+		table.insert(items, { "Delete", on(thing, deleteArea), P.danger })
+		return items
+	end
+	-- an area's rename (from the outliner): the folder's name is the area's name
+	App.renameThing = function(thing, name)
+		name = string.gsub(name or "", "^%s*(.-)%s*$", "%1")
+		if name ~= "" and thing.folder and thing.folder.Name ~= name then
+			thing.folder.Name = name
+		end
+	end
+	local function placed(thing) -- (known for the area being worked on; the others would each need loading)
+		return App.area and App.area.folder == thing.folder and App.lastTotal or nil
+	end
+	App.registerKind({ kind = "Zone", icon = "area", title = "Zone", order = 10, list = areasOf("Zone"), count = placed, menu = areaMenu })
+	App.registerKind({ kind = "Path", icon = "spline", title = "Path", order = 20, list = areasOf("Path"), count = placed, menu = areaMenu })
+	App.registerKind({ kind = "Clear", icon = "clear", title = "Keep-clear zone", order = 30, list = areasOf("Clear"), menu = areaMenu })
 
 	App.markSelected = function(cls)
 		local sel = Selection:Get()
@@ -258,27 +280,7 @@ return function(App)
 		label(text, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
 	end
 
-	-- what an area is for: "Scatter" (painted ground to fill), "Path" (a curve things follow) or "Clear" (a keep-clear
-	-- zone no area places anything on). Chosen when it's made; older areas are read from what they have.
-	local KIND = {
-		Scatter = { icon = "area", title = "Scatter area" },
-		Path = { icon = "spline", title = "Path" },
-		Clear = { icon = "clear", title = "Keep-clear zone" },
-	}
-	App.kindOf = function(a)
-		if not a then
-			return nil
-		end
-		local k = a.folder and a.folder:GetAttribute("SS_Kind")
-		if KIND[k] then
-			return k
-		end
-		if a.spline and #a.spline.pts > 0 and (a.count or 0) == 0 then
-			return "Path"
-		end
-		return "Scatter"
-	end
-
+	-- + New: a zone, a path or a keep-clear zone
 	local function openNewMenu(anchor)
 		closePopup()
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
@@ -326,67 +328,16 @@ return function(App)
 				onClick()
 			end)
 		end
-		item("area", "Scatter area", "Paint ground, fill it with objects", newArea, P.accent)
+		item("area", "Zone", "Paint ground, fill it with objects", newArea, P.accent)
+		item("layers", "Zone from selected models", "The models picked in the Explorer, ready to paint", function()
+			App.newZoneFromSelection()
+		end, P.accent)
 		item("spline", "Path", "Draw a curve: roads, fences, lamps", function()
 			App.newSplineFn()
 		end, P.accent)
 		item("clear", "Keep-clear zone", "Paint where nothing may go: spawns, doors", function()
 			newArea({ kind = "Clear" })
 		end, P.danger)
-	end
-
-	local iconButton = App.iconButton
-
-	local function buildHeader(parent)
-		local kind = App.kindOf(App.area)
-		-- what's being worked on: "Path", "Scatter area"
-		label(kind and KIND[kind].title or "Smart Scatter", 12, P.dim, SANS_B, {
-			Size = UDim2.new(1, 0, 0, 20),
-			Parent = parent,
-		})
-		box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
-		local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = parent })
-		-- area select: which area you're working on
-		local pick = new("TextButton", {
-			Text = "",
-			BackgroundColor3 = P.raised,
-			AutoButtonColor = false,
-			Size = UDim2.new(1, -44, 1, 0),
-			Parent = row,
-		}, { corner(9) })
-		App.ui.areaPick = pick
-		local pickStroke = stroke(P.line)
-		pickStroke.Parent = pick
-		local kic = App.icon(kind and KIND[kind].icon or "area", 14, App.area and P.accent or P.faint)
-		kic.AnchorPoint = Vector2.new(0, 0.5)
-		kic.Position = UDim2.new(0, 12, 0.5, 0)
-		kic.Parent = pick
-		App.ui.areaName = label(App.area and App.area.folder.Name or "No area yet", 13, App.area and P.text or P.faint, SANS_B, {
-			Position = UDim2.fromOffset(34, 0),
-			Size = UDim2.new(1, -60, 1, 0),
-			Parent = pick,
-		})
-		local down = App.icon("down", 12, P.faint)
-		down.AnchorPoint = Vector2.new(1, 0.5)
-		down.Position = UDim2.new(1, -12, 0.5, 0)
-		down.Parent = pick
-		pick.MouseEnter:Connect(function()
-			pick.BackgroundColor3 = P.hover
-		end)
-		pick.MouseLeave:Connect(function()
-			pick.BackgroundColor3 = P.raised
-		end)
-		pick.MouseButton1Click:Connect(function()
-			openAreaMenu()
-		end)
-		hintOn(pick, "Your areas and paths: switch, rename, lock, bake or delete.")
-		local plus = iconButton("plus", "New scatter area or path", function(b)
-			openNewMenu(b)
-		end, false, 36)
-		plus.Position = UDim2.new(1, -36, 0, 0)
-		plus.Parent = row
-		App.ui.plusBtn = plus
-		box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
 	end
 
 	local NICE = { Dirt = "Path", Generic = "Other" }
@@ -533,7 +484,7 @@ return function(App)
 	end
 	App.closePopup = closePopup
 	App.heading = heading
-	App.buildHeader = buildHeader
+	App.openNewMenu = openNewMenu
 	App.NICE = NICE
 	App.TOOLS = TOOLS
 	App.TOOL_HINT = TOOL_HINT

@@ -190,9 +190,8 @@ return function(App)
 	-- the objects the panel and tools were showing, found again in the reloaded area
 	local function remember()
 		return {
-			expanded = App.expanded and Engine.layerKey(App.expanded),
+			active = App.active and Engine.layerKey(App.active),
 			heat = App.heatLayer and Engine.layerKey(App.heatLayer),
-			hand = App.handLayer and Engine.layerKey(App.handLayer),
 		}
 	end
 	local function layerByKey(k)
@@ -204,9 +203,7 @@ return function(App)
 		return nil
 	end
 	local function restore(keys)
-		App.expanded = keys.expanded and layerByKey(keys.expanded) or nil
 		App.heatLayer = keys.heat and layerByKey(keys.heat) or nil
-		App.handLayer = keys.hand and layerByKey(keys.hand) or nil
 	end
 
 	-- steps: the name of the step undone or redone (a string), or the set of them a timeline jump passed
@@ -222,9 +219,8 @@ return function(App)
 		if not (old and alive(f) and snap and snap.folder == f) then
 			-- the area itself came or went (a new or deleted area): load whichever is there now. What's placed came
 			-- back or went with its folder; Live rebuilds it.
-			switchArea(alive(f) and f or Engine.listAreas()[1])
+			switchArea(alive(f) and f or Engine.listAreas()[1], keys.active)
 			restore(keys)
-			App.rebuildAll()
 			if G.live and App.canGenerate() then
 				App.runGenerate(false)
 			end
@@ -270,6 +266,7 @@ return function(App)
 		App.failure = f:GetAttribute("SS_Failed")
 		App.paintLayer = nil
 		restore(keys)
+		App.onAreaSwitched(f, keys.active) -- (the selection: the same area, its active object found again)
 		if new.cell ~= old.cell then
 			App.analysisDirty = true
 			App.rebuildOverlay(true)
@@ -284,7 +281,7 @@ return function(App)
 		end
 		App.refreshParams() -- (the objects' models are left out of ground rays; they may have changed)
 		App.drawSpline()
-		if new.locked and App.mode ~= "Off" and App.mode ~= "Stamp" then
+		if new.locked and not App.NO_AREA_MODES[App.mode] then
 			App.setMode("Off") -- (locked again: no painting it)
 		end
 
@@ -334,7 +331,6 @@ return function(App)
 				end
 			end
 		end
-		App.rebuildAll()
 		if #runs > 0 then
 			task.spawn(function()
 				for _, r in runs do

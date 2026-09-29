@@ -91,8 +91,8 @@ scanSelection = false,
 history = true,
 focus = true,
 grid = true,
-toolbar = true,
-page = "",
+tabs = {},
+outliner = true,
 }
 do
 local saved = plugin:GetSetting(KEY)
@@ -107,7 +107,6 @@ if not G.liveAsked then
 G.live, G.liveAsked = false, true
 end
 end
-G.page = ""
 App.LOGO = { mark = "rbxassetid://117898410132206", card = "rbxassetid://125838588548368" }
 local function saveG()
 plugin:SetSetting(KEY, G)
@@ -300,6 +299,7 @@ App.analysisDirty = true
 App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.mode = "Off"
 local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
+App.NO_AREA_MODES = { Off = true, Stamp = true, Select = true }
 App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
 App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
 App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
@@ -1418,6 +1418,9 @@ bar(0.7, 0.86, 0.58, 0.14)
 bar(0.5, 0.78, 0.5, 0.66)
 bar(0.5, 0.48, 0.5, 0.4)
 bar(0.5, 0.24, 0.5, 0.2)
+elseif name == "cursor" then
+path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
+path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
 elseif name == "pin" then
 ring(0.5, 0.38, 0.2)
 bar(0.5, 0.58, 0.5, 0.86)
@@ -2170,12 +2173,11 @@ end
 return true
 end
 App.cardCount = 0
-local function card(parent, spec, order)
+local function card(parent, spec)
 App.cardCount += 1
 local c = col({
 BackgroundTransparency = 0,
 BackgroundColor3 = P.card,
-LayoutOrder = order,
 Parent = parent,
 }, {
 corner(8),
@@ -2223,7 +2225,6 @@ return c
 end
 App.cards = function(parent, id)
 local cs = {}
-local order = 0
 local fold, foldBody, foldCount
 local function moreBody()
 if App.searching() then
@@ -2234,7 +2235,7 @@ return foldBody
 end
 local key = "more:" .. id
 local open = G.groups[key] == true
-fold = col({ LayoutOrder = 100000, Parent = parent }, { vlist(10) })
+fold = col({ LayoutOrder = 2 ^ 30, Parent = parent }, { vlist(10) })
 local head = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
@@ -2309,11 +2310,9 @@ nMore += 1
 if foldCount then
 foldCount.Text = string.format("More options  ·  %d", nMore)
 end
-order += 1
-return card(into, spec, order)
+return card(into, spec)
 end
-order += 1
-return card(parent, spec, order)
+return card(parent, spec)
 end
 return cs
 end
@@ -2322,8 +2321,11 @@ if fold then
 G.groups["more:" .. fold] = true
 saveG()
 end
-App.goPage(tab)
-App.rebuildAll()
+if tab == "settings" then
+App.openSettings(true)
+else
+App.openTab(tab)
+end
 for _, d in App.root:GetDescendants() do
 if d:GetAttribute("SS_Card") == id then
 App.scrollIntoView(d)
@@ -2344,7 +2346,7 @@ local wrap = col({ Parent = parent }, { vlist(8) })
 App.hintBox(wrap, text)
 if buttonText then
 App.button(buttonText, "accent", function()
-App.goPage(tab)
+App.openTab(tab)
 end, { Parent = App.buttonRow(wrap) })
 end
 return wrap
@@ -3083,24 +3085,23 @@ end
 end
 end
 end
-local function switchArea(folder)
+local function switchArea(folder, keep)
 cancelJob()
 App.area = folder and Engine.loadArea(folder) or nil
 snapshot()
 App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil
-App.expanded = nil
 App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
 App.paintLayer = nil
 App.countPlaced()
-if App.setMode and App.mode ~= "Off" and App.mode ~= "Stamp" and (not App.area or App.area.locked) then
+if App.setMode and not App.NO_AREA_MODES[App.mode] and (not App.area or App.area.locked) then
 App.setMode("Off")
 end
 rebuildOverlay(true)
 if App.drawSpline then
 App.drawSpline()
 end
-if App.rebuildAll then
-App.rebuildAll()
+if App.onAreaSwitched then
+App.onAreaSwitched(App.area and App.area.folder, keep)
 end
 if App.refreshCounts then
 App.refreshCounts()
@@ -3116,7 +3117,6 @@ local rec = beginRec(clear and "Smart Scatter: New Keep-clear Zone" or "Smart Sc
 local a = Engine.createArea((clear and "Keep clear " or "Area ") .. n, nil)
 a.folder:SetAttribute("SS_Kind", clear and "Clear" or "Scatter")
 endRec(rec)
-G.page = ""
 switchArea(a.folder)
 if not (opts and opts.keepMode) then
 App.setMode("Paint")
@@ -3215,6 +3215,243 @@ App.thumbCache = thumbCache
 App.eachThumb = eachThumb
 App.thumbnail = thumbnail
 App.pruneThumbs = pruneThumbs
+end
+end)()
+-- #module Core/Selection
+MODULES["Core/Selection"] = (function()
+--[[
+Smart Scatter — Selection: what's being worked on. One selected thing (App.selected) and, of its stack, one
+active object (App.active). The outliner, the properties, the viewport's tools and the search menu all follow it,
+so nothing else keeps its own idea of "the current one".
+A thing is { kind, folder }: a Zone, Path or Clear (a keep-clear zone) is an area folder in Workspace › SmartScatter
+(App.area is its loaded area), and Stamps is the one entry for Workspace › Stamps (no area). Further kinds come
+with the tools that make them (Core/Registry).
+Loading an area stays Generation's switchArea; whatever switches area (a new one, a delete, an undo) lands here too.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine = App.Engine
+local AREA_KINDS = { Scatter = true, Path = true, Clear = true }
+App.kindOf = function(a)
+if not a then
+return nil
+end
+local k = a.folder and a.folder:GetAttribute("SS_Kind")
+if AREA_KINDS[k] then
+return k
+end
+if a.spline and #a.spline.pts > 0 and (a.count or 0) == 0 then
+return "Path"
+end
+return "Scatter"
+end
+local function folderKind(f)
+local k = f:GetAttribute("SS_Kind")
+if AREA_KINDS[k] then
+return k
+end
+return (f:GetAttribute("SS_Spline") ~= nil and (f:GetAttribute("SS_Mask") or "") == "") and "Path" or "Scatter"
+end
+local THING_KIND = { Scatter = "Zone", Path = "Path", Clear = "Clear" }
+App.thingOf = function(folder)
+return folder and { kind = THING_KIND[folderKind(folder)], folder = folder } or nil
+end
+App.stampsThing = function()
+return { kind = "Stamps", folder = workspace:FindFirstChild("Stamps") }
+end
+App.isArea = function(thing)
+return thing ~= nil and (thing.kind == "Zone" or thing.kind == "Path" or thing.kind == "Clear")
+end
+App.sameThing = function(a, b)
+if a == nil or b == nil then
+return a == b
+end
+return a.kind == b.kind and (a.kind == "Stamps" or a.folder == b.folder)
+end
+App.selected, App.active = nil, nil
+local listeners = {}
+App.onSelect = function(fn)
+table.insert(listeners, fn)
+end
+local function notify()
+for _, fn in listeners do
+local ok, err = pcall(fn, App.selected, App.active)
+if not ok then
+warn("[Smart Scatter] " .. tostring(err))
+end
+end
+end
+local function inArea(l)
+return l ~= nil and App.area ~= nil and table.find(App.area.layers, l) ~= nil
+end
+App.onAreaSwitched = function(folder, keep)
+App.selected = App.thingOf(folder)
+App.active = nil
+if keep and App.area then
+for _, l in App.area.layers do
+if Engine.layerKey(l) == keep then
+App.active = l
+end
+end
+end
+notify()
+end
+App.select = function(thing, object)
+if thing and thing.kind ~= "Stamps" and not (thing.folder and thing.folder:IsDescendantOf(workspace)) then
+thing = App.thingOf(Engine.listAreas()[1])
+end
+if App.isArea(thing) then
+if not (App.area and App.area.folder == thing.folder) then
+App.switchArea(thing.folder)
+end
+App.selected = App.thingOf(thing.folder)
+else
+if App.area then
+App.switchArea(nil)
+end
+App.selected = thing
+end
+App.active = inArea(object) and object or nil
+notify()
+end
+App.selectObject = function(l)
+l = inArea(l) and l or nil
+if l == App.active then
+return
+end
+App.active = l
+if App.LAYER_MODES[App.mode] and l then
+App.setMode(App.mode, l)
+elseif App.LAYER_MODES[App.mode] then
+App.setMode("Off")
+end
+if App.heatLayer and App.heatLayer ~= l then
+App.heatLayer = nil
+App.rebuildOverlay()
+end
+notify()
+end
+App.brushTarget = function()
+local a = App.area
+if not a then
+return nil
+end
+local function ok(l)
+return l ~= nil and table.find(a.layers, l) ~= nil and not (Engine.isLine(l) and l.s.follow == "Spline")
+end
+if ok(App.active) then
+return App.active
+end
+for _, l in a.layers do
+if ok(l) then
+return l
+end
+end
+return nil
+end
+end
+end)()
+-- #module Core/Registry
+MODULES["Core/Registry"] = (function()
+--[[
+Smart Scatter — Registry: what the plugin is made of, as plain lists the panel and the viewport read. A feature
+registers its pieces here, and the outliner, the properties, the tool strip and the search menu show them; none of
+those knows the features by name. Adding a tool is one module that registers what it brings.
+  kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
+        { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
+          menu = fn(thing) -> { { text, run, danger? } }? }
+  tab   a page of the properties for some kinds of thing:
+        { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
+          build = fn(page) }
+  tool  a button of the viewport's tool strip (and the panel's tool row where the strip can't show):
+        { id, group, order, icon, name, key? (a keymap id), danger?, when = fn() -> bool?, on = fn() -> bool,
+          click = fn() }
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local kinds, tabs, tools = {}, {}, {}
+local function byOrder(list)
+table.sort(list, function(a, b)
+if (a.order or 0) ~= (b.order or 0) then
+return (a.order or 0) < (b.order or 0)
+end
+return a.id < b.id
+end)
+end
+local function put(list, spec)
+for i, s in list do
+if s.id == spec.id then
+list[i] = spec
+byOrder(list)
+return spec
+end
+end
+table.insert(list, spec)
+byOrder(list)
+return spec
+end
+App.registerKind = function(spec)
+spec.id = spec.kind
+return put(kinds, spec)
+end
+App.registerTab = function(spec)
+return put(tabs, spec)
+end
+App.registerTool = function(spec)
+return put(tools, spec)
+end
+App.thingKinds = function()
+return kinds
+end
+App.kindSpec = function(kind)
+for _, k in kinds do
+if k.kind == kind then
+return k
+end
+end
+return nil
+end
+App.tabsFor = function(thing, active)
+local out = {}
+for _, t in tabs do
+local forKind = t.kinds == "all" or (thing ~= nil and t.kinds[thing.kind] == true)
+if forKind and (t.when == nil or t.when(thing, active) ~= false) then
+table.insert(out, t)
+end
+end
+return out
+end
+App.tabById = function(id)
+for _, t in tabs do
+if t.id == id then
+return t
+end
+end
+return nil
+end
+App.TOOL_GROUPS = { "Select", "Ground", "Object", "Stamp", "Path", "Remove", "Search" }
+App.toolGroups = function()
+local rank = {}
+for i, g in App.TOOL_GROUPS do
+rank[g] = i
+end
+local groups, byName = {}, {}
+for _, t in tools do
+if t.when == nil or t.when() ~= false then
+local g = byName[t.group]
+if not g then
+g = { group = t.group, tools = {} }
+byName[t.group] = g
+table.insert(groups, g)
+end
+table.insert(g.tools, t)
+end
+end
+table.sort(groups, function(a, b)
+return (rank[a.group] or 99) < (rank[b.group] or 99)
+end)
+return groups
+end
 end
 end)()
 -- #module Core/History
@@ -3347,15 +3584,17 @@ end)()
 -- #module Panel/Header
 MODULES["Panel/Header"] = (function()
 --[[
-Smart Scatter — Header: the area picker and its menu, the "new" menu, surface marking, dialogs, shared helpers.
+Smart Scatter — Header: what's done to areas (lock, clear, bake, delete, copy settings), the three area kinds as the
+outliner lists them (Zone, Path, Keep-clear zone) with their menus, the + New menu, a small popup menu, marking
+surfaces, dialogs, and helpers the panel shares.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
 local Selection, beginRec, endRec = App.Selection, App.beginRec, App.endRec
 local Engine, G, num, P, SANS, SANS_M = App.Engine, App.G, App.num, App.P, App.SANS, App.SANS_M
 local SANS_B, new, corner, stroke, pad, vlist, box = App.SANS_B, App.new, App.corner, App.stroke, App.pad, App.vlist, App.box
-local label, hoverable, hintOn, flushRows, saveArea = App.label, App.hoverable, App.hintOn, App.flushRows, App.saveArea
-local canGenerate, runGenerate, switchArea, newArea = App.canGenerate, App.runGenerate, App.switchArea, App.newArea
+local label, hoverable, flushRows, saveArea = App.label, App.hoverable, App.flushRows, App.saveArea
+local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
 local deleteArea = App.deleteArea
 local function closePopup()
 if App.ui.popup then
@@ -3418,125 +3657,142 @@ App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.rebuildAll()
 App.status(string.format("Baked %s objects into Workspace › %s. The area is locked; unlock it to keep editing.", num(count), out.Name))
 end
-local function openAreaMenu(pick)
+App.popupMenu = function(anchor, items, title)
 closePopup()
-local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
+local root = App.root
+local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = root })
 catcher.MouseButton1Click:Connect(closePopup)
 App.ui.popup = catcher
+local x, y
+if anchor then
+x = anchor.AbsolutePosition.X - root.AbsolutePosition.X
+y = anchor.AbsolutePosition.Y - root.AbsolutePosition.Y + anchor.AbsoluteSize.Y + 4
+else
+local m = App.widget:GetRelativeMousePosition()
+x, y = m.X, m.Y
+end
+local w = math.min(250, root.AbsoluteSize.X - 24)
 local menu = new("Frame", {
 BackgroundColor3 = P.card,
-Position = UDim2.fromOffset(
-12,
-App.ui.areaPick and (App.ui.areaPick.AbsolutePosition.Y - App.root.AbsolutePosition.Y + App.ui.areaPick.AbsoluteSize.Y + 4) or 76
-),
-Size = UDim2.new(1, -24, 0, 0),
+Position = UDim2.fromOffset(math.clamp(x, 12, math.max(12, root.AbsoluteSize.X - w - 12)), y),
+Size = UDim2.fromOffset(w, 0),
 AutomaticSize = Enum.AutomaticSize.Y,
 ZIndex = 51,
 Parent = catcher,
 }, { corner(10), stroke(P.line), pad(5), vlist(2) })
-local function item(t, onClick, color)
+if title then
+local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
+label(title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
+end
+for _, it in items do
+if it == "-" then
+box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
+continue
+end
 local b = new("TextButton", {
-Text = t,
+Text = it[1],
 Font = SANS,
 TextSize = 13,
-TextColor3 = color or P.text,
+TextColor3 = it[3] or P.text,
 TextXAlignment = Enum.TextXAlignment.Left,
 BackgroundColor3 = P.card,
 BackgroundTransparency = 1,
 AutoButtonColor = false,
-Size = UDim2.new(1, 0, 0, 32),
+Size = UDim2.new(1, 0, 0, 30),
 ZIndex = 52,
 Parent = menu,
 }, { corner(6), pad(10, 10, 0, 0) })
 hoverable(b, P.card, P.hover)
-b.MouseButton1Click:Connect(function()
-closePopup()
-onClick()
-end)
-return b
-end
-if pick then
-local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
-label(pick.title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
-for _, f in Engine.listAreas() do
-if f ~= (App.area and App.area.folder) and f:GetAttribute("SS_Kind") ~= "Clear" then
-item(f.Name, function()
-pick.onPick(f)
-end)
-end
-end
-item("Cancel", function() end, P.dim)
-return
-end
-for _, f in Engine.listAreas() do
-local b = item(f.Name, function()
-switchArea(f)
-end)
-if App.area and f == App.area.folder then
-b.Font = SANS_B
-b.TextColor3 = P.accent
-end
-local k = f:GetAttribute("SS_Kind")
-if k then
-label(k == "Clear" and "Keep clear" or k, 12, k == "Clear" and P.danger or P.accent, SANS_M, {
+if it[4] then
+label(it[4], 12, P.accent, SANS_M, {
 AnchorPoint = Vector2.new(1, 0),
 Position = UDim2.new(1, 0, 0, 0),
-Size = UDim2.fromOffset(60, 32),
+Size = UDim2.fromOffset(70, 30),
 TextXAlignment = Enum.TextXAlignment.Right,
 ZIndex = 53,
 Parent = b,
 })
 end
-end
-if App.area then
-box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-local rename = new("TextBox", {
-Text = App.area.folder.Name,
-PlaceholderText = "Rename",
-Font = SANS,
-TextSize = 14,
-TextColor3 = P.text,
-PlaceholderColor3 = P.faint,
-BackgroundTransparency = 1,
-ClearTextOnFocus = false,
-TextXAlignment = Enum.TextXAlignment.Left,
-Size = UDim2.new(1, 0, 0, 30),
-ZIndex = 52,
-Parent = menu,
-}, { pad(10, 10, 0, 0) })
-rename.FocusLost:Connect(function()
-local n = string.gsub(rename.Text, "^%s*(.-)%s*$", "%1")
-if n ~= "" and App.area and n ~= App.area.folder.Name then
-App.area.folder.Name = n
-if App.ui.areaName then
-App.ui.areaName.Text = n
-end
-end
+b.MouseButton1Click:Connect(function()
+closePopup()
+it[2]()
 end)
 end
-if App.area then
-box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 52, Parent = menu })
-item(App.area.locked and "Unlock area" or "Lock area", App.toggleLock, P.dim)
-if App.kindOf(App.area) ~= "Clear" and #Engine.listAreas() > 1 then
-item("Copy settings from…", function()
-task.defer(openAreaMenu, {
-title = "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM",
-onPick = function(f)
+end
+local function areasOf(kind)
+return function()
+local out = {}
+for _, f in Engine.listAreas() do
+local t = App.thingOf(f)
+if t.kind == kind then
+table.insert(out, t)
+end
+end
+return out
+end
+end
+local function on(thing, fn)
+return function()
+if not App.sameThing(App.selected, thing) then
+App.select(thing)
+end
+fn()
+end
+end
+local function areaMenu(thing)
+local items = {
+{
+"Rename",
+function()
+if App.startRename then
+App.startRename(thing)
+end
+end,
+},
+{ thing.folder:GetAttribute("SS_Locked") and "Unlock" or "Lock", on(thing, App.toggleLock), P.dim },
+}
+if thing.kind ~= "Clear" and #Engine.listAreas() > 1 then
+table.insert(items, {
+"Copy settings from…",
+on(thing, function()
+local others = {}
+for _, f in Engine.listAreas() do
+if f ~= thing.folder and f:GetAttribute("SS_Kind") ~= "Clear" then
+table.insert(others, {
+f.Name,
+function()
 local src = Engine.loadArea(f)
 Engine.copyLook(src, App.area)
 App.addLayers(Engine.layersFromJSON(Engine.layersToJSON(src.layers, false)), f.Name)
-App.rebuildAll()
 end,
 })
-end, P.dim)
-end
-if App.kindOf(App.area) ~= "Clear" then
-item("Clear placed objects", App.clearPlaced, P.dim)
-end
-item("Bake to plain models", App.bakeArea, P.dim)
-item("Delete area", deleteArea, P.danger)
 end
 end
+task.defer(App.popupMenu, nil, others, "COPY PATTERN, EDGES, COLOURS AND OBJECTS FROM")
+end),
+P.dim,
+})
+end
+table.insert(items, "-")
+if thing.kind ~= "Clear" then
+table.insert(items, { "Clear placed objects", on(thing, App.clearPlaced), P.dim })
+end
+table.insert(items, { "Bake to plain models", on(thing, App.bakeArea), P.dim })
+table.insert(items, { "Delete", on(thing, deleteArea), P.danger })
+return items
+end
+App.renameThing = function(thing, name)
+name = string.gsub(name or "", "^%s*(.-)%s*$", "%1")
+if name ~= "" and thing.folder and thing.folder.Name ~= name then
+thing.folder.Name = name
+end
+end
+local function placed(thing)
+return App.area and App.area.folder == thing.folder and App.lastTotal or nil
+end
+App.registerKind({ kind = "Zone", icon = "area", title = "Zone", order = 10, list = areasOf("Zone"), count = placed, menu = areaMenu })
+App.registerKind({ kind = "Path", icon = "spline", title = "Path", order = 20, list = areasOf("Path"), count = placed, menu = areaMenu })
+App.registerKind({ kind = "Clear", icon = "clear", title = "Keep-clear zone", order = 30, list = areasOf("Clear"), menu = areaMenu })
 App.markSelected = function(cls)
 local sel = Selection:Get()
 if #sel == 0 then
@@ -3588,24 +3844,6 @@ local function heading(parent, text, gapTop)
 box({ Size = UDim2.new(1, 0, 0, gapTop or 8), Parent = parent })
 label(text, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = parent })
 end
-local KIND = {
-Scatter = { icon = "area", title = "Scatter area" },
-Path = { icon = "spline", title = "Path" },
-Clear = { icon = "clear", title = "Keep-clear zone" },
-}
-App.kindOf = function(a)
-if not a then
-return nil
-end
-local k = a.folder and a.folder:GetAttribute("SS_Kind")
-if KIND[k] then
-return k
-end
-if a.spline and #a.spline.pts > 0 and (a.count or 0) == 0 then
-return "Path"
-end
-return "Scatter"
-end
 local function openNewMenu(anchor)
 closePopup()
 local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = App.root })
@@ -3653,63 +3891,16 @@ closePopup()
 onClick()
 end)
 end
-item("area", "Scatter area", "Paint ground, fill it with objects", newArea, P.accent)
+item("area", "Zone", "Paint ground, fill it with objects", newArea, P.accent)
+item("layers", "Zone from selected models", "The models picked in the Explorer, ready to paint", function()
+App.newZoneFromSelection()
+end, P.accent)
 item("spline", "Path", "Draw a curve: roads, fences, lamps", function()
 App.newSplineFn()
 end, P.accent)
 item("clear", "Keep-clear zone", "Paint where nothing may go: spawns, doors", function()
 newArea({ kind = "Clear" })
 end, P.danger)
-end
-local iconButton = App.iconButton
-local function buildHeader(parent)
-local kind = App.kindOf(App.area)
-label(kind and KIND[kind].title or "Smart Scatter", 12, P.dim, SANS_B, {
-Size = UDim2.new(1, 0, 0, 20),
-Parent = parent,
-})
-box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
-local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = parent })
-local pick = new("TextButton", {
-Text = "",
-BackgroundColor3 = P.raised,
-AutoButtonColor = false,
-Size = UDim2.new(1, -44, 1, 0),
-Parent = row,
-}, { corner(9) })
-App.ui.areaPick = pick
-local pickStroke = stroke(P.line)
-pickStroke.Parent = pick
-local kic = App.icon(kind and KIND[kind].icon or "area", 14, App.area and P.accent or P.faint)
-kic.AnchorPoint = Vector2.new(0, 0.5)
-kic.Position = UDim2.new(0, 12, 0.5, 0)
-kic.Parent = pick
-App.ui.areaName = label(App.area and App.area.folder.Name or "No area yet", 13, App.area and P.text or P.faint, SANS_B, {
-Position = UDim2.fromOffset(34, 0),
-Size = UDim2.new(1, -60, 1, 0),
-Parent = pick,
-})
-local down = App.icon("down", 12, P.faint)
-down.AnchorPoint = Vector2.new(1, 0.5)
-down.Position = UDim2.new(1, -12, 0.5, 0)
-down.Parent = pick
-pick.MouseEnter:Connect(function()
-pick.BackgroundColor3 = P.hover
-end)
-pick.MouseLeave:Connect(function()
-pick.BackgroundColor3 = P.raised
-end)
-pick.MouseButton1Click:Connect(function()
-openAreaMenu()
-end)
-hintOn(pick, "Your areas and paths: switch, rename, lock, bake or delete.")
-local plus = iconButton("plus", "New scatter area or path", function(b)
-openNewMenu(b)
-end, false, 36)
-plus.Position = UDim2.new(1, -36, 0, 0)
-plus.Parent = row
-App.ui.plusBtn = plus
-box({ Size = UDim2.new(1, 0, 0, 4), Parent = parent })
 end
 local NICE = { Dirt = "Path", Generic = "Other" }
 local TOOLS = { "Brush", "Lasso", "Box", "Polygon", "Fill" }
@@ -3846,7 +4037,7 @@ end
 end
 App.closePopup = closePopup
 App.heading = heading
-App.buildHeader = buildHeader
+App.openNewMenu = openNewMenu
 App.NICE = NICE
 App.TOOLS = TOOLS
 App.TOOL_HINT = TOOL_HINT
@@ -3869,12 +4060,12 @@ local P, SANS, SANS_M, new, corner, stroke, vlist = App.P, App.SANS, App.SANS_M,
 local box, col, label, para = App.box, App.col, App.label, App.para
 local pad, SANS_B, icon = App.pad, App.SANS_B, App.icon
 local button, buttonRow = App.button, App.buttonRow
-local hintOn, slider, switchRow, segmented = App.hintOn, App.slider, App.switchRow, App.segmented
+local hintOn, slider, switchRow = App.hintOn, App.slider, App.switchRow
 local rebuildOverlay, saveArea, runGenerate, requestLive = App.rebuildOverlay, App.saveArea, App.runGenerate, App.requestLive
-local commit, heading, NICE, TOOLS, TOOL_HINT = App.commit, App.heading, App.NICE, App.TOOLS, App.TOOL_HINT
-local FILTER_SURFACES, maskOp, primaryButton = App.FILTER_SURFACES, App.maskOp, App.primaryButton
-local setIconColor, keyChips = App.setIconColor, App.keyChips
-local chip, chipGrid = App.chip, App.chipGrid
+local commit, heading, NICE = App.commit, App.heading, App.NICE
+local FILTER_SURFACES, maskOp = App.FILTER_SURFACES, App.maskOp
+local keyChips = App.keyChips
+local chip, chipGrid, num = App.chip, App.chipGrid, App.num
 local function gap(parent, h)
 box({ Size = UDim2.new(1, 0, 0, h), Parent = parent })
 end
@@ -3910,90 +4101,21 @@ rebuildOverlay()
 App.rebuildAll()
 App.status("Area erased. Objects and settings are kept, paint a new one.")
 end
-local function buildPaintTools(parent)
-local ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-local tiles = App.toolTiles(parent, 3, 36, 88)
-for _, t in TOOLS do
-tiles.add({
-icon = ICON[t],
-text = t,
-hint = t .. ": " .. (TOOL_HINT[t] or ""),
-on = function()
-return G.tool == t and App.mode == "Paint"
-end,
-click = function()
-if (App.mode == "Paint" or App.mode == "Erase") and G.tool == t then
-App.setMode("Off")
-else
-App.setTool(t)
-end
-end,
-})
-end
-tiles.add({
-icon = "trash",
-text = "Erase",
-color = P.danger,
-tinted = true,
-hint = "Erase: take ground out of the area (Shift does it while painting).",
-on = function()
-return App.mode == "Erase"
-end,
-click = function()
-App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-end,
-})
-local refresh = tiles.refresh
-App.ui.refreshMode = refresh
-local brushOpts = col({ Parent = parent }, { vlist(6) })
-slider(
-"Brush size",
-4,
-200,
-function()
-return G.radius
-end,
-function(v)
-G.radius = v
-end,
-"%.0f studs",
-1,
-nil,
-saveG,
-"Radius of the brush. While painting, press "
-.. App.keyText("size")
-.. " and move the mouse to set it (click to keep), or step it with "
-.. App.keyText("shrink")
-.. " and "
-.. App.keyText("grow")
-.. ".",
-24
-).Parent =
-brushOpts
-segmented({ "Circle", "Square" }, function()
-return G.shape
-end, function(v)
-G.shape = v
-end, function()
-saveG()
-end).Parent =
-brushOpts
-local fillOpts = col({ Parent = parent }, { vlist(6) })
-slider("Reach", 16, 400, function()
-return G.fillReach
-end, function(v)
-G.fillReach = v
-end, "%.0f studs", 4, nil, saveG, "How far a fill can spread from where you click.", 120).Parent =
-fillOpts
-local function showTool()
-brushOpts.Visible = G.tool == "Brush"
-fillOpts.Visible = G.tool == "Fill"
-end
-showTool()
-App.ui.refreshTool = function()
-refresh()
-showTool()
-end
+local function buildGround(parent)
+local a = App.area
+local cells = a and a.count or 0
+local what = para(
+cells > 0
+and string.format(
+"%s studs² painted. Paint more, or erase, with the ground tools in the viewport's strip.",
+num(cells * a.cell * a.cell)
+)
+or "Nothing painted yet. Pick Brush, Lasso, Box, Polygon or Fill in the viewport's strip (or press "
+.. App.keyText("tool1")
+.. ") and paint the ground.",
+{ Parent = parent }
+)
+what.TextColor3 = cells > 0 and P.text or P.dim
 keyChips(parent, {
 { "Shift", "erase" },
 { App.keyText("size"), "size" },
@@ -4174,52 +4296,15 @@ end
 local function hasPath()
 return App.area ~= nil and App.area.spline ~= nil and #App.area.spline.pts > 0
 end
-local function buildDrawTools(parent)
-local drawBtn = primaryButton("Draw path", function()
-if App.mode == "Spline" then
-App.setMode("Off")
-else
-App.ensureSplineFn()
-App.setMode("Spline")
-end
-end)
-drawBtn.Parent = parent
-hintOn(
-drawBtn,
-"Click to add points or hold and drag to draw. Drag a point to move it. Select a point and click the ground to branch off. Drop an end on a point or curve to join them; on the first point to close a loop."
-)
-App.ui.refreshSplineBtn = function()
-local editing = App.mode == "Spline"
-drawBtn.Text = editing and "Done" or (hasPath() and "+  Keep drawing" or "+  Draw path")
-drawBtn:SetAttribute("secondary", editing)
-drawBtn.BackgroundColor3 = editing and P.raised or P.accent
-drawBtn.TextColor3 = editing and P.text or P.onAccent
-end
-App.ui.refreshSplineBtn()
-keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
+local function buildPathInfo(parent)
 App.ui.splineInfo = para("", { Parent = parent })
 App.refreshSplineInfo()
-label("Shapes", 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 22), Parent = parent })
-local shapes = chipGrid(parent, 3, 28)
-local looks = {}
-for _, def in Engine.SHAPES do
-local b, look = chip(shapes, def.name, function()
-return App.shapeTool == def.name
-end, function()
-App.pickShape(def.name)
-end)
-hintOn(
-b,
-def.name == "Rectangle" and "Then drag from one corner to the opposite one."
-or "Then drag from its centre outward. It turns in 15° steps; Shift turns it freely."
-)
-table.insert(looks, look)
+if not hasPath() then
+local how =
+para("Pick Path in the viewport's strip, then click the ground to place points, or hold and drag to draw.", { Parent = parent })
+how.TextColor3 = P.dim
 end
-App.ui.refreshShapes = function()
-for _, look in looks do
-look()
-end
-end
+keyChips(parent, { { "Shift", "height" }, { App.keyText("corner"), "corner" }, { App.keyText("delete"), "delete" } })
 if hasPath() then
 local acts = buttonRow(parent)
 hintOn(
@@ -4559,7 +4644,7 @@ return b
 end
 App.ui.welcomeChoice = choice(
 "area",
-"Scatter area",
+"Zone",
 "Paint a patch of ground and fill it. Things keep off roads, water and roofs by themselves.",
 { "Forests", "Flower fields", "Rocks", "Rubble" },
 App.newArea
@@ -4607,7 +4692,7 @@ return tostring((a.count or 0) > 0) .. tostring(a.spline ~= nil and #a.spline.pt
 end
 local pending = false
 local function stale()
-return G.page ~= "Settings" and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
+return not App.settingsOpen and App.ui.builtShape ~= nil and App.ui.builtShape ~= shapeKey()
 end
 App.checkShape = function()
 if pending or not stale() then
@@ -4649,14 +4734,14 @@ end
 App.ui.scanText.Text = table.concat(parts, "  ·  ")
 end
 App.hasPath = hasPath
-App.buildPaintTools = buildPaintTools
+App.buildGround = buildGround
 App.buildTidy = buildTidy
 App.buildPaintFilter = buildPaintFilter
 App.buildEdges = buildEdges
 App.buildPattern = buildPattern
 App.buildZones = buildZones
 App.buildWind = buildWind
-App.buildDrawTools = buildDrawTools
+App.buildPathInfo = buildPathInfo
 App.buildCurve = buildCurve
 App.buildRoad = buildRoad
 App.buildScanFix = buildScanFix
@@ -4686,15 +4771,7 @@ local function gap(parent, h)
 box({ Size = UDim2.new(1, 0, 0, h), Parent = parent })
 end
 local function showObject(l)
-if App.LAYER_MODES[App.mode] then
-App.setMode("Off")
-end
-App.expanded = l
-if App.heatLayer and App.heatLayer ~= l then
-App.heatLayer = nil
-rebuildOverlay()
-end
-App.rebuildAll()
+App.selectObject(l)
 end
 local function removeObject(l)
 local i = App.area and table.find(App.area.layers, l)
@@ -5394,15 +5471,6 @@ end
 end, { Parent = actions }),
 "Rerolls just this object: new positions, same settings. The other objects stay where they are."
 )
-if not (Engine.isLine(l) and l.s.follow == "Spline") then
-hintOn(
-button("Brush by hand", nil, function()
-App.handLayer = l
-App.openCard("Brush", "objectbrush")
-end, { Parent = actions }),
-"Spray copies of it, or brush where it grows more or less: the Brush tab, with this object picked."
-)
-end
 end
 local function layerRules(l, parent, c)
 local s = l.s
@@ -5421,6 +5489,18 @@ end
 buildSize(l, cs, c)
 if not line then
 buildSpread(cs, c)
+end
+if not onSpline then
+cs.add({
+id = "byhand",
+title = "By hand",
+icon = "spray",
+sub = "Spray it, or brush where it grows more or less, with the viewport's tools",
+keys = "brush more less erase reset place spray pins by hand painted",
+build = function(b)
+App.buildHandWork(l, b)
+end,
+})
 end
 if not line then
 buildGroups(l, cs, c)
@@ -5595,10 +5675,27 @@ or "Select models, or a folder of them, in the Explorer first."
 return
 end
 App.status(added == 1 and "Added 1 object." or string.format("Added %d objects.", added))
-G.page = "Scatter"
-saveG()
 commit()
 showObject(added == 1 and last or nil)
+end
+App.newZoneFromSelection = function()
+local any = false
+for _, sel in Selection:Get() do
+for _, inst in sel:IsA("Folder") and sel:GetChildren() or { sel } do
+any = any or ((inst:IsA("Model") or inst:IsA("BasePart")) and not Engine.isGround(inst))
+end
+end
+if not any then
+App.status("Select models (or a folder of them) in the Explorer first, then make a zone from them.")
+return
+end
+newArea({ keepMode = true })
+addSelected()
+if App.area and App.area.layers[1] then
+App.selectObject(App.area.layers[1])
+end
+App.setTool(G.tool)
+App.status("Paint the ground where they should go.")
 end
 local function addLayers(layers, from, note)
 if not App.area then
@@ -5939,25 +6036,17 @@ button("+  Add selected models", nil, addSelected, { Parent = buttonRow(list) })
 )
 end
 local function fillRemoveCopies(b)
-local fix = buttonRow(b)
-local pick, refresh = App.dangerButton("Remove single copies", function()
-App.setMode("Remove")
-end, {
-on = function()
-return App.mode == "Remove"
-end,
-})
-pick.Parent = fix
-hintOn(pick, "Lit: click placed copies in the viewport to take them out; click here again when done. Generating again keeps them out.")
-App.ui.refreshRemoveBtn = refresh
 local n = App.area and Engine.removedCount(App.area) or 0
-if n > 0 then
-button(string.format("Bring back %d removed", n), "ghost", function()
+if n == 0 then
+local t = para("None taken out. The Remove copies tool in the viewport's strip takes out one that looks wrong.", { Parent = b })
+t.TextColor3 = P.faint
+return
+end
+button(string.format("Bring back %d removed", n), nil, function()
 App.area.removed = {}
 App.applyNow(nil, "Bring back removed")
 App.refreshObjects()
-end, { Parent = fix })
-end
+end, { Parent = buttonRow(b) })
 end
 local function liveBox(parent, fill)
 local holder = col({ Parent = parent }, { vlist(8) })
@@ -5966,12 +6055,9 @@ table.insert(App.ui.live, { holder = holder, fill = fill })
 return holder
 end
 App.refreshObjects = function()
-if App.expanded and not (App.area and table.find(App.area.layers, App.expanded)) then
-App.expanded = nil
-if App.ui.inspector then
-App.rebuildAll()
+if App.active and not (App.area and table.find(App.area.layers, App.active)) then
+App.selectObject(nil)
 return
-end
 end
 if App.area and (App.area.relinked or 0) > 0 then
 App.status(
@@ -6018,6 +6104,9 @@ end
 App.refreshCounts = function()
 App.refreshPerf()
 App.checkShape()
+if App.ui.outlinerCount and App.ui.outlinerCount.Parent then
+App.ui.outlinerCount.Text = App.lastTotal > 0 and num(App.lastTotal) or ""
+end
 local most = 1
 for l in rowRefs do
 most = math.max(most, (l.s.enabled and App.lastCounts[l]) or 0)
@@ -6060,8 +6149,8 @@ return liveBox(parent, fillList)
 end
 App.objectInspector = function(parent)
 App.ui.inspector = liveBox(parent, function(h)
-if App.expanded then
-objectPage(App.expanded, h)
+if App.active then
+objectPage(App.active, h)
 end
 end)
 return App.ui.inspector
@@ -6203,58 +6292,73 @@ end)()
 -- #module Panel/HandTools
 MODULES["Panel/HandTools"] = (function()
 --[[
-Smart Scatter — HandTools: one object, by hand. One row of tool tiles, like the ground's paint tools: Spray (copies
-where you brush) and the four that change how much of it grows where (More, Less, Erase, Reset). Under them, only
-the picked tool's own lines: how to use it, the brush size, its keys and (for the painting ones) the overlay's
-colours. Then what was done by hand, and taking it back. (Stamping one copy is the Stamp card's.)
-Used by the Brush tab's "One object by hand" card (App.buildHandTools).
+Smart Scatter — HandTools: one object, by hand, as its Object tab shows it. The tools themselves (Spray, More,
+Less, Erase, Reset) are in the viewport's strip and act on the active object; here: what they do, what was done
+to this object by hand, and taking it back.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
-local G, saveG, P = App.G, App.saveG, App.P
-local col, para, vlist = App.col, App.para, App.vlist
-local slider, button, buttonRow, hintOn = App.slider, App.button, App.buttonRow, App.hintOn
-local key = App.keyText
-local TOOLS = {
-{ mode = "Place", icon = "spray", text = "Spray" },
-{ mode = "More", icon = "plus", text = "More" },
-{ mode = "Less", icon = "minus", text = "Less" },
-{ mode = "None", icon = "trash", text = "Erase", danger = true },
-{ mode = "Clear", icon = "refresh", text = "Reset" },
+local P = App.P
+local para, button, buttonRow, hintOn = App.para, App.button, App.buttonRow, App.hintOn
+App.HAND_TOOLS = {
+{
+mode = "Place",
+icon = "spray",
+text = "Spray",
+how = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
+},
+{ mode = "More", icon = "plus", text = "More", how = "Brush where you want it thicker, up to three times as much." },
+{ mode = "Less", icon = "minus", text = "Less", how = "Brush where you want it thinner. Twice over clears it." },
+{
+mode = "None",
+icon = "trash",
+text = "Erase",
+danger = true,
+how = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
+},
+{
+mode = "Clear",
+icon = "refresh",
+text = "Reset",
+how = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
+},
 }
-local HOW = {
-Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
-More = "Brush where you want it thicker, up to three times as much.",
-Less = "Brush where you want it thinner. Twice over clears it.",
-None = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
-Clear = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
-}
-local SHIFT = { Place = "take away", More = "less", Less = "more", None = "reset", Clear = "erase" }
-local function toolPanel(l, parent)
-local m = App.paintLayer == l and HOW[App.mode] and App.mode or nil
-if not m then
-local hint = para("Pick a tool, then brush in the viewport. Esc stops.", { Parent = parent })
-hint.TextColor3 = P.faint
-return
+for i, t in App.HAND_TOOLS do
+App.registerTool({
+id = "object:" .. t.mode,
+group = "Object",
+order = i,
+icon = t.icon,
+name = t.text .. ": " .. t.how,
+danger = t.danger,
+when = function()
+return App.brushTarget() ~= nil
+end,
+on = function()
+return App.mode == t.mode and App.paintLayer == App.brushTarget()
+end,
+click = function()
+App.setMode(t.mode, App.brushTarget())
+end,
+})
 end
-local how = para(HOW[m], { Parent = parent })
-how.TextColor3 = P.dim
-slider("Brush size", 4, 200, function()
-return G.radius
-end, function(v)
-G.radius = v
-end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. key("size") .. " sizes it with the mouse.", 24).Parent =
-parent
-App.keyChips(parent, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
-if m ~= "Place" then
-App.overlayLegendRows(parent, "object")
+App.buildHandWork = function(l, parent)
+local what = {}
+if l.pins then
+table.insert(what, #l.pins .. " put down by hand")
 end
+if l.paint then
+table.insert(what, "painted more or less in places")
 end
-local function handWork(l, parent)
+local line = para(
+#what > 0 and (table.concat(what, " · ") .. ".")
+or "Nothing done by hand yet. Pick Spray, More, Less, Erase or Reset in the viewport's strip: they act on this object.",
+{ Parent = parent }
+)
+line.TextColor3 = #what > 0 and P.text or P.faint
 if not (l.paint or l.pins) then
 return
 end
-App.fadeLine(parent, nil, 0.14)
 local row = buttonRow(parent)
 if l.paint then
 hintOn(
@@ -6278,41 +6382,6 @@ end, { confirm = "Click again to remove" })
 rm.Parent = row
 hintOn(rm, "Takes out every copy of it you put down with Spray. Ctrl+Z brings them back.")
 end
-end
-App.buildHandTools = function(l, parent)
-local tiles = App.toolTiles(parent, 3, 36, 88)
-for _, t in TOOLS do
-tiles.add({
-icon = t.icon,
-text = t.text,
-color = t.danger and P.danger or nil,
-tinted = t.danger,
-hint = t.text .. ": " .. HOW[t.mode],
-on = function()
-return App.paintLayer == l and App.mode == t.mode
-end,
-click = function()
-App.setMode(t.mode, l)
-end,
-})
-end
-local panel = col({ Parent = parent }, { vlist(6) })
-local function buildPanel()
-for _, c in panel:GetChildren() do
-if c:IsA("GuiObject") then
-c:Destroy()
-end
-end
-toolPanel(l, panel)
-end
-buildPanel()
-App.ui.refreshLayerBrush = function()
-tiles.refresh()
-if panel.Parent then
-buildPanel()
-end
-end
-handWork(l, parent)
 end
 end
 end)()
@@ -6356,6 +6425,8 @@ local ORDER = {
 	"Core/Cards",
 	"Viewport/Overlay",
 	"Core/Generation",
+	"Core/Selection",
+	"Core/Registry",
 	"Core/History",
 	"Panel/Header",
 	"Panel/AreaTools",
@@ -6363,17 +6434,23 @@ local ORDER = {
 	"Panel/StampTools",
 	"Panel/HandTools",
 	"Panel/MapTools",
-	"Panel/Tabs/Scatter",
-	"Panel/Tabs/Brush",
-	"Panel/Tabs/Map",
+	"Panel/Tabs/Objects",
+	"Panel/Tabs/Object",
+	"Panel/Tabs/Zone",
+	"Panel/Tabs/Path",
+	"Panel/Tabs/Stamp",
+	"Panel/Tabs/World",
 	"Panel/Tabs/Settings",
 	"Panel/Backdrop",
+	"Panel/Outliner",
+	"Panel/Properties",
 	"Panel/Shell",
 	"Viewport/Paint",
 	"Viewport/Grid",
 	"Viewport/Spline",
 	"Viewport/Shapes",
 	"Viewport/Stamp",
+	"Viewport/Select",
 	"Viewport/Focus",
 	"Viewport/Toolbar",
 	"Panel/Palette",

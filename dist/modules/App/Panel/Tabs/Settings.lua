@@ -1,6 +1,6 @@
 --[[
-	Smart Scatter — Settings tab: the plugin's own settings, the same in every area. Look and text size, the
-	viewport overlay, game-ready output and the tour; shortcuts under More options.
+	Smart Scatter — Settings page (the ⚙ at the top): the plugin's own settings, the same in every area. Look and text
+	size, the viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -72,18 +72,6 @@ return function(App)
 				end
 			end,
 			"While a tool is on, the world loses a little colour so the tool stands out, and the viewport's top left says what the tool is doing and on what, like Blender's."
-		).Parent =
-			b
-		switchRow(
-			"Tools in the viewport",
-			function()
-				return G.toolbar
-			end,
-			function(v)
-				G.toolbar = v
-			end,
-			saveG,
-			"A strip of tool buttons down the viewport's left edge, and a bar along its top with the settings of the tool in use, like Blender's. The panel keeps everything too."
 		).Parent =
 			b
 		switchRow("Brush grid", function()
@@ -221,7 +209,7 @@ return function(App)
 		label("made by Ghulo", 12, P.faint, SANS, { Size = UDim2.new(1, 0, 0, 16), Parent = words })
 	end
 
-	App.buildSettingsTab = function(page)
+	App.buildSettingsPage = function(page)
 		local cs = App.cards(page, "settings")
 		cs.add({
 			id = "look",

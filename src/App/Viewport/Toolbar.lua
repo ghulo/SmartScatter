@@ -1,11 +1,11 @@
 --[[
-	Smart Scatter — Toolbar: the viewport's own tools, like Blender's. Down the left edge, a strip of small square
-	tool buttons in groups (painting the ground; stamping and spraying the object in hand; the path and removing
-	copies; the search menu), the one in use lit. Along the top, while a tool is on, a bar with just that tool's
-	settings (the brush's size and shape, the stamp's turn, size and model, the path's shapes), so the eyes can stay
-	on the viewport. The panel stays the full menu; these only reach what's needed while working.
+	Smart Scatter — Toolbar: the viewport's tools, like Blender's; the one place tools live. Down the left edge, a strip
+	of small square tool buttons in groups (the tools the features registered: Core/Registry), the one in use lit.
+	Along the top, while a tool is on, a bar with what it acts on and its settings (the brush's size and shape, the
+	stamp's turn, size and model, the path's shapes), so the eyes can stay on the viewport.
 	Both follow the state they show (looked at ten times a second, rebuilt only when it changes), so no other module
-	has to tell them. Settings › Viewport turns them off.
+	has to tell them. Where Studio won't show them (no CoreGui), the panel shows the same tools as a row
+	(App.buildToolRow).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -14,150 +14,10 @@ return function(App)
 	local new, box, label, corner, stroke, pad = App.new, App.box, App.label, App.corner, App.stroke, App.pad
 	local SANS, SANS_B = App.SANS, App.SANS_B
 	local BTN, SEE = 30, 0.12 -- a tool button's size; how see-through the strip and bar are
-	local TOOL_ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
 
 	local gui, strip, bar, tip
 	local stripKey, barKey -- what each was last built for
 	local looks = {} -- the strip's buttons: fn() that colours each for the tool in use
-
-	-- the object the strip's Stamp and Spray work on: the one in hand, else the Brush tab's pick, else the first
-	local function handLayer()
-		local a = App.area
-		if not a then
-			return nil
-		end
-		local function ok(l)
-			return l ~= nil and table.find(a.layers, l) ~= nil and not (Engine.isLine(l) and l.s.follow == "Spline")
-		end
-		if ok(App.paintLayer) then
-			return App.paintLayer
-		elseif ok(App.handLayer) then
-			return App.handLayer
-		end
-		for _, l in a.layers do
-			if ok(l) then
-				return l
-			end
-		end
-		return nil
-	end
-
-	-- the strip's tools, in groups: { icon, name, key? (a keymap id), on(), click(), danger? }
-	local function tools()
-		local a = App.area
-		local kind = a and App.kindOf(a)
-		local groups = {}
-		if kind ~= "Path" then
-			local g = {}
-			for i, t in App.TOOLS do
-				table.insert(g, {
-					icon = TOOL_ICON[t],
-					name = t,
-					key = "tool" .. i,
-					on = function()
-						return App.mode == "Paint" and G.tool == t
-					end,
-					click = function()
-						if App.mode == "Paint" and G.tool == t then
-							App.setMode("Off")
-						else
-							App.setTool(t)
-						end
-					end,
-				})
-			end
-			table.insert(g, {
-				icon = "trash",
-				name = "Erase ground",
-				key = "erase",
-				danger = true,
-				on = function()
-					return App.mode == "Erase"
-				end,
-				click = function()
-					App.setMode(App.mode == "Erase" and "Off" or "Erase")
-				end,
-			})
-			table.insert(groups, g)
-		end
-		-- by hand: the stamp (any model, anywhere) and, with an object in hand, spraying it
-		local hand = {
-			{
-				icon = "stamp",
-				name = "Stamp (the selected models, or the last ones)",
-				on = function()
-					return App.mode == "Stamp"
-				end,
-				click = function()
-					if App.mode == "Stamp" then
-						App.setMode("Off")
-					else
-						App.startStamp()
-					end
-				end,
-			},
-		}
-		local l = kind ~= "Path" and kind ~= "Clear" and handLayer() or nil
-		if l then
-			table.insert(hand, {
-				icon = "spray",
-				name = "Spray " .. l.inst.Name,
-				on = function()
-					return App.mode == "Place" and App.paintLayer == l
-				end,
-				click = function()
-					App.setMode("Place", l)
-				end,
-			})
-		end
-		table.insert(groups, hand)
-		local g = {}
-		if kind ~= "Clear" then
-			table.insert(g, {
-				icon = "spline",
-				name = "Draw the path",
-				on = function()
-					return App.mode == "Spline"
-				end,
-				click = function()
-					if App.mode ~= "Spline" then
-						App.ensureSplineFn()
-					end
-					App.setMode("Spline")
-				end,
-			})
-		end
-		if a and kind ~= "Clear" then
-			table.insert(g, {
-				icon = "close",
-				name = "Remove single copies",
-				danger = true,
-				on = function()
-					return App.mode == "Remove"
-				end,
-				click = function()
-					App.setMode("Remove")
-				end,
-			})
-		end
-		if #g > 0 then
-			table.insert(groups, g)
-		end
-		table.insert(groups, {
-			{
-				icon = "search",
-				name = "Search every action",
-				key = "palette",
-				on = function()
-					return false
-				end,
-				click = function()
-					App.openPalette()
-				end,
-			},
-		})
-		return groups
-	end
 
 	-- the name of what's under the mouse, beside the strip
 	local function showTip(b, text)
@@ -175,7 +35,8 @@ return function(App)
 			end
 		end
 		table.clear(looks)
-		for gi, group in tools() do
+		for gi, g in App.toolGroups() do
+			local group = g.tools
 			if gi > 1 then -- a thin line between groups
 				box({ Size = UDim2.fromOffset(BTN, 7), Parent = strip }, {
 					new("Frame", {
@@ -214,7 +75,7 @@ return function(App)
 				b.MouseEnter:Connect(function()
 					hot = true
 					look()
-					showTip(b, t.name .. (t.key and ("   " .. App.keyText(t.key)) or ""))
+					showTip(b, (string.match(t.name, "^([^:]+)") or t.name) .. (t.key and ("   " .. App.keyText(t.key)) or ""))
 				end)
 				b.MouseLeave:Connect(function()
 					hot = false
@@ -265,7 +126,7 @@ return function(App)
 			end,
 		}
 		if m == "Paint" or m == "Erase" then
-			title = (m == "Erase" and "Erase" or "Paint") .. " · " .. G.tool
+			title = (m == "Erase" and "Erase" or "Paint") .. " · " .. G.tool .. (App.area and (" · " .. App.area.folder.Name) or "")
 			if G.tool == "Brush" then
 				table.insert(items, brushSize)
 				for _, s in { "Circle", "Square" } do
@@ -357,6 +218,9 @@ return function(App)
 			if App.hasPath() then
 				table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 			end
+		elseif m == "Select" then
+			title = "Select"
+			table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })
 		elseif m == "Remove" then
 			title = "Remove copies"
 			table.insert(items, { text = "Click a copy to take it out" })
@@ -478,8 +342,16 @@ return function(App)
 	-- what the strip and the bar were built for: when this changes they're built again
 	local function keys()
 		local a = App.area
-		local l = handLayer()
-		local s = string.format("%s|%s|%s|%d", a and a.folder.Name or "", a and App.kindOf(a) or "", l and l.inst.Name or "", a and #a.layers or 0)
+		local l = App.brushTarget()
+		local sel = App.selected
+		local s = string.format(
+			"%s|%s|%s|%d|%s",
+			a and a.folder.Name or "",
+			a and App.kindOf(a) or "",
+			l and l.inst.Name or "",
+			a and #a.layers or 0,
+			sel and sel.kind or ""
+		)
 		local st = App.stamp or {}
 		local b = table.concat({
 			App.mode,
@@ -497,7 +369,7 @@ return function(App)
 
 	-- shows, hides or rebuilds the strip and the bar for what's going on now
 	local function refresh()
-		local want = App.widget.Enabled and G.toolbar ~= false
+		local want = App.widget.Enabled and not App.ctx.preview -- (the panel preview draws nothing in the viewport)
 		if not want then
 			if gui then
 				gui.Enabled = false
@@ -551,6 +423,40 @@ return function(App)
 		return false
 	end
 
+	-- false when Studio won't show the strip (no CoreGui here): the panel then shows App.buildToolRow
+	App.toolbarAvailable = function()
+		if App.ctx.preview then
+			return false
+		end
+		if not (gui and gui.Parent) then
+			refresh()
+		end
+		return gui ~= nil
+	end
+	-- the same tools as a row of square buttons in the panel, for where the strip can't show; lit as they're in use
+	App.buildToolRow = function(parent)
+		local row = App.col({ Parent = parent }, {
+			new("UIGridLayout", {
+				CellSize = UDim2.fromOffset(BTN, BTN),
+				CellPadding = UDim2.fromOffset(3, 3),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+		local n = 0
+		for _, g in App.toolGroups() do
+			for _, t in g.tools do
+				n += 1
+				local b = App.iconButton(t.icon, (string.match(t.name, "^([^:]+)") or t.name), function()
+					t.click()
+					App.rebuildAll()
+				end, t.on(), BTN)
+				b.LayoutOrder = n
+				b.Parent = row
+			end
+		end
+		return row
+	end
+
 	-- gone for good (the plugin unloads or updates)
 	App.clearToolbar = function()
 		if gui then
@@ -558,7 +464,10 @@ return function(App)
 			gui = nil
 		end
 	end
-	pcall(function() -- (one left by an earlier load of the plugin)
+	pcall(function() -- (one left by an earlier load of the plugin; not the preview's business)
+		if App.ctx.preview then
+			return
+		end
 		local old = game:GetService("CoreGui"):FindFirstChild("SmartScatterToolbar")
 		if old then
 			old:Destroy()
