@@ -2796,6 +2796,217 @@ I.triangle = triangle
 I.project = project
 end
 end)()
+-- #module Arrays
+MODULES["Arrays"] = (function()
+--[[
+Smart Scatter — Engine/Arrays: one model repeated in a pattern, like Blender's Array modifier (and its Curve one).
+Plain maths: from an array's settings, where each copy stands (a position and a heading, relative to the array's
+origin, or in the world along a path) and how big it is. The plugin makes the copies (App's Panel/ArrayTools); nothing here touches
+the world, so it's checked by the offline tests.
+Settings (s): shape "Line" | "Grid" | "Circle" | "Path"
+  Line   count, spacing                      copies in a row down the origin's front (-Z)
+  Grid   rows, cols, spacingX, spacingZ      rows down the front, columns to the right
+  Circle count, radius, face "Out"|"In"|"Keep" round the origin
+  Path   count, spacing, pathMode "Count"|"Spacing"   along a path's curve (samples given), facing along it
+  every shape: yawStep (degrees added per copy), yawJitter (± degrees), scaleJitter (± share), posJitter (± studs),
+  seed, scale
+Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+return function(E)
+E.ARRAY_SHAPES = { "Line", "Grid", "Circle", "Path" }
+E.ARRAY_FACES = { "Out", "In", "Keep" }
+local MAX = 1000
+function E.arrayDefaults(s)
+local d = {
+shape = "Line",
+count = 6,
+spacing = 8,
+rows = 3,
+cols = 3,
+spacingX = 8,
+spacingZ = 8,
+radius = 20,
+face = "Out",
+pathMode = "Count",
+yawStep = 0,
+yawJitter = 0,
+scaleJitter = 0,
+posJitter = 0,
+seed = 1,
+scale = 1,
+ground = true,
+lift = 0,
+}
+for k, v in s or {} do
+if d[k] ~= nil and type(v) == type(d[k]) then
+d[k] = v
+end
+end
+d.count = math.clamp(math.floor(d.count), 1, MAX)
+d.rows = math.clamp(math.floor(d.rows), 1, 100)
+d.cols = math.clamp(math.floor(d.cols), 1, 100)
+while d.rows * d.cols > MAX do
+d.rows -= 1
+end
+return d
+end
+local function along(P, dists)
+local cum = { 0 }
+for k = 2, #P do
+cum[k] = cum[k - 1] + (P[k] - P[k - 1]).Magnitude
+end
+local out, seg = {}, 2
+for _, d in dists do
+while seg < #P and cum[seg] < d do
+seg += 1
+end
+local a, b = P[seg - 1] or P[1], P[seg] or P[1]
+local len = cum[seg] - (cum[seg - 1] or 0)
+local t = len > 1e-6 and math.clamp((d - (cum[seg - 1] or 0)) / len, 0, 1) or 0
+local dir = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+table.insert(out, { p = a:Lerp(b, t), dir = dir.Magnitude > 1e-4 and dir.Unit or Vector3.new(0, 0, -1) })
+end
+return out, cum[#P] or 0
+end
+E.arrayAlong = along
+local function heading(dir)
+return math.atan2(-dir.X, -dir.Z)
+end
+function E.arrayCopies(s, P, closed)
+s = E.arrayDefaults(s)
+local rng = Random.new(math.floor(s.seed) * 7919 + 17)
+local spots = {}
+if s.shape == "Line" then
+for i = 0, s.count - 1 do
+table.insert(spots, { Vector3.new(0, 0, -i * s.spacing), 0 })
+end
+elseif s.shape == "Grid" then
+for r = 0, s.rows - 1 do
+for c = 0, s.cols - 1 do
+table.insert(spots, { Vector3.new(c * s.spacingX, 0, -r * s.spacingZ), 0 })
+end
+end
+elseif s.shape == "Circle" then
+for i = 0, s.count - 1 do
+local a = i / s.count * math.pi * 2
+local p = Vector3.new(math.sin(a) * s.radius, 0, -math.cos(a) * s.radius)
+local yaw = 0
+if s.face == "Out" then
+yaw = heading(p)
+elseif s.face == "In" then
+yaw = heading(Vector3.zero - p)
+end
+table.insert(spots, { p, yaw })
+end
+elseif s.shape == "Path" and P and #P >= 2 then
+local _, len = along(P, {})
+local dists = {}
+if s.pathMode == "Spacing" then
+local n = math.min(math.floor(len / math.max(s.spacing, 0.1)) + 1, MAX)
+for i = 0, n - 1 do
+table.insert(dists, i * s.spacing)
+end
+else
+local n = s.count
+for i = 0, n - 1 do
+table.insert(dists, n == 1 and 0 or len * i / (closed and n or (n - 1)))
+end
+end
+for _, pt in along(P, dists) do
+table.insert(spots, { pt.p, heading(pt.dir) })
+end
+end
+local out = {}
+for i, spot in spots do
+local yaw = spot[2] + math.rad(s.yawStep * (i - 1) + (s.yawJitter > 0 and rng:NextNumber(-s.yawJitter, s.yawJitter) or 0))
+local scale = s.scale * (1 + (s.scaleJitter > 0 and rng:NextNumber(-s.scaleJitter, s.scaleJitter) or 0))
+local nudge = s.posJitter > 0 and Vector3.new(rng:NextNumber(-s.posJitter, s.posJitter), 0, rng:NextNumber(-s.posJitter, s.posJitter))
+or Vector3.zero
+table.insert(out, { pos = spot[1] + nudge, yaw = yaw, scale = math.max(scale, 0.05) })
+end
+return out
+end
+end
+end)()
+-- #module Edit
+MODULES["Edit"] = (function()
+--[[
+Smart Scatter — Engine/Edit: the maths of the editing helpers (App's Panel/EditTools): lining things up, spacing
+them evenly, and random turns and sizes. Plain numbers in, plain moves out; nothing here touches the world, so the
+offline tests check it.
+A box is { min = Vector3, max = Vector3 } (something's extent in the world); an axis is "X", "Y" or "Z".
+Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+return function(E)
+local function comp(v, axis)
+return axis == "X" and v.X or axis == "Y" and v.Y or v.Z
+end
+local function along(axis, d)
+return axis == "X" and Vector3.new(d, 0, 0) or axis == "Y" and Vector3.new(0, d, 0) or Vector3.new(0, 0, d)
+end
+function E.alignMoves(boxes, axis, where)
+local lo, hi = math.huge, -math.huge
+for _, b in boxes do
+lo, hi = math.min(lo, comp(b.min, axis)), math.max(hi, comp(b.max, axis))
+end
+local out = {}
+for i, b in boxes do
+local a, z = comp(b.min, axis), comp(b.max, axis)
+local d = where == "Min" and lo - a or where == "Max" and hi - z or (lo + hi) / 2 - (a + z) / 2
+out[i] = along(axis, d)
+end
+return out
+end
+function E.distributeMoves(boxes, axis, mode)
+local out, order = {}, {}
+for i in boxes do
+out[i] = Vector3.zero
+table.insert(order, i)
+end
+if #order < 3 then
+return out
+end
+local function mid(i)
+return (comp(boxes[i].min, axis) + comp(boxes[i].max, axis)) / 2
+end
+table.sort(order, function(a, b)
+return mid(a) < mid(b)
+end)
+local n = #order
+if mode == "Gaps" then
+local total, span = 0, comp(boxes[order[n]].max, axis) - comp(boxes[order[1]].min, axis)
+for _, i in order do
+total += comp(boxes[i].max, axis) - comp(boxes[i].min, axis)
+end
+local gap = (span - total) / (n - 1)
+local at = comp(boxes[order[1]].max, axis) + gap
+for k = 2, n - 1 do
+local i = order[k]
+out[i] = along(axis, at - comp(boxes[i].min, axis))
+at += comp(boxes[i].max, axis) - comp(boxes[i].min, axis) + gap
+end
+else
+local first, last = mid(order[1]), mid(order[n])
+for k = 2, n - 1 do
+local i = order[k]
+out[i] = along(axis, first + (last - first) * (k - 1) / (n - 1) - mid(i))
+end
+end
+return out
+end
+function E.randomTurns(n, turn, size, seed)
+local rng = Random.new(math.floor(seed or 1) * 104729 + 3)
+local out = {}
+for i = 1, n do
+out[i] = {
+yaw = turn > 0 and math.rad(rng:NextNumber(-turn, turn)) or 0,
+scale = size > 0 and math.max(1 + rng:NextNumber(-size, size), 0.05) or 1,
+}
+end
+return out
+end
+end
+end)()
 -- #module Planning
 MODULES["Planning"] = (function()
 --[[
@@ -6302,576 +6513,26 @@ return n
 end
 end
 end)()
--- #module Layout
-MODULES["Layout"] = (function()
---[[
-Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
-other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
-territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
-change. The rules are the plugin's own, relaxed to what the map's copies already do, so a map's style stays.
-E.relayout is the pure part (tested offline); E.layoutPlan reads the map for it, E.layoutApply carries it out.
-Adds to E (the engine API); shares internals with the other engine modules through I.
-]]
-return function(E, I)
-local chamfer = I.chamfer
-local HAND = "SS_HandPlaced"
-function E.isHandPlaced(inst)
-local cur = inst
-while cur and cur ~= workspace and cur ~= game do
-if cur:GetAttribute(HAND) then
-return true
+
+-- the modules that didn't fit here are in the sibling parts (keys "Engine/<path>"); an older loader that
+-- only copies Engine and Main finds them in the live mirror instead
+for k = 2, 16 do
+	local name = "Main_" .. k
+	local p = script.Parent and script.Parent:FindFirstChild(name)
+	if not p then
+		local m = game:GetService("ServerStorage"):FindFirstChild("SmartScatterSource")
+		p = m and m:FindFirstChild(name)
+	end
+	if not p then
+		break
+	end
+	for key, f in require(p) do
+		local path = string.match(key, "^Engine/(.+)$")
+		if path then
+			MODULES[path] = f
+		end
+	end
 end
-cur = cur.Parent
-end
-return false
-end
-function E.setHandPlaced(list, on)
-for _, inst in list do
-inst:SetAttribute(HAND, on and true or nil)
-end
-end
-local function hashOf(size)
-local h = { size = size, cells = {}, lo = Vector3.new(math.huge, 0, math.huge), hi = Vector3.new(-math.huge, 0, -math.huge) }
-function h.add(x, z, v)
-local cx, cz = math.floor(x / size), math.floor(z / size)
-h.lo, h.hi = Vector3.new(math.min(h.lo.X, cx), 0, math.min(h.lo.Z, cz)), Vector3.new(math.max(h.hi.X, cx), 0, math.max(h.hi.Z, cz))
-local k = cx .. "," .. cz
-local c = h.cells[k]
-if not c then
-c = {}
-h.cells[k] = c
-end
-table.insert(c, { x = x, z = z, v = v })
-end
-function h.nearest(x, z, reach, skip)
-local best, bv = math.huge, nil
-local cx, cz = math.floor(x / size), math.floor(z / size)
-if h.lo.X > h.hi.X then
-return best, bv
-end
-local span = math.max(math.abs(cx - h.lo.X), math.abs(cx - h.hi.X), math.abs(cz - h.lo.Z), math.abs(cz - h.hi.Z))
-local n = math.min(math.ceil(reach / size), span)
-local skipFn = type(skip) == "function" and skip
-for ring = 0, n do
-for dx = -ring, ring do
-for dz = -ring, ring do
-if math.max(math.abs(dx), math.abs(dz)) == ring then
-for _, p in h.cells[(cx + dx) .. "," .. (cz + dz)] or {} do
-if p.v ~= skip and not (skipFn and skipFn(p.v)) then
-local d = math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2)
-if d < best and d <= reach then
-best, bv = d, p.v
-end
-end
-end
-end
-end
-end
-if best <= ring * size then
-break
-end
-end
-return best, bv
-end
-return h
-end
-function E.evenness(points)
-if #points < 3 then
-return 1
-end
-local near = {}
-local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
-for _, p in points do
-x0, x1, z0, z1 = math.min(x0, p.x), math.max(x1, p.x), math.min(z0, p.z), math.max(z1, p.z)
-end
-local reach = math.max(x1 - x0, z1 - z0, 1)
-local h = hashOf(math.max(reach / math.sqrt(#points), 1))
-for i, p in points do
-h.add(p.x, p.z, i)
-end
-local sum = 0
-for i, p in points do
-local d = h.nearest(p.x, p.z, reach, i)
-if d < math.huge then
-table.insert(near, d)
-sum += d
-end
-end
-if #near < 2 or sum <= 0 then
-return 1
-end
-local mean, var = sum / #near, 0
-for _, d in near do
-var += (d - mean) ^ 2
-end
-return math.clamp(1 - math.sqrt(var / #near) / mean, 0, 1)
-end
-function E.typicalSpacing(points)
-local reach = 1
-for _, p in points do
-reach = math.max(reach, math.abs(p.x - points[1].x), math.abs(p.z - points[1].z))
-end
-local h = hashOf(math.max(reach / math.sqrt(math.max(#points, 1)), 1))
-for i, p in points do
-h.add(p.x, p.z, i)
-end
-local near = {}
-for i, p in points do
-local d = h.nearest(p.x, p.z, reach * 2 + 1, i)
-if d < math.huge then
-table.insert(near, d)
-end
-end
-table.sort(near)
-return near[math.max(1, math.ceil(#near / 2))] or 0
-end
-function E.relayout(points, spots, opts)
-local d = math.max(opts.spacing or 1, 0.5)
-local crowd, gap = opts.crowd or 0.5, opts.gap or 1.7
-local step = opts.step or d / 3
-local rng = Random.new(tonumber(opts.seed) or 1)
-local all = hashOf(d)
-for i, p in points do
-all.add(p.x, p.z, i)
-end
-local order = {}
-local room = {}
-for i, p in points do
-room[i] = all.nearest(p.x, p.z, d * 3, i)
-table.insert(order, i)
-end
-table.sort(order, function(a, b)
-local fa, fb = points[a].fixed and 1 or 0, points[b].fixed and 1 or 0
-if fa ~= fb then
-return fa > fb
-end
-if room[a] ~= room[b] then
-return room[a] > room[b]
-end
-return a < b
-end)
-local kept = hashOf(d)
-local pool, crowded, bad = {}, 0, 0
-local maxR = 0
-for _, p in points do
-maxR = math.max(maxR, p.r or 0)
-end
-for _, i in order do
-local p = points[i]
-if p.fixed then
-kept.add(p.x, p.z, i)
-elseif p.bad then
-bad += 1
-table.insert(pool, i)
-else
-local _, q = kept.nearest(p.x, p.z, math.max(crowd * d, ((p.r or 0) + maxR) * 0.9))
-local tooClose = false
-if q then
-local o = points[q]
-local dist = math.sqrt((o.x - p.x) ^ 2 + (o.z - p.z) ^ 2)
-tooClose = dist < math.max(crowd * d, ((p.r or 0) + (o.r or 0)) * 0.9)
-end
-if tooClose then
-crowded += 1
-table.insert(pool, i)
-else
-kept.add(p.x, p.z, i)
-end
-end
-end
-local key = function(x, z)
-return math.floor(x / step + 0.5) .. "," .. math.floor(z / step + 0.5)
-end
-local byKey, D = {}, {}
-for s, sp in spots do
-byKey[key(sp.x, sp.z)] = s
-D[s] = kept.nearest(sp.x, sp.z, gap * d + d)
-end
-local inHole, queue, holes = {}, {}, 0
-for s = 1, #spots do
-if D[s] >= gap * d and not inHole[s] then
-holes += 1
-inHole[s] = true
-table.insert(queue, s)
-while #queue > 0 do
-local c = table.remove(queue)
-local cx, cz = spots[c].x, spots[c].z
-for dx = -1, 1 do
-for dz = -1, 1 do
-local n = byKey[key(cx + dx * step, cz + dz * step)]
-if n and not inHole[n] and D[n] >= 0.75 * d then
-inHole[n] = true
-table.insert(queue, n)
-end
-end
-end
-end
-end
-end
-local list = {}
-for s in inHole do
-table.insert(list, s)
-end
-table.sort(list, function(a, b)
-if D[a] ~= D[b] then
-return D[a] < D[b]
-end
-return a < b
-end)
-local targets = {}
-local placed = hashOf(d)
-for _, s in list do
-local sp = spots[s]
-local want = d * (0.78 + rng:NextNumber() * 0.14)
-if kept.nearest(sp.x, sp.z, want) >= want and placed.nearest(sp.x, sp.z, want) >= want then
-placed.add(sp.x, sp.z, #targets + 1)
-table.insert(targets, { x = sp.x, z = sp.z })
-end
-end
-local usedI, usedT = {}, {}
-local out = { moves = {}, adds = {}, removes = {}, crowded = crowded, bad = bad, holes = holes }
-local function move(i, t)
-usedI[i], usedT[t] = true, true
-table.insert(out.moves, { i = i, x = targets[t].x, z = targets[t].z })
-end
-if #pool * #targets <= 200000 then
-local pairsList = {}
-for _, i in pool do
-for t, tg in targets do
-table.insert(pairsList, { i = i, t = t, d = (points[i].x - tg.x) ^ 2 + (points[i].z - tg.z) ^ 2 })
-end
-end
-table.sort(pairsList, function(a, b)
-if a.d ~= b.d then
-return a.d < b.d
-end
-if a.i ~= b.i then
-return a.i < b.i
-end
-return a.t < b.t
-end)
-for _, pr in pairsList do
-if not usedI[pr.i] and not usedT[pr.t] then
-move(pr.i, pr.t)
-end
-end
-else
-local free = hashOf(d)
-for _, i in pool do
-free.add(points[i].x, points[i].z, i)
-end
-for t, tg in targets do
-local _, i = free.nearest(tg.x, tg.z, math.huge, function(v)
-return usedI[v]
-end)
-if i then
-move(i, t)
-end
-end
-end
-table.sort(out.moves, function(a, b)
-return a.i < b.i
-end)
-if opts.fill then
-for t, tg in targets do
-if not usedT[t] then
-table.insert(out.adds, { x = tg.x, z = tg.z })
-end
-end
-end
-if opts.remove then
-for _, i in pool do
-if not usedI[i] then
-table.insert(out.removes, i)
-end
-end
-table.sort(out.removes)
-end
-return out
-end
-local function boxOf(inst)
-if inst:IsA("BasePart") then
-return inst.CFrame, inst.Size
-end
-return inst:GetBoundingBox()
-end
-local function footOf(inst)
-local cf, size = boxOf(inst)
-local ex = math.abs(cf.RightVector.X) * size.X + math.abs(cf.UpVector.X) * size.Y + math.abs(cf.LookVector.X) * size.Z
-local ey = math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z
-local ez = math.abs(cf.RightVector.Z) * size.X + math.abs(cf.UpVector.Z) * size.Y + math.abs(cf.LookVector.Z) * size.Z
-return { x = cf.Position.X, z = cf.Position.Z, r = math.max(ex, ez) / 2, base = cf.Position.Y - ey / 2, h = ey }
-end
-local function percentile(list, q)
-if #list == 0 then
-return nil
-end
-table.sort(list)
-return list[math.clamp(math.floor(#list * q + 0.5), 1, #list)]
-end
-local function yawOf(cf)
-local look = cf.LookVector
-return math.atan2(-look.X, -look.Z)
-end
-function E.layoutPlan(kind, opts)
-opts = opts or {}
-local copies, insts = {}, {}
-for _, c in kind.copies do
-local inst = c.inst
-if inst.Parent and (inst:IsA("Model") or inst:IsA("BasePart")) then
-local f = footOf(inst)
-f.inst, f.fixed = inst, E.isHandPlaced(inst)
-table.insert(copies, f)
-table.insert(insts, inst)
-end
-end
-if #copies < 3 then
-return nil, "It needs at least 3 copies to see how they're spaced."
-end
-local typical = E.typicalSpacing(copies)
-local d = math.max(typical * (opts.spacing or 1), 0.5)
-local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
-for _, c in copies do
-lo = lo:Min(Vector3.new(c.x, c.base, c.z))
-hi = hi:Max(Vector3.new(c.x, c.base + c.h, c.z))
-end
-local R = 2 * d
-local g = math.max(2, math.floor(d / 3))
-while ((hi.X - lo.X) / g + 4 * R / g) * ((hi.Z - lo.Z) / g + 4 * R / g) > 250000 do
-g *= 2
-end
-local pad = R + d
-local gx0, gz0 = math.floor((lo.X - pad) / g), math.floor((lo.Z - pad) / g)
-local nx, nz = math.floor((hi.X + pad) / g) - gx0 + 1, math.floor((hi.Z + pad) / g) - gz0 + 1
-local N = nx * nz
-local src = {}
-for _, c in copies do
-src[(math.floor(c.z / g) - gz0) * nx + (math.floor(c.x / g) - gx0) + 1] = true
-end
-local near = chamfer(src, nx, nz, g)
-local out = {}
-for i = 1, N do
-if near[i] > R then
-out[i] = true
-end
-end
-local toOut = chamfer(out, nx, nz, g)
-local closed = {}
-for i = 1, N do
-if near[i] <= R and toOut[i] >= R - g then
-closed[i] = true
-end
-end
-local toClosed = chamfer(closed, nx, nz, g)
-local rows, count = {}, 0
-for i = 1, N do
-if toClosed[i] <= 0.6 * d then
-local cx, cz = (i - 1) % nx + gx0, (i - 1) // nx + gz0
-rows[cz] = rows[cz] or {}
-rows[cz][cx] = true
-count += 1
-end
-end
-local a = { rows = rows, count = count, cell = g, topY = hi.Y + 20, edge = 0, patches = 0, size = 1, seed = 1 }
-local an, stopped = E.analyze(a, insts, opts.tick)
-if not an then
-return nil, stopped and "Stopped." or "Nothing to read there."
-end
-local l = E.makeLayer(copies[1].inst)
-if not l then
-return nil, "This kind's model can't be read (it needs parts)."
-end
-local s = l.s
-s.useAlt, s.hug, s.slopePref, s.near = false, "None", 0, ""
-l.paint = nil
-E.heat(l, an, a)
-local core = l._core or 0
-local classes, slopes, roads, water, builds, n = {}, {}, {}, {}, {}, 0
-for _, c in copies do
-local i = E.indexAt(an, c.x, c.z)
-if i then
-n += 1
-local cls = an.cls[i]
-classes[cls] = (classes[cls] or 0) + 1
-table.insert(slopes, math.deg(math.acos(math.clamp(an.ny[i], -1, 1))))
-table.insert(roads, an.dist.Roads[i])
-table.insert(water, an.dist.Water[i])
-table.insert(builds, an.dist.Buildings[i])
-end
-end
-for cls, k in classes do
-local share = k / math.max(n, 1)
-if cls ~= "None" and cls ~= "Water" and ((cls ~= "Road" and cls ~= "Building") and (share >= 0.03 or k >= 2) or share >= 0.3) then
-s.surfaces[cls] = true
-end
-end
-s.maxSlope = math.min(89, math.max(s.maxSlope, (percentile(slopes, 0.95) or 0) + 5))
-local function relax(key, list)
-local p = percentile(list, 0.1)
-if p then
-s[key] = math.max(0, math.min(s[key], p - core - an.G))
-end
-end
-relax("keepRoad", roads)
-relax("keepWater", water)
-relax("keepBuilding", builds)
-local suit = E.heat(l, an, a)
-for _, c in copies do
-local i = E.indexAt(an, c.x, c.z)
-c.bad = opts.fixRules ~= false and not c.fixed and i ~= nil and suit(i) <= 0
-end
-local spots = {}
-for i = 1, an.nx * an.nz do
-if an.inM[i] and suit(i) > 0 then
-local x, z = E.cellCentre(an, i)
-table.insert(spots, { x = x, z = z })
-end
-end
-local plan = E.relayout(copies, spots, {
-spacing = d,
-crowd = opts.crowd,
-gap = opts.gap,
-step = an.G,
-fill = opts.fill,
-remove = opts.remove,
-seed = opts.seed,
-})
-local rp = an.rp
-local ol = OverlapParams.new()
-ol.FilterType = Enum.RaycastFilterType.Exclude
-local ignore = table.clone(insts)
-table.insert(ignore, workspace.Terrain)
-ol.FilterDescendantsInstances = ignore
-local offsets = {}
-for _, c in copies do
-local r = E.cast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
-c.ground = r and r.Position.Y or c.base
-table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
-end
-local usualSink = percentile(offsets, 0.5) or 0
-local yaws, sumC, sumS = {}, 0, 0
-for _, c in copies do
-local y = yawOf(c.inst:GetPivot())
-table.insert(yaws, y)
-sumC += math.cos(y)
-sumS += math.sin(y)
-end
-local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8
-local rng = Random.new((tonumber(opts.seed) or 1) + 17)
-local function standAt(x, z, c)
-local r = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
-if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
-return nil
-end
-local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
-for _, p in hits do
-local ground = p == r.Instance or p.Position.Y < r.Position.Y
-if not ground and (p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5)) then
-return nil
-end
-end
-return r.Position.Y
-end
-local result = {
-kind = kind.name,
-spacing = d,
-typical = typical,
-moves = {},
-adds = {},
-removes = {},
-crowded = plan.crowded,
-bad = plan.bad,
-holes = plan.holes,
-}
-local final = {}
-local moved, gone = {}, {}
-for _, mv in plan.moves do
-local c = copies[mv.i]
-local y = standAt(mv.x, mv.z, c)
-if y then
-local offset = c.bad and usualSink or math.clamp(c.base - c.ground, -c.h * 0.5, 2)
-local shift = Vector3.new(mv.x - c.x, y + offset - c.base, mv.z - c.z)
-table.insert(
-result.moves,
-{ inst = c.inst, cf = c.inst:GetPivot() + shift, from = Vector3.new(c.x, c.base, c.z), to = Vector3.new(mv.x, y, mv.z) }
-)
-moved[mv.i] = true
-table.insert(final, { x = mv.x, z = mv.z })
-end
-end
-for _, i in plan.removes do
-gone[i] = true
-table.insert(result.removes, copies[i].inst)
-end
-for i, c in copies do
-if not moved[i] and not gone[i] then
-table.insert(final, { x = c.x, z = c.z })
-end
-end
-local sources = {}
-for _, c in copies do
-if not c.fixed and not c.bad then
-table.insert(sources, c)
-end
-end
-if #sources == 0 then
-sources = copies
-end
-for _, ad in plan.adds do
-local c = sources[rng:NextInteger(1, #sources)]
-local y = standAt(ad.x, ad.z, c)
-if y then
-local pivot = c.inst:GetPivot()
-local turn = turned and CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0) or CFrame.identity
-local rot = turn * pivot.Rotation
-local rel = pivot.Position - Vector3.new(c.x, c.base, c.z)
-local at = Vector3.new(ad.x, y + usualSink, ad.z) + turn:VectorToWorldSpace(rel)
-table.insert(result.adds, { src = c.inst, cf = CFrame.new(at) * rot, to = Vector3.new(ad.x, y, ad.z) })
-table.insert(final, { x = ad.x, z = ad.z })
-end
-end
-result.evenBefore = E.evenness(copies)
-result.evenAfter = E.evenness(final)
-return result
-end
-function E.layoutApply(plan)
-local keep = {}
-for _, mv in plan.moves do
-table.insert(keep, mv.inst)
-end
-for _, inst in plan.removes do
-table.insert(keep, inst)
-end
-E.snapshot(keep)
-for _, mv in plan.moves do
-if mv.inst.Parent then
-mv.inst:PivotTo(mv.cf)
-E.snapshotChanged(mv.inst)
-end
-end
-local added = {}
-for _, ad in plan.adds do
-if ad.src.Parent then
-local new = E.copyOf(ad.src)
-if new then
-new:SetAttribute(HAND, nil)
-new:PivotTo(ad.cf)
-new.Parent = ad.src.Parent
-E.snapshotAdded(new)
-table.insert(added, new)
-end
-end
-end
-for _, inst in plan.removes do
-if inst.Parent then
-E.snapshotChanged(inst, false)
-inst.Parent = nil
-end
-end
-return added
-end
-end
-end)()
 
 --[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
@@ -6886,7 +6547,22 @@ end)()
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons", "Layout" }
+local ORDER = {
+	"Scan",
+	"Assets",
+	"Areas",
+	"Paths",
+	"Arrays",
+	"Edit",
+	"Planning",
+	"Placement",
+	"Lines",
+	"Pins",
+	"Generate",
+	"Kinds",
+	"Seasons",
+	"Layout",
+}
 
 local function module(name)
 	return MODULES[name]

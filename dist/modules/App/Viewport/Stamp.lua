@@ -317,6 +317,17 @@ return function(App)
 		end
 	end
 
+	-- the viewport's mouse while stamping (Paint hands it over); a stamp is no area's
+	App.registerMode("Stamp", {
+		move = App.stampMove,
+		down = App.stampDown,
+		up = App.stampUp,
+		stop = function()
+			App.clearStamp()
+		end,
+		noArea = true,
+	})
+
 	-- the stamp's keys; true when the key was one of them
 	App.stampKey = function(name)
 		if name == "turn" then

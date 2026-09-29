@@ -1051,6 +1051,11 @@ return function(App)
 			bar(0.5, 0.78, 0.5, 0.66)
 			bar(0.5, 0.48, 0.5, 0.4)
 			bar(0.5, 0.24, 0.5, 0.2)
+		elseif name == "align" then -- lining up: bars of three lengths against one edge
+			bar(0.2, 0.14, 0.2, 0.86)
+			bar(0.34, 0.3, 0.8, 0.3)
+			bar(0.34, 0.5, 0.62, 0.5)
+			bar(0.34, 0.7, 0.72, 0.7)
 		elseif name == "cursor" then -- selecting: a pointer, its tip at the top left
 			path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 			path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })

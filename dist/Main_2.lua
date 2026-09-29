@@ -1,6 +1,576 @@
 -- GENERATED part 2 of the flattened release by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
+-- #module Engine/Layout
+MODULES["Engine/Layout"] = (function()
+--[[
+Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
+other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
+territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
+change. The rules are the plugin's own, relaxed to what the map's copies already do, so a map's style stays.
+E.relayout is the pure part (tested offline); E.layoutPlan reads the map for it, E.layoutApply carries it out.
+Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+return function(E, I)
+local chamfer = I.chamfer
+local HAND = "SS_HandPlaced"
+function E.isHandPlaced(inst)
+local cur = inst
+while cur and cur ~= workspace and cur ~= game do
+if cur:GetAttribute(HAND) then
+return true
+end
+cur = cur.Parent
+end
+return false
+end
+function E.setHandPlaced(list, on)
+for _, inst in list do
+inst:SetAttribute(HAND, on and true or nil)
+end
+end
+local function hashOf(size)
+local h = { size = size, cells = {}, lo = Vector3.new(math.huge, 0, math.huge), hi = Vector3.new(-math.huge, 0, -math.huge) }
+function h.add(x, z, v)
+local cx, cz = math.floor(x / size), math.floor(z / size)
+h.lo, h.hi = Vector3.new(math.min(h.lo.X, cx), 0, math.min(h.lo.Z, cz)), Vector3.new(math.max(h.hi.X, cx), 0, math.max(h.hi.Z, cz))
+local k = cx .. "," .. cz
+local c = h.cells[k]
+if not c then
+c = {}
+h.cells[k] = c
+end
+table.insert(c, { x = x, z = z, v = v })
+end
+function h.nearest(x, z, reach, skip)
+local best, bv = math.huge, nil
+local cx, cz = math.floor(x / size), math.floor(z / size)
+if h.lo.X > h.hi.X then
+return best, bv
+end
+local span = math.max(math.abs(cx - h.lo.X), math.abs(cx - h.hi.X), math.abs(cz - h.lo.Z), math.abs(cz - h.hi.Z))
+local n = math.min(math.ceil(reach / size), span)
+local skipFn = type(skip) == "function" and skip
+for ring = 0, n do
+for dx = -ring, ring do
+for dz = -ring, ring do
+if math.max(math.abs(dx), math.abs(dz)) == ring then
+for _, p in h.cells[(cx + dx) .. "," .. (cz + dz)] or {} do
+if p.v ~= skip and not (skipFn and skipFn(p.v)) then
+local d = math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2)
+if d < best and d <= reach then
+best, bv = d, p.v
+end
+end
+end
+end
+end
+end
+if best <= ring * size then
+break
+end
+end
+return best, bv
+end
+return h
+end
+function E.evenness(points)
+if #points < 3 then
+return 1
+end
+local near = {}
+local x0, x1, z0, z1 = math.huge, -math.huge, math.huge, -math.huge
+for _, p in points do
+x0, x1, z0, z1 = math.min(x0, p.x), math.max(x1, p.x), math.min(z0, p.z), math.max(z1, p.z)
+end
+local reach = math.max(x1 - x0, z1 - z0, 1)
+local h = hashOf(math.max(reach / math.sqrt(#points), 1))
+for i, p in points do
+h.add(p.x, p.z, i)
+end
+local sum = 0
+for i, p in points do
+local d = h.nearest(p.x, p.z, reach, i)
+if d < math.huge then
+table.insert(near, d)
+sum += d
+end
+end
+if #near < 2 or sum <= 0 then
+return 1
+end
+local mean, var = sum / #near, 0
+for _, d in near do
+var += (d - mean) ^ 2
+end
+return math.clamp(1 - math.sqrt(var / #near) / mean, 0, 1)
+end
+function E.typicalSpacing(points)
+local reach = 1
+for _, p in points do
+reach = math.max(reach, math.abs(p.x - points[1].x), math.abs(p.z - points[1].z))
+end
+local h = hashOf(math.max(reach / math.sqrt(math.max(#points, 1)), 1))
+for i, p in points do
+h.add(p.x, p.z, i)
+end
+local near = {}
+for i, p in points do
+local d = h.nearest(p.x, p.z, reach * 2 + 1, i)
+if d < math.huge then
+table.insert(near, d)
+end
+end
+table.sort(near)
+return near[math.max(1, math.ceil(#near / 2))] or 0
+end
+function E.relayout(points, spots, opts)
+local d = math.max(opts.spacing or 1, 0.5)
+local crowd, gap = opts.crowd or 0.5, opts.gap or 1.7
+local step = opts.step or d / 3
+local rng = Random.new(tonumber(opts.seed) or 1)
+local all = hashOf(d)
+for i, p in points do
+all.add(p.x, p.z, i)
+end
+local order = {}
+local room = {}
+for i, p in points do
+room[i] = all.nearest(p.x, p.z, d * 3, i)
+table.insert(order, i)
+end
+table.sort(order, function(a, b)
+local fa, fb = points[a].fixed and 1 or 0, points[b].fixed and 1 or 0
+if fa ~= fb then
+return fa > fb
+end
+if room[a] ~= room[b] then
+return room[a] > room[b]
+end
+return a < b
+end)
+local kept = hashOf(d)
+local pool, crowded, bad = {}, 0, 0
+local maxR = 0
+for _, p in points do
+maxR = math.max(maxR, p.r or 0)
+end
+for _, i in order do
+local p = points[i]
+if p.fixed then
+kept.add(p.x, p.z, i)
+elseif p.bad then
+bad += 1
+table.insert(pool, i)
+else
+local _, q = kept.nearest(p.x, p.z, math.max(crowd * d, ((p.r or 0) + maxR) * 0.9))
+local tooClose = false
+if q then
+local o = points[q]
+local dist = math.sqrt((o.x - p.x) ^ 2 + (o.z - p.z) ^ 2)
+tooClose = dist < math.max(crowd * d, ((p.r or 0) + (o.r or 0)) * 0.9)
+end
+if tooClose then
+crowded += 1
+table.insert(pool, i)
+else
+kept.add(p.x, p.z, i)
+end
+end
+end
+local key = function(x, z)
+return math.floor(x / step + 0.5) .. "," .. math.floor(z / step + 0.5)
+end
+local byKey, D = {}, {}
+for s, sp in spots do
+byKey[key(sp.x, sp.z)] = s
+D[s] = kept.nearest(sp.x, sp.z, gap * d + d)
+end
+local inHole, queue, holes = {}, {}, 0
+for s = 1, #spots do
+if D[s] >= gap * d and not inHole[s] then
+holes += 1
+inHole[s] = true
+table.insert(queue, s)
+while #queue > 0 do
+local c = table.remove(queue)
+local cx, cz = spots[c].x, spots[c].z
+for dx = -1, 1 do
+for dz = -1, 1 do
+local n = byKey[key(cx + dx * step, cz + dz * step)]
+if n and not inHole[n] and D[n] >= 0.75 * d then
+inHole[n] = true
+table.insert(queue, n)
+end
+end
+end
+end
+end
+end
+local list = {}
+for s in inHole do
+table.insert(list, s)
+end
+table.sort(list, function(a, b)
+if D[a] ~= D[b] then
+return D[a] < D[b]
+end
+return a < b
+end)
+local targets = {}
+local placed = hashOf(d)
+for _, s in list do
+local sp = spots[s]
+local want = d * (0.78 + rng:NextNumber() * 0.14)
+if kept.nearest(sp.x, sp.z, want) >= want and placed.nearest(sp.x, sp.z, want) >= want then
+placed.add(sp.x, sp.z, #targets + 1)
+table.insert(targets, { x = sp.x, z = sp.z })
+end
+end
+local usedI, usedT = {}, {}
+local out = { moves = {}, adds = {}, removes = {}, crowded = crowded, bad = bad, holes = holes }
+local function move(i, t)
+usedI[i], usedT[t] = true, true
+table.insert(out.moves, { i = i, x = targets[t].x, z = targets[t].z })
+end
+if #pool * #targets <= 200000 then
+local pairsList = {}
+for _, i in pool do
+for t, tg in targets do
+table.insert(pairsList, { i = i, t = t, d = (points[i].x - tg.x) ^ 2 + (points[i].z - tg.z) ^ 2 })
+end
+end
+table.sort(pairsList, function(a, b)
+if a.d ~= b.d then
+return a.d < b.d
+end
+if a.i ~= b.i then
+return a.i < b.i
+end
+return a.t < b.t
+end)
+for _, pr in pairsList do
+if not usedI[pr.i] and not usedT[pr.t] then
+move(pr.i, pr.t)
+end
+end
+else
+local free = hashOf(d)
+for _, i in pool do
+free.add(points[i].x, points[i].z, i)
+end
+for t, tg in targets do
+local _, i = free.nearest(tg.x, tg.z, math.huge, function(v)
+return usedI[v]
+end)
+if i then
+move(i, t)
+end
+end
+end
+table.sort(out.moves, function(a, b)
+return a.i < b.i
+end)
+if opts.fill then
+for t, tg in targets do
+if not usedT[t] then
+table.insert(out.adds, { x = tg.x, z = tg.z })
+end
+end
+end
+if opts.remove then
+for _, i in pool do
+if not usedI[i] then
+table.insert(out.removes, i)
+end
+end
+table.sort(out.removes)
+end
+return out
+end
+local function boxOf(inst)
+if inst:IsA("BasePart") then
+return inst.CFrame, inst.Size
+end
+return inst:GetBoundingBox()
+end
+local function footOf(inst)
+local cf, size = boxOf(inst)
+local ex = math.abs(cf.RightVector.X) * size.X + math.abs(cf.UpVector.X) * size.Y + math.abs(cf.LookVector.X) * size.Z
+local ey = math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z
+local ez = math.abs(cf.RightVector.Z) * size.X + math.abs(cf.UpVector.Z) * size.Y + math.abs(cf.LookVector.Z) * size.Z
+return { x = cf.Position.X, z = cf.Position.Z, r = math.max(ex, ez) / 2, base = cf.Position.Y - ey / 2, h = ey }
+end
+local function percentile(list, q)
+if #list == 0 then
+return nil
+end
+table.sort(list)
+return list[math.clamp(math.floor(#list * q + 0.5), 1, #list)]
+end
+local function yawOf(cf)
+local look = cf.LookVector
+return math.atan2(-look.X, -look.Z)
+end
+function E.layoutPlan(kind, opts)
+opts = opts or {}
+local copies, insts = {}, {}
+for _, c in kind.copies do
+local inst = c.inst
+if inst.Parent and (inst:IsA("Model") or inst:IsA("BasePart")) then
+local f = footOf(inst)
+f.inst, f.fixed = inst, E.isHandPlaced(inst)
+table.insert(copies, f)
+table.insert(insts, inst)
+end
+end
+if #copies < 3 then
+return nil, "It needs at least 3 copies to see how they're spaced."
+end
+local typical = E.typicalSpacing(copies)
+local d = math.max(typical * (opts.spacing or 1), 0.5)
+local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
+for _, c in copies do
+lo = lo:Min(Vector3.new(c.x, c.base, c.z))
+hi = hi:Max(Vector3.new(c.x, c.base + c.h, c.z))
+end
+local R = 2 * d
+local g = math.max(2, math.floor(d / 3))
+while ((hi.X - lo.X) / g + 4 * R / g) * ((hi.Z - lo.Z) / g + 4 * R / g) > 250000 do
+g *= 2
+end
+local pad = R + d
+local gx0, gz0 = math.floor((lo.X - pad) / g), math.floor((lo.Z - pad) / g)
+local nx, nz = math.floor((hi.X + pad) / g) - gx0 + 1, math.floor((hi.Z + pad) / g) - gz0 + 1
+local N = nx * nz
+local src = {}
+for _, c in copies do
+src[(math.floor(c.z / g) - gz0) * nx + (math.floor(c.x / g) - gx0) + 1] = true
+end
+local near = chamfer(src, nx, nz, g)
+local out = {}
+for i = 1, N do
+if near[i] > R then
+out[i] = true
+end
+end
+local toOut = chamfer(out, nx, nz, g)
+local closed = {}
+for i = 1, N do
+if near[i] <= R and toOut[i] >= R - g then
+closed[i] = true
+end
+end
+local toClosed = chamfer(closed, nx, nz, g)
+local rows, count = {}, 0
+for i = 1, N do
+if toClosed[i] <= 0.6 * d then
+local cx, cz = (i - 1) % nx + gx0, (i - 1) // nx + gz0
+rows[cz] = rows[cz] or {}
+rows[cz][cx] = true
+count += 1
+end
+end
+local a = { rows = rows, count = count, cell = g, topY = hi.Y + 20, edge = 0, patches = 0, size = 1, seed = 1 }
+local an, stopped = E.analyze(a, insts, opts.tick)
+if not an then
+return nil, stopped and "Stopped." or "Nothing to read there."
+end
+local l = E.makeLayer(copies[1].inst)
+if not l then
+return nil, "This kind's model can't be read (it needs parts)."
+end
+local s = l.s
+s.useAlt, s.hug, s.slopePref, s.near = false, "None", 0, ""
+l.paint = nil
+E.heat(l, an, a)
+local core = l._core or 0
+local classes, slopes, roads, water, builds, n = {}, {}, {}, {}, {}, 0
+for _, c in copies do
+local i = E.indexAt(an, c.x, c.z)
+if i then
+n += 1
+local cls = an.cls[i]
+classes[cls] = (classes[cls] or 0) + 1
+table.insert(slopes, math.deg(math.acos(math.clamp(an.ny[i], -1, 1))))
+table.insert(roads, an.dist.Roads[i])
+table.insert(water, an.dist.Water[i])
+table.insert(builds, an.dist.Buildings[i])
+end
+end
+for cls, k in classes do
+local share = k / math.max(n, 1)
+if cls ~= "None" and cls ~= "Water" and ((cls ~= "Road" and cls ~= "Building") and (share >= 0.03 or k >= 2) or share >= 0.3) then
+s.surfaces[cls] = true
+end
+end
+s.maxSlope = math.min(89, math.max(s.maxSlope, (percentile(slopes, 0.95) or 0) + 5))
+local function relax(key, list)
+local p = percentile(list, 0.1)
+if p then
+s[key] = math.max(0, math.min(s[key], p - core - an.G))
+end
+end
+relax("keepRoad", roads)
+relax("keepWater", water)
+relax("keepBuilding", builds)
+local suit = E.heat(l, an, a)
+for _, c in copies do
+local i = E.indexAt(an, c.x, c.z)
+c.bad = opts.fixRules ~= false and not c.fixed and i ~= nil and suit(i) <= 0
+end
+local spots = {}
+for i = 1, an.nx * an.nz do
+if an.inM[i] and suit(i) > 0 then
+local x, z = E.cellCentre(an, i)
+table.insert(spots, { x = x, z = z })
+end
+end
+local plan = E.relayout(copies, spots, {
+spacing = d,
+crowd = opts.crowd,
+gap = opts.gap,
+step = an.G,
+fill = opts.fill,
+remove = opts.remove,
+seed = opts.seed,
+})
+local rp = an.rp
+local ol = OverlapParams.new()
+ol.FilterType = Enum.RaycastFilterType.Exclude
+local ignore = table.clone(insts)
+table.insert(ignore, workspace.Terrain)
+ol.FilterDescendantsInstances = ignore
+local offsets = {}
+for _, c in copies do
+local r = E.cast(Vector3.new(c.x, an.top, c.z), Vector3.new(0, -an.len, 0), rp)
+c.ground = r and r.Position.Y or c.base
+table.insert(offsets, math.clamp(c.base - c.ground, -c.h * 0.5, 2))
+end
+local usualSink = percentile(offsets, 0.5) or 0
+local yaws, sumC, sumS = {}, 0, 0
+for _, c in copies do
+local y = yawOf(c.inst:GetPivot())
+table.insert(yaws, y)
+sumC += math.cos(y)
+sumS += math.sin(y)
+end
+local turned = math.sqrt(sumC ^ 2 + sumS ^ 2) / #yaws < 0.8
+local rng = Random.new((tonumber(opts.seed) or 1) + 17)
+local function standAt(x, z, c)
+local r = E.cast(Vector3.new(x, an.top, z), Vector3.new(0, -an.len, 0), rp)
+if not r or math.deg(math.acos(math.clamp(r.Normal.Y, -1, 1))) > s.maxSlope then
+return nil
+end
+local hits = workspace:GetPartBoundsInRadius(r.Position + Vector3.new(0, c.h / 2 + 0.5, 0), math.max(c.r * 0.6, 0.5), ol)
+for _, p in hits do
+local ground = p == r.Instance or p.Position.Y < r.Position.Y
+if not ground and (p.CanCollide or (p.Transparency < 1 and math.max(p.Size.X, p.Size.Y, p.Size.Z) > c.r * 0.5)) then
+return nil
+end
+end
+return r.Position.Y
+end
+local result = {
+kind = kind.name,
+spacing = d,
+typical = typical,
+moves = {},
+adds = {},
+removes = {},
+crowded = plan.crowded,
+bad = plan.bad,
+holes = plan.holes,
+}
+local final = {}
+local moved, gone = {}, {}
+for _, mv in plan.moves do
+local c = copies[mv.i]
+local y = standAt(mv.x, mv.z, c)
+if y then
+local offset = c.bad and usualSink or math.clamp(c.base - c.ground, -c.h * 0.5, 2)
+local shift = Vector3.new(mv.x - c.x, y + offset - c.base, mv.z - c.z)
+table.insert(
+result.moves,
+{ inst = c.inst, cf = c.inst:GetPivot() + shift, from = Vector3.new(c.x, c.base, c.z), to = Vector3.new(mv.x, y, mv.z) }
+)
+moved[mv.i] = true
+table.insert(final, { x = mv.x, z = mv.z })
+end
+end
+for _, i in plan.removes do
+gone[i] = true
+table.insert(result.removes, copies[i].inst)
+end
+for i, c in copies do
+if not moved[i] and not gone[i] then
+table.insert(final, { x = c.x, z = c.z })
+end
+end
+local sources = {}
+for _, c in copies do
+if not c.fixed and not c.bad then
+table.insert(sources, c)
+end
+end
+if #sources == 0 then
+sources = copies
+end
+for _, ad in plan.adds do
+local c = sources[rng:NextInteger(1, #sources)]
+local y = standAt(ad.x, ad.z, c)
+if y then
+local pivot = c.inst:GetPivot()
+local turn = turned and CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0) or CFrame.identity
+local rot = turn * pivot.Rotation
+local rel = pivot.Position - Vector3.new(c.x, c.base, c.z)
+local at = Vector3.new(ad.x, y + usualSink, ad.z) + turn:VectorToWorldSpace(rel)
+table.insert(result.adds, { src = c.inst, cf = CFrame.new(at) * rot, to = Vector3.new(ad.x, y, ad.z) })
+table.insert(final, { x = ad.x, z = ad.z })
+end
+end
+result.evenBefore = E.evenness(copies)
+result.evenAfter = E.evenness(final)
+return result
+end
+function E.layoutApply(plan)
+local keep = {}
+for _, mv in plan.moves do
+table.insert(keep, mv.inst)
+end
+for _, inst in plan.removes do
+table.insert(keep, inst)
+end
+E.snapshot(keep)
+for _, mv in plan.moves do
+if mv.inst.Parent then
+mv.inst:PivotTo(mv.cf)
+E.snapshotChanged(mv.inst)
+end
+end
+local added = {}
+for _, ad in plan.adds do
+if ad.src.Parent then
+local new = E.copyOf(ad.src)
+if new then
+new:SetAttribute(HAND, nil)
+new:PivotTo(ad.cf)
+new.Parent = ad.src.Parent
+E.snapshotAdded(new)
+table.insert(added, new)
+end
+end
+end
+for _, inst in plan.removes do
+if inst.Parent then
+E.snapshotChanged(inst, false)
+inst.Parent = nil
+end
+end
+return added
+end
+end
+end)()
 -- #module App/Panel/MapTools
 MODULES["App/Panel/MapTools"] = (function()
 --[[
@@ -1008,6 +1578,956 @@ end
 end
 end
 end)()
+-- #module App/Panel/ArrayTools
+MODULES["App/Panel/ArrayTools"] = (function()
+--[[
+Smart Scatter — ArrayTools: arrays, one model repeated in a pattern (Engine/Arrays does the maths). An array is a
+Model in Workspace › Arrays: its settings in an attribute (SS_Array), its source model and the path it may follow
+as ObjectValues (Source, Path), its origin as its pivot (so moving it with Studio's Move tool moves the array),
+and its copies in a folder (Copies) rebuilt from the settings whenever they change.
+The copies stay out of the undo history, as an area's objects do: a setting changed is one undo step, and undo
+brings the setting back and the copies are rebuilt from it. Bake turns an array into a plain model.
+Here: making one, reading and saving its settings, building its copies, the outliner's Array kind and its tab.
+The strip's Array tool (click and drag to make one) is Viewport/ArrayTool.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine, P, beginRec, endRec = App.Engine, App.P, App.beginRec, App.endRec
+local HttpService = game:GetService("HttpService")
+local FOLDER, ATTR = "Arrays", "SS_Array"
+local BARE = { s = {} }
+local LIVE_MAX = 250
+local function folder(make)
+local f = workspace:FindFirstChild(FOLDER)
+if not f and make then
+f = Instance.new("Folder")
+f.Name = FOLDER
+f.Parent = workspace
+end
+return f
+end
+local function isArray(m)
+return m ~= nil and m:IsA("Model") and m:GetAttribute(ATTR) ~= nil
+end
+App.isArrayModel = isArray
+App.arrays = function()
+local out = {}
+for _, m in (folder() and folder():GetChildren() or {}) do
+if isArray(m) then
+table.insert(out, m)
+end
+end
+return out
+end
+App.arrayThing = function(m)
+return { kind = "Array", folder = m }
+end
+local function read(m)
+local ok, t = pcall(HttpService.JSONDecode, HttpService, m:GetAttribute(ATTR) or "{}")
+return Engine.arrayDefaults(ok and type(t) == "table" and t or {})
+end
+App.readArray = read
+local function linked(m, name)
+local v = m:FindFirstChild(name)
+return v and v:IsA("ObjectValue") and v.Value or nil
+end
+local measured = setmetatable({}, { __mode = "k" })
+local function variantOf(inst)
+local v = measured[inst]
+if v == nil then
+v = Engine.makeVariant(inst, 1, 1) or false
+measured[inst] = v
+end
+return v or nil
+end
+local function groundParams()
+local skip = App.templates()
+local f = folder()
+if f then
+table.insert(skip, f)
+end
+return (Engine.rayParams(skip))
+end
+local built = setmetatable({}, { __mode = "k" })
+local function pathOf(m)
+local f = linked(m, "Path")
+if not (f and f:IsDescendantOf(workspace)) then
+return nil
+end
+local a = Engine.loadArea(f)
+local sp = a.spline
+if not (sp and #sp.pts >= 2) then
+return nil
+end
+local pts = Engine.splineCurve(sp, 1)
+return pts, sp.closed == true and #sp.pts >= 3
+end
+local function build(m, s)
+s = s or read(m)
+local src = linked(m, "Source")
+local v = src and src.Parent and variantOf(src)
+local holder = Instance.new("Folder")
+holder.Name = "Copies"
+holder.Archivable = false
+local placed = 0
+if v then
+local P, closed
+if s.shape == "Path" then
+P, closed = pathOf(m)
+end
+local pivot = m:GetPivot()
+local look = Vector3.new(pivot.LookVector.X, 0, pivot.LookVector.Z)
+local origin = CFrame.lookAt(pivot.Position, pivot.Position + (look.Magnitude > 1e-3 and look.Unit or Vector3.new(0, 0, -1)))
+local rp = s.ground and groundParams()
+for _, c in Engine.arrayCopies(s, P, closed) do
+local at = s.shape == "Path" and CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+or origin * CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+local pos = at.Position
+if rp then
+local hit = Engine.cast(pos + Vector3.new(0, 60, 0), Vector3.new(0, -400, 0), rp)
+if hit then
+pos = Vector3.new(pos.X, hit.Position.Y, pos.Z)
+end
+end
+at = at.Rotation + pos + Vector3.new(0, s.lift, 0)
+local copy = (v.src or src):Clone()
+Engine.poseCopy(copy, BARE, v, c.scale, at, 0)
+for _, d in copy:GetDescendants() do
+if d:IsA("BasePart") then
+d.Anchored = true
+end
+end
+if copy:IsA("BasePart") then
+copy.Anchored = true
+end
+copy.Parent = holder
+placed += 1
+end
+end
+local old = m:FindFirstChild("Copies")
+if old then
+Engine.dropOutput(old)
+end
+holder.Parent = m
+holder.Archivable = true
+built[m] = m:GetAttribute(ATTR)
+return placed, v ~= nil
+end
+App.buildArray = build
+local function follow()
+for _, m in App.arrays() do
+if built[m] ~= m:GetAttribute(ATTR) or not m:FindFirstChild("Copies") then
+build(m)
+end
+end
+end
+App.track(App.ChangeHistoryService.OnUndo:Connect(function()
+task.defer(follow)
+end))
+App.track(App.ChangeHistoryService.OnRedo:Connect(function()
+task.defer(follow)
+end))
+App.saveArray = function(m, s, what)
+local rec = beginRec("Smart Scatter: " .. (what or "Array"))
+m:SetAttribute(ATTR, HttpService:JSONEncode(s))
+endRec(rec)
+build(m, s)
+if App.refreshCounts then
+App.refreshCounts()
+end
+end
+App.previewArray = function(m, s)
+local n = s.shape == "Grid" and s.rows * s.cols or s.count
+if n <= LIVE_MAX then
+build(m, s)
+end
+end
+App.linkArray = function(m, name, value, what)
+local rec = beginRec("Smart Scatter: " .. what)
+local v = m:FindFirstChild(name)
+if value and not v then
+v = Instance.new("ObjectValue")
+v.Name = name
+v.Parent = m
+end
+if v then
+if value then
+v.Value = value
+else
+v.Parent = nil
+end
+end
+endRec(rec)
+build(m)
+end
+App.arraySource = function()
+local ours = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS), folder() }
+for _, s in App.Selection:Get() do
+if (s:IsA("Model") or s:IsA("BasePart")) and s:GetAttribute("SS_Type") == nil and variantOf(s) then
+local mine = false
+for _, f in ours do
+mine = mine or (f ~= nil and s:IsDescendantOf(f))
+end
+if not mine then
+return s
+end
+end
+end
+return nil
+end
+App.newArray = function(src, origin, s)
+local v = variantOf(src)
+if not v then
+App.status("That model has no parts to repeat.")
+return nil
+end
+s = Engine.arrayDefaults(s or {})
+local n = 1
+local f = folder()
+while f and f:FindFirstChild("Array " .. n) do
+n += 1
+end
+local rec = beginRec("Smart Scatter: New array")
+f = folder(true)
+local m = Instance.new("Model")
+m.Name = "Array " .. n
+m:SetAttribute(ATTR, HttpService:JSONEncode(s))
+local link = Instance.new("ObjectValue")
+link.Name = "Source"
+link.Value = src
+link.Parent = m
+m.WorldPivot = origin
+m.Parent = f
+endRec(rec)
+build(m, s)
+App.select(App.arrayThing(m))
+return m
+end
+App.arraySpacing = function(src)
+local v = variantOf(src)
+if not v then
+return 8
+end
+return math.max(math.floor(math.max(v.m.size.X, v.m.size.Z) * 1.1 * 10 + 0.5) / 10, 0.5)
+end
+App.newArrayFromSelection = function()
+local src = App.arraySource()
+if not src then
+App.status("Select a model in the Explorer first, then make an array of it.")
+return
+end
+local cam = workspace.CurrentCamera.CFrame
+local hit = Engine.cast(cam.Position, cam.LookVector * 1000, groundParams())
+local at = hit and hit.Position or (cam.Position + cam.LookVector * 40)
+local flat = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
+flat = flat.Magnitude > 1e-3 and flat.Unit or Vector3.new(0, 0, -1)
+App.newArray(src, CFrame.lookAt(at, at + flat), { spacing = App.arraySpacing(src) })
+App.status("Array made: tune it on its Array tab.")
+end
+local function bake(m)
+local rec = beginRec("Smart Scatter: Bake array")
+m:SetAttribute(ATTR, nil)
+for _, name in { "Source", "Path" } do
+local v = m:FindFirstChild(name)
+if v then
+v.Parent = nil
+end
+end
+endRec(rec)
+App.select(nil)
+App.status(m.Name .. " is plain models now.")
+end
+local function delete(m)
+local rec = beginRec("Smart Scatter: Delete array")
+m.Parent = nil
+endRec(rec)
+App.select(nil)
+App.status("Array deleted. Ctrl+Z brings it back.")
+end
+App.registerKind({
+kind = "Array",
+icon = "grid",
+title = "Array",
+order = 35,
+list = function()
+local out = {}
+for _, m in App.arrays() do
+table.insert(out, App.arrayThing(m))
+end
+return out
+end,
+count = function(thing)
+local c = thing.folder:FindFirstChild("Copies")
+return c and #c:GetChildren() or 0
+end,
+menu = function(thing)
+return {
+{
+"Rename",
+function()
+App.startRename(thing)
+end,
+},
+{
+"Bake to plain models",
+function()
+bake(thing.folder)
+end,
+P.dim,
+},
+"-",
+{
+"Delete",
+function()
+delete(thing.folder)
+end,
+P.danger,
+},
+}
+end,
+})
+local slider, segmented, switchRow, button, buttonRow, hintOn = App.slider, App.segmented, App.switchRow, App.button, App.buttonRow, App.hintOn
+local label, box, para = App.label, App.box, App.para
+local function buildTab(page)
+local m = App.selected and App.selected.folder
+if not (m and isArray(m)) then
+return
+end
+local s = read(m)
+local cs = App.cards(page, "array")
+local function S(parent, key, text, min, max, fmt, step, hint, def)
+slider(
+text,
+min,
+max,
+function()
+return s[key]
+end,
+function(v)
+s[key] = v
+end,
+fmt,
+step,
+function()
+App.previewArray(m, s)
+end,
+function()
+App.saveArray(m, s, "Array " .. string.lower(text))
+end,
+hint,
+def
+).Parent =
+parent
+end
+local function pick(parent, key, options, rebuild)
+segmented(options, function()
+return s[key]
+end, function(v)
+s[key] = v
+end, function()
+App.saveArray(m, s, "Array " .. key)
+if rebuild then
+App.rebuildAll()
+end
+end).Parent =
+parent
+end
+cs.add({
+id = "arraymodel",
+title = "Model",
+icon = "cube",
+sub = "What's repeated",
+keys = "model source swap select",
+build = function(b)
+local src = linked(m, "Source")
+local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+if src then
+local th = App.thumbnail(src, 32)
+th.Position = UDim2.fromOffset(0, 2)
+th.Parent = row
+end
+label(src and src.Name or "Its model is gone: select another and press Swap.", 13, src and P.text or P.danger, App.SANS_M, {
+Position = UDim2.fromOffset(40, 0),
+Size = UDim2.new(1, -40, 1, 0),
+Parent = row,
+})
+local acts = buttonRow(b)
+hintOn(
+button("Swap for selected", nil, function()
+local pick2 = App.arraySource()
+if not pick2 then
+App.status("Select the model to use in the Explorer first.")
+return
+end
+App.linkArray(m, "Source", pick2, "Array model")
+App.rebuildAll()
+end, { Parent = acts }),
+"Repeats the model selected in the Explorer instead, in the same pattern."
+)
+if src then
+button("Select model", nil, function()
+App.Selection:Set({ src })
+end, { Parent = acts })
+end
+end,
+})
+cs.add({
+id = "arrayshape",
+title = "Shape",
+icon = "grid",
+sub = "Line, grid, circle, or along a path",
+keys = "line grid circle path count spacing rows columns radius face",
+build = function(b)
+pick(b, "shape", Engine.ARRAY_SHAPES, true)
+if s.shape == "Line" then
+S(b, "count", "Count", 1, 200, "%d", 1, "How many copies.", 6)
+S(b, "spacing", "Spacing", 0.5, 100, "%.1f studs", 0.5, "From one copy to the next.")
+elseif s.shape == "Grid" then
+S(b, "rows", "Rows", 1, 40, "%d", 1, "Rows, down the array's front.", 3)
+S(b, "cols", "Columns", 1, 40, "%d", 1, "Columns, to its right.", 3)
+S(b, "spacingZ", "Row spacing", 0.5, 100, "%.1f studs", 0.5, "From one row to the next.")
+S(b, "spacingX", "Column spacing", 0.5, 100, "%.1f studs", 0.5, "From one column to the next.")
+elseif s.shape == "Circle" then
+S(b, "count", "Count", 1, 200, "%d", 1, "How many copies round the circle.", 6)
+S(b, "radius", "Radius", 1, 300, "%.1f studs", 0.5, "How far from the centre.", 20)
+App.stepLabel(b, nil, "Facing")
+pick(b, "face", Engine.ARRAY_FACES)
+else
+local paths = {}
+for _, f in Engine.listAreas() do
+if f:GetAttribute("SS_Spline") then
+table.insert(paths, f)
+end
+end
+local on = linked(m, "Path")
+if #paths == 0 then
+local t = para("No paths yet. Draw one (the strip's Path tool), then pick it here.", { Parent = b })
+t.TextColor3 = P.dim
+else
+App.stepLabel(b, nil, "Along")
+local grid = App.chipGrid(b, 3, 28, 96)
+for _, f in paths do
+App.chip(grid, f.Name, function()
+return on == f
+end, function()
+App.linkArray(m, "Path", f, "Array path")
+App.rebuildAll()
+end)
+end
+end
+App.stepLabel(b, nil, "Copies")
+pick(b, "pathMode", { "Count", "Spacing" }, true)
+if s.pathMode == "Spacing" then
+S(b, "spacing", "Spacing", 0.5, 100, "%.1f studs", 0.5, "From one copy to the next along the path; as many as fit.")
+else
+S(b, "count", "Count", 1, 500, "%d", 1, "How many, spread evenly from one end to the other (round a loop).", 6)
+end
+end
+end,
+})
+cs.add({
+id = "arrayvary",
+title = "Variation",
+icon = "blend",
+sub = "Turn, size and spot, copy by copy",
+keys = "rotate turn spiral random jitter size scale seed",
+build = function(b)
+S(b, "scale", "Size", 0.1, 5, "%.2f×", 0.05, "1× is the model's own size.", 1)
+S(b, "yawStep", "Turn each copy by", -180, 180, "%d°", 1, "Each copy turns this much more than the one before: spirals, fans.", 0)
+S(b, "yawJitter", "Random turn", 0, 180, "±%d°", 1, "Each copy turns a random amount, up to this.", 0)
+S(b, "scaleJitter", "Random size", 0, 0.9, "±%.0f%%", 0.05, "Each copy a little bigger or smaller.", 0)
+S(b, "posJitter", "Random nudge", 0, 20, "±%.1f studs", 0.1, "Each copy nudged off its spot.", 0)
+hintOn(
+button("New random", nil, function()
+s.seed += 1
+App.saveArray(m, s, "Array new random")
+end, { Parent = buttonRow(b) }),
+"The same settings, other random turns, sizes and nudges."
+)
+end,
+})
+cs.add({
+id = "arraystand",
+title = "Standing",
+icon = "mountain",
+sub = "On the ground, or level",
+keys = "ground drop snap level lift height",
+build = function(b)
+switchRow("Drop onto the ground", function()
+return s.ground
+end, function(v)
+s.ground = v
+end, function()
+App.saveArray(m, s, "Array ground")
+end, "On: each copy stands on the ground under it. Off: they all stay at the array's height, level.").Parent =
+b
+S(b, "lift", "Lift", -20, 50, "%.1f studs", 0.1, "Raises every copy (or sinks it, below 0).", 0)
+end,
+})
+cs.add({
+id = "arrayfinish",
+title = "Finish",
+icon = "wand",
+sub = "Keep it as plain models, or remove it",
+keys = "bake delete remove plain",
+more = true,
+build = function(b)
+local acts = buttonRow(b)
+hintOn(
+button("Bake to plain models", nil, function()
+bake(m)
+end, { Parent = acts }),
+"The copies stay where they are as plain models; the array's settings go."
+)
+local del = App.dangerButton("Delete array", function()
+delete(m)
+end, { confirm = "Click again to delete" })
+del.Parent = acts
+end,
+})
+end
+App.registerTab({ id = "array", icon = "grid", title = "Array", order = 10, kinds = { Array = true }, build = buildTab })
+end
+end)()
+-- #module App/Panel/EditTools
+MODULES["App/Panel/EditTools"] = (function()
+--[[
+Smart Scatter — EditTools: helpers for the models selected in Studio (the Explorer or the viewport), whatever made
+them: drop them onto the ground, line them up, space them evenly, give them random turns and sizes, or replace
+them with another model. Each is one undo step. The Edit tab has them (it's there whatever is selected in the
+outliner), and the search menu. The maths is Engine/Edit's; Replace is the map tools' swap (Engine/Kinds), so
+Restore original on the World tab puts replaced models back too.
+Copies an area or an array placed are left alone: its next rebuild would put them back where its rules say.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local Engine, G, saveG, P, beginRec, endRec = App.Engine, App.G, App.saveG, App.P, App.beginRec, App.endRec
+local Selection = App.Selection
+local function items()
+local sel = Selection:Get()
+local set = {}
+for _, s in sel do
+set[s] = true
+end
+local skip = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+local arrays = workspace:FindFirstChild("Arrays")
+local out = {}
+for _, s in sel do
+if (s:IsA("Model") or s:IsA("BasePart")) and s:IsDescendantOf(workspace) and s ~= workspace.Terrain then
+local ok = true
+for _, f in skip do
+ok = ok and not (f and s:IsDescendantOf(f))
+end
+if arrays and s:IsDescendantOf(arrays) then
+local copies = s:FindFirstAncestor("Copies")
+ok = ok and not (copies and copies:IsDescendantOf(arrays))
+end
+local up = s.Parent
+while ok and up and up ~= workspace do
+ok = not set[up]
+up = up.Parent
+end
+if ok then
+table.insert(out, s)
+end
+end
+end
+return out
+end
+App.editItems = items
+local function boxOf(inst)
+local cf, size
+if inst:IsA("BasePart") then
+cf, size = inst.CFrame, inst.Size
+else
+cf, size = inst:GetBoundingBox()
+end
+local h = size / 2
+local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+for _, sx in { -1, 1 } do
+for _, sy in { -1, 1 } do
+for _, sz in { -1, 1 } do
+local p = cf:PointToWorldSpace(Vector3.new(h.X * sx, h.Y * sy, h.Z * sz))
+lo, hi = lo:Min(p), hi:Max(p)
+end
+end
+end
+return { min = lo, max = hi }
+end
+local function moveBy(inst, d)
+if d.Magnitude > 1e-6 then
+inst:PivotTo(inst:GetPivot() + d)
+end
+end
+local function turnAbout(inst, at, yaw)
+local r = CFrame.new(at) * CFrame.Angles(0, yaw, 0) * CFrame.new(-at)
+inst:PivotTo(r * inst:GetPivot())
+end
+local function scaleBy(inst, f)
+if math.abs(f - 1) < 1e-4 then
+return
+end
+if inst:IsA("Model") then
+inst:ScaleTo(inst:GetScale() * f)
+else
+inst.Size *= f
+end
+end
+local function step(what, fn, min)
+local list = items()
+if #list < (min or 1) then
+App.status(
+min and min > 1 and string.format("Select at least %d models (in the Explorer or the viewport) first.", min)
+or "Select the models to work on (in the Explorer or the viewport) first."
+)
+return
+end
+local rec = beginRec("Smart Scatter: " .. what)
+local ok, said = pcall(fn, list)
+endRec(rec, not ok)
+if not ok then
+warn("[Smart Scatter] " .. tostring(said))
+App.status(what .. " didn't work: " .. tostring(said), "error")
+return
+end
+App.status(said or string.format("%s: %d done. Ctrl+Z undoes it.", what, #list))
+end
+local function groundUnder(inst, b, rp)
+local c = (b.min + b.max) / 2
+local rx, rz = (b.max.X - b.min.X) * 0.35, (b.max.Z - b.min.Z) * 0.35
+local top = b.max.Y + 4
+local best, normal
+local mid = Engine.cast(Vector3.new(c.X, top, c.Z), Vector3.new(0, -2000, 0), rp)
+if not mid then
+return nil
+end
+best, normal = mid.Position.Y, mid.Normal
+for _, o in { Vector3.new(rx, 0, 0), Vector3.new(-rx, 0, 0), Vector3.new(0, 0, rz), Vector3.new(0, 0, -rz) } do
+local h = Engine.cast(Vector3.new(c.X + o.X, top, c.Z + o.Z), Vector3.new(0, -2000, 0), rp)
+if h and h.Position.Y < best and mid.Position.Y - h.Position.Y < math.max(rx, rz) * 1.5 then
+best = h.Position.Y
+end
+end
+return best, normal, Vector3.new(c.X, best, c.Z)
+end
+App.dropToGround = function()
+step("Drop to ground", function(list)
+local skip = App.templates()
+for _, inst in list do
+table.insert(skip, inst)
+end
+local rp = Engine.rayParams(skip)
+local missed = 0
+for _, inst in list do
+local b = boxOf(inst)
+local y, normal, base = groundUnder(inst, b, rp)
+if y then
+moveBy(inst, Vector3.new(0, y - b.min.Y, 0))
+if G.editLean and normal.Y > 0.2 then
+local r = CFrame.new(base) * Engine.rotateUp(normal) * CFrame.new(-base)
+inst:PivotTo(r * inst:GetPivot())
+end
+else
+missed += 1
+end
+end
+return string.format(
+"Dropped %d onto the ground%s.",
+#list - missed,
+missed > 0 and string.format(" (%d had no ground under them)", missed) or ""
+)
+end)
+end
+App.alignSelection = function(axis, where)
+step("Align " .. axis .. " " .. string.lower(where), function(list)
+local boxes = {}
+for i, inst in list do
+boxes[i] = boxOf(inst)
+end
+for i, d in Engine.alignMoves(boxes, axis, where) do
+moveBy(list[i], d)
+end
+return string.format("Lined up %d on %s (%s).", #list, axis, string.lower(where == "Center" and "centre" or where))
+end, 2)
+end
+App.distributeSelection = function(axis, by)
+step("Distribute " .. axis, function(list)
+local boxes = {}
+for i, inst in list do
+boxes[i] = boxOf(inst)
+end
+for i, d in Engine.distributeMoves(boxes, axis, by) do
+moveBy(list[i], d)
+end
+return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, axis)
+end, 3)
+end
+local seed = 1
+App.randomizeSelection = function()
+seed += 1
+step("Randomize", function(list)
+local r = Engine.randomTurns(#list, G.editTurn, G.editSize, seed + os.clock() * 1000)
+for i, inst in list do
+local b = boxOf(inst)
+local base = Vector3.new((b.min.X + b.max.X) / 2, b.min.Y, (b.min.Z + b.max.Z) / 2)
+turnAbout(inst, base, r[i].yaw)
+scaleBy(inst, r[i].scale)
+if G.editKeep then
+moveBy(inst, Vector3.new(0, b.min.Y - boxOf(inst).min.Y, 0))
+end
+end
+return string.format("Gave %d a random turn and size. Press again for another.", #list)
+end)
+end
+local replacement
+App.pickReplacement = function()
+local s = Selection:Get()[1]
+if not (s and (s:IsA("Model") or s:IsA("BasePart"))) then
+App.status("Select the model to replace with (in the Explorer), then press this.")
+return
+end
+replacement = s
+App.status(s.Name .. " is what Replace puts in. Now select the models to replace.")
+if App.refreshEditTab then
+App.refreshEditTab()
+end
+end
+App.replaceSelection = function()
+if not (replacement and replacement.Parent) then
+App.status("Pick the model to replace with first: select it and press Use the selected.")
+return
+end
+local made = {}
+step("Replace", function(list)
+for i, inst in list do
+if inst ~= replacement then
+for _, pair in
+Engine.swapCopies({ { inst = inst, scale = 1 } }, { { inst = replacement, w = 1 } }, { match = G.editMatch, seed = i })
+do
+table.insert(made, pair.new)
+end
+end
+end
+return string.format("Replaced %d with %s. Restore original (World tab) or Ctrl+Z puts them back.", #made, replacement.Name)
+end)
+if #made > 0 then
+Selection:Set(made)
+end
+end
+local slider, segmented, switchRow, button, buttonRow, hintOn = App.slider, App.segmented, App.switchRow, App.button, App.buttonRow, App.hintOn
+local para = App.para
+local AXES = { "X", "Y", "Z" }
+App.registerTab({
+id = "edit",
+icon = "align",
+title = "Edit",
+order = 85,
+kinds = "all",
+build = function(page)
+local cs = App.cards(page, "edit")
+cs.add({
+id = "editsel",
+title = "The selection",
+icon = "cursor",
+sub = "What these helpers work on",
+keys = "selected models explorer viewport",
+build = function(b)
+local t = para("", { Parent = b })
+local function count()
+local n = #items()
+t.Text = n > 0 and string.format("%d selected in Studio.", n)
+or "Select models or parts in the Explorer or the viewport. (Copies an area or an array placed are left alone.)"
+t.TextColor3 = n > 0 and P.text or P.dim
+end
+count()
+local conn
+conn = Selection.SelectionChanged:Connect(function()
+if not t.Parent then
+conn:Disconnect()
+return
+end
+count()
+end)
+end,
+})
+cs.add({
+id = "editground",
+title = "Drop to the ground",
+icon = "mountain",
+sub = "Each one onto whatever is under it",
+keys = "ground drop snap floor land settle",
+build = function(b)
+switchRow("Lean with the slope", function()
+return G.editLean
+end, function(v)
+G.editLean = v
+end, saveG, "On: each one tilts to stand square on the ground under it. Off: they stay upright.").Parent =
+b
+hintOn(
+button("Drop to the ground", "accent", App.dropToGround, { Parent = buttonRow(b) }),
+"Each selected model lands on what's under it; selected models don't land on each other."
+)
+end,
+})
+cs.add({
+id = "editalign",
+title = "Align and space",
+icon = "align",
+sub = "Line them up, or space them evenly",
+keys = "align line up distribute space evenly gap center centre min max",
+build = function(b)
+segmented(AXES, function()
+return G.editAxis
+end, function(v)
+G.editAxis = v
+end, saveG).Parent = b
+App.stepLabel(b, nil, "Align to the selection's")
+local row = buttonRow(b)
+for _, w in { { "Min", "Lowest" }, { "Center", "Middle" }, { "Max", "Highest" } } do
+hintOn(
+button(w[2], nil, function()
+App.alignSelection(G.editAxis, w[1])
+end, { Parent = row }),
+"Every selected one moves on the chosen axis to the selection's " .. string.lower(w[2]) .. " edge (or middle)."
+)
+end
+App.stepLabel(b, nil, "Space evenly by")
+segmented({ "Centers", "Gaps" }, function()
+return G.editBy
+end, function(v)
+G.editBy = v
+end, saveG).Parent =
+b
+hintOn(
+button("Distribute", nil, function()
+App.distributeSelection(G.editAxis, G.editBy)
+end, { Parent = buttonRow(b) }),
+"The two outermost stay put; the rest spread evenly between them: the same distance centre to centre, or the same gap between neighbours."
+)
+end,
+})
+cs.add({
+id = "editrandom",
+title = "Randomize",
+icon = "refresh",
+sub = "A random turn and size for each",
+keys = "random turn rotate size scale vary jitter",
+build = function(b)
+slider("Turn", 0, 180, function()
+return G.editTurn
+end, function(v)
+G.editTurn = v
+end, "±%d°", 5, nil, saveG, "How far each one may turn, either way.", 180).Parent =
+b
+slider("Size", 0, 0.9, function()
+return G.editSize
+end, function(v)
+G.editSize = v
+end, "±%.0f%%", 0.05, nil, saveG, "How much bigger or smaller each one may get.", 0.15).Parent =
+b
+switchRow("Keep on the ground", function()
+return G.editKeep
+end, function(v)
+G.editKeep = v
+end, saveG, "Their undersides stay where they were as they grow or shrink.").Parent =
+b
+hintOn(button("Randomize", nil, App.randomizeSelection, { Parent = buttonRow(b) }), "Each press, another random turn and size.")
+end,
+})
+cs.add({
+id = "editreplace",
+title = "Replace",
+icon = "swap",
+sub = "Put another model in each one's place",
+keys = "replace swap exchange model",
+build = function(b)
+local t = para("", { Parent = b })
+local function show()
+local ok = replacement and replacement.Parent
+t.Text = ok and ("Replacing with " .. replacement.Name .. ".")
+or "Pick the model to put in: select it, then Use the selected."
+t.TextColor3 = ok and P.text or P.dim
+end
+show()
+App.refreshEditTab = function()
+if t.Parent then
+show()
+end
+end
+local row = buttonRow(b)
+hintOn(button("Use the selected", nil, App.pickReplacement, { Parent = row }), "The model selected now is what Replace puts in.")
+hintOn(
+button("Replace the selected", "accent", App.replaceSelection, { Parent = row }),
+"Each selected model makes way for the replacement: same spot, same turn, its base where the old one's was."
+)
+switchRow("Match each one's size", function()
+return G.editMatch
+end, function(v)
+G.editMatch = v
+end, saveG, "On: each new one is as big as the one it replaces. Off: the replacement keeps its own size.").Parent =
+b
+end,
+})
+end,
+})
+local function any()
+return #Selection:Get() > 0
+end
+App.registerAction({
+id = "edit:drop",
+name = "Drop the selection to the ground",
+group = "Edit",
+icon = "mountain",
+words = "ground snap land floor",
+when = any,
+run = App.dropToGround,
+})
+for _, axis in AXES do
+for _, w in { { "Min", "lowest" }, { "Center", "middle" }, { "Max", "highest" } } do
+App.registerAction({
+id = "edit:align" .. axis .. w[1],
+name = string.format("Align the selection on %s, to its %s", axis, w[2]),
+group = "Edit",
+icon = "align",
+words = "align line up",
+when = any,
+run = function()
+App.alignSelection(axis, w[1])
+end,
+})
+end
+App.registerAction({
+id = "edit:distribute" .. axis,
+name = "Space the selection evenly on " .. axis,
+group = "Edit",
+icon = "align",
+words = "distribute spread even",
+when = any,
+run = function()
+App.distributeSelection(axis, G.editBy)
+end,
+})
+end
+App.registerAction({
+id = "edit:random",
+name = "Randomize the selection's turn and size",
+group = "Edit",
+icon = "refresh",
+words = "random rotate scale",
+when = any,
+run = App.randomizeSelection,
+})
+App.registerAction({
+id = "edit:replace",
+name = "Replace the selection",
+group = "Edit",
+icon = "swap",
+words = "swap exchange model",
+when = any,
+run = App.replaceSelection,
+})
+end
+end)()
 -- #module App/Panel/Tabs/Objects
 MODULES["App/Panel/Tabs/Objects"] = (function()
 --[[
@@ -1865,7 +3385,7 @@ end
 local lastClick = 0
 b.MouseButton1Click:Connect(function()
 local now = os.clock()
-if sel and spec.menu and now - lastClick < 0.35 and App.isArea(thing) then
+if sel and spec.menu and now - lastClick < 0.35 and thing.folder then
 App.startRename(thing)
 return
 end
@@ -2159,8 +3679,14 @@ App.ui.tabs[t.id] = b
 end
 local function fit()
 local cell = bar.AbsoluteSize.X / math.max(#tabs, 1)
+local both, names = true, true
 for text, ic in fits do
-text.Visible = cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+both = both and cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+names = names and cell >= text.TextBounds.X + 8
+end
+for text, ic in fits do
+text.Visible = both or names
+ic.Visible = both or not names
 end
 end
 bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
@@ -3171,10 +4697,17 @@ end
 local ray = mouse.UnitRay
 return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 end
+App.modeHandlers = {}
+App.registerMode = function(mode, spec)
+App.modeHandlers[mode] = spec
+if spec.noArea then
+App.NO_AREA_MODES[mode] = true
+end
+end
 local sizing
 local smoothUp, lastRingAt
 local function updateGizmo(hit)
-if App.mode == "Stamp" or App.mode == "Select" then
+if App.modeHandlers[App.mode] then
 gizmoFolder()
 for _, k in { "ring", "disc", "halo", "sq", "dot" } do
 if App.gz[k] then
@@ -3182,7 +4715,7 @@ App.gz[k].Visible = false
 end
 end
 end
-if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" or App.mode == "Select" then
+if App.mode == "Spline" or App.mode == "Remove" or App.modeHandlers[App.mode] then
 if App.clearGrid then
 App.clearGrid()
 end
@@ -3630,12 +5163,9 @@ if App.mode == "Remove" then
 markCopy(copyUnderMouse())
 return
 end
-if App.mode == "Stamp" then
-App.stampMove()
-return
-end
-if App.mode == "Select" then
-App.selectMove()
+local handler = App.modeHandlers[App.mode]
+if handler then
+handler.move()
 return
 end
 if sizing then
@@ -3686,12 +5216,9 @@ removeUnderMouse()
 end
 return
 end
-if App.mode == "Select" then
-App.selectDown()
-return
-end
-if App.mode == "Stamp" then
-App.stampDown()
+local handler = App.modeHandlers[App.mode]
+if handler then
+handler.down()
 return
 end
 if not App.area then
@@ -3787,8 +5314,11 @@ releaseMouse()
 end
 end))
 App.onMouseUp(function()
-if App.mode == "Stamp" then
-App.stampUp()
+local handler = App.modeHandlers[App.mode]
+if handler then
+if handler.up then
+handler.up()
+end
 return
 end
 if not down then
@@ -3992,6 +5522,7 @@ Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or 
 Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 Select = "Click a zone's ground, a path or a placed copy to work on it.",
+Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -4023,8 +5554,10 @@ clearPath()
 if App.resetSplineDrag then
 App.resetSplineDrag()
 end
-if App.clearStamp then
-App.clearStamp()
+for _, h in App.modeHandlers do
+if h.stop then
+h.stop()
+end
 end
 end
 App.setMode = function(m, layer)
@@ -4281,1967 +5814,6 @@ flush((pass == 1 and hx or hz) + n + 1)
 end
 end
 end
-end
-end)()
--- #module App/Viewport/Spline
-MODULES["App/Viewport/Spline"] = (function()
---[[
-Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local beginRec, endRec, Engine, track, G, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.num
-local new, refreshParams = App.new, App.refreshParams
-local saveArea, canGenerate, runGenerate = App.saveArea, App.canGenerate, App.runGenerate
-local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
-local gizmoFolder, setLabel = App.gizmoFolder, App.setLabel
-local sv = {}
-local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt
-local welded = {}
-local HANDLE_PX, CURVE_PX, WELD = 14, 10, 0.05
-local VIEW = App.VIEW
-local hoverHandle, dragHandle
-local drawing
-local joinSnap
-local function ensureSpline()
-if not App.area then
-newArea()
-end
-App.area.spline = App.area.spline or { pts = {}, closed = false, width = 0, snap = true }
-App.area.spline.branches = App.area.spline.branches or {}
-return App.area.spline
-end
-local function editCurves()
-local sp = App.area and App.area.spline
-if not sp then
-return {}
-end
-local list = { sp }
-for _, b in sp.branches or {} do
-table.insert(list, b)
-end
-return list
-end
-local function validPt(ref)
-return ref ~= nil and ref.cv.pts[ref.i] ~= nil and table.find(editCurves(), ref.cv) ~= nil
-end
-local function samePt(a, b)
-return a ~= nil and b ~= nil and a.cv == b.cv and a.i == b.i
-end
-local function totalPoints()
-local n = 0
-for _, cv in editCurves() do
-n += #cv.pts
-end
-return n
-end
-local function curveOf(cv)
-local sp = App.area.spline
-return cv == sp and sp or { pts = cv.pts, closed = cv.closed == true }
-end
-local function selectPt(ref)
-selPt = ref
-if App.ui.refreshPoint then
-App.ui.refreshPoint()
-end
-end
-local function handlePositions()
-if App.mode ~= "Spline" or not validPt(selPt) or #selPt.cv.pts < 2 then
-return nil
-end
-local q = selPt.cv.pts[selPt.i]
-if q.sharp then
-return nil
-end
-local h = q.h or Engine.autoHandle(curveOf(selPt.cv), selPt.i)
-if h.Magnitude < 0.05 then
-return nil
-end
-return q.p + h, q.p - h, q
-end
-local function splineVisible()
-return App.area ~= nil
-and App.area.spline ~= nil
-and #App.area.spline.pts > 0
-and App.widget.Enabled
-and (G.overlay or App.mode ~= "Off")
-and not (App.overlayHidden and App.mode ~= "Spline")
-end
-local function removeSplineViz()
-if sv.folder then
-sv.folder:Destroy()
-end
-sv = {}
-end
-local dot
-local function svFolder()
-if sv.folder and sv.folder.Parent then
-return
-end
-sv = { handles = {}, segs = {}, curves = {} }
-sv.folder = new("Folder", { Name = "SmartScatterSpline", Archivable = false, Parent = workspace.CurrentCamera })
-local T = workspace.Terrain
-local ok, w = pcall(function()
-return new(
-"WireframeHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, Thickness = 3, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
-)
-end)
-if ok and w then
-sv.wire = w
-sv.edge = new(
-"WireframeHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, Thickness = 1.5, ZIndex = 2, Transparency = 0.45, Color3 = VIEW.paper, Parent = sv.folder }
-)
-sv.glow = new(
-"WireframeHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, Thickness = 5, ZIndex = 1, Transparency = 0.8, Color3 = VIEW.edge, Parent = sv.folder }
-)
-sv.halo = new(
-"WireframeHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, Thickness = 10, ZIndex = 1, Transparency = 0.92, Color3 = VIEW.edge, Parent = sv.folder }
-)
-sv.tail = new("LineHandleAdornment", {
-Adornee = T,
-AlwaysOnTop = true,
-Thickness = 3,
-ZIndex = 3,
-Transparency = 0.25,
-Color3 = VIEW.accent,
-Visible = false,
-Parent = sv.folder,
-})
-end
-for _, k in { "hOut", "hIn" } do
-sv[k] = dot(9)
-sv[k .. "Bar"] = new(
-"BoxHandleAdornment",
-{ Adornee = T, AlwaysOnTop = true, ZIndex = 7, Transparency = 0.2, Color3 = VIEW.paper, Visible = false, Parent = sv.folder }
-)
-end
-sv.ghost = new("SphereHandleAdornment", {
-Adornee = T,
-Radius = 0.5,
-AlwaysOnTop = true,
-ZIndex = 5,
-Transparency = 0.25,
-Color3 = VIEW.accent,
-Visible = false,
-Parent = sv.folder,
-})
-end
-function dot(z)
-local d = {
-rim = new(
-"SphereHandleAdornment",
-{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = z, Color3 = VIEW.ink, Parent = sv.folder }
-),
-fill = new("SphereHandleAdornment", { Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = z + 1, Parent = sv.folder }),
-}
-return d
-end
-local function showDot(d, p, r, fill, rim, transparency)
-d.rim.Visible, d.fill.Visible = true, true
-d.rim.CFrame, d.fill.CFrame = CFrame.new(p), CFrame.new(p)
-d.rim.Radius, d.fill.Radius = r, r * 0.68
-d.rim.Color3, d.fill.Color3 = rim or VIEW.ink, fill
-d.rim.Transparency, d.fill.Transparency = transparency or 0, transparency or 0
-end
-local function hideDot(d)
-d.rim.Visible, d.fill.Visible = false, false
-end
-local function handleRadius(p)
-local cam = workspace.CurrentCamera
-return math.clamp((cam.CFrame.Position - p).Magnitude * 0.011, 0.35, 6)
-end
-local function updateHandles()
-if not sv.folder or not App.area or not App.area.spline then
-return
-end
-local flat = {}
-for _, cv in editCurves() do
-for i in cv.pts do
-table.insert(flat, { cv = cv, i = i })
-end
-end
-local main = App.area.spline
-for k = 1, math.max(#flat, #sv.handles) do
-local h = sv.handles[k]
-local ref = flat[k]
-if ref then
-local q = ref.cv.pts[ref.i]
-if not h then
-h = dot(6)
-sv.handles[k] = h
-end
-local hot = samePt(ref, hoverPt) or samePt(ref, dragPt)
-local sel = samePt(ref, selPt)
-local start = ref.cv == main and ref.i == 1
-local fill = (hot or sel) and VIEW.accent or q.sharp and VIEW.corner or start and VIEW.accent or VIEW.paper
-showDot(
-h,
-q.p + q.n * 0.3,
-handleRadius(q.p) * ((hot or sel) and 1.3 or 1),
-fill,
-(hot or sel) and VIEW.paper or nil,
-App.mode == "Spline" and 0 or 0.45
-)
-elseif h then
-hideDot(h)
-end
-end
-local out, inn, q = handlePositions()
-for _, it in { { "hOut", out, "out" }, { "hIn", inn, "in" } } do
-local ball, bar, pos = sv[it[1]], sv[it[1] .. "Bar"], it[2]
-if ball then
-bar.Visible = pos ~= nil
-if pos then
-local hot = hoverHandle == it[3] or dragHandle == it[3]
-local a, b = q.p + q.n * 0.3, pos + q.n * 0.3
-showDot(ball, b, handleRadius(pos) * (hot and 0.8 or 0.55), hot and VIEW.accent or VIEW.paper)
-local w = handleRadius(pos) * 0.12
-bar.Size = Vector3.new(w, w, (b - a).Magnitude)
-bar.CFrame = CFrame.lookAt((a + b) / 2, b)
-else
-hideDot(ball)
-end
-end
-end
-end
-App.drawSpline = function()
-if not splineVisible() then
-removeSplineViz()
-return
-end
-svFolder()
-local sp = App.area.spline
-local approx = 0
-for _, cv in editCurves() do
-for i = 2, #cv.pts do
-approx += (cv.pts[i].p - cv.pts[i - 1].p).Magnitude
-end
-end
-local step = math.clamp(approx / 700, 0.5, 4)
-sv.curves = {}
-local lines = {}
-for _, cv in editCurves() do
-if #cv.pts >= 2 then
-local P, U, S, Wd = Engine.splineCurve(curveOf(cv), step)
-table.insert(sv.curves, { cv = cv, P = P, U = U, S = S, W = Wd })
-local lifted = table.create(#P)
-for k = 1, #P do
-lifted[k] = P[k] + U[k] * 0.3
-end
-table.insert(lines, lifted)
-end
-end
-if sv.wire then
-sv.wire:Clear()
-sv.edge:Clear()
-sv.glow:Clear()
-sv.halo:Clear()
-for _, L in lines do
-for k = 1, #L - 1 do
-sv.wire:AddLine(L[k], L[k + 1])
-end
-for k = 1, #L - 1, 2 do
-local b = L[math.min(k + 2, #L)]
-sv.glow:AddLine(L[k], b)
-sv.halo:AddLine(L[k], b)
-end
-end
-else
-local n = 0
-for _, L in lines do
-for k = 1, #L - 1 do
-n += 1
-local seg = sv.segs[n]
-if not seg then
-seg = new(
-"BoxHandleAdornment",
-{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 3, Color3 = VIEW.accent, Parent = sv.folder }
-)
-sv.segs[n] = seg
-end
-local a, b = L[k], L[k + 1]
-local len = (b - a).Magnitude
-seg.Visible = len > 1e-3
-if len > 1e-3 then
-seg.Size = Vector3.new(0.3, 0.2, len + 0.3)
-seg.CFrame = CFrame.lookAt((a + b) / 2, b)
-end
-end
-end
-for k = n + 1, #sv.segs do
-sv.segs[k].Visible = false
-end
-end
-if sv.edge and (sp.width or 0) > 0 then
-local R = sp.width / 2
-for ci, c in sv.curves do
-local P, L = c.P, lines[ci]
-local A, B = {}, {}
-for k = 1, #P do
-local t = P[math.min(k + 1, #P)] - P[math.max(k - 1, 1)]
-local side = Vector3.new(-t.Z, 0, t.X)
-side = side.Magnitude > 1e-4 and side.Unit or Vector3.xAxis
-A[k], B[k] = L[k] + side * R * c.W[k], L[k] - side * R * c.W[k]
-end
-for k = 1, #P - 1 do
-sv.edge:AddLine(A[k], A[k + 1])
-sv.edge:AddLine(B[k], B[k + 1])
-end
-end
-end
-updateHandles()
-end
-track(workspace.CurrentCamera:GetPropertyChangedSignal("CFrame"):Connect(function()
-if App.mode == "Spline" and sv.folder then
-updateHandles()
-end
-end))
-local mouseAt
-local function screenDist(p)
-local v, on = workspace.CurrentCamera:WorldToViewportPoint(p)
-if not on or v.Z <= 0 then
-return math.huge
-end
-local m = mouseAt or Vector2.new(rawMouse.X, rawMouse.Y)
-return (Vector2.new(v.X, v.Y) - m).Magnitude
-end
-local function pickPoint(skip)
-local best, bd = nil, HANDLE_PX
-for _, cv in editCurves() do
-for i, q in cv.pts do
-if not (skip and skip(cv, i, q)) then
-local d = screenDist(q.p + q.n * 0.3)
-if d < bd - 0.5 then
-best, bd = { cv = cv, i = i }, d
-end
-end
-end
-end
-return best
-end
-local function pickHandle()
-local out, inn, q = handlePositions()
-if out and screenDist(out + q.n * 0.3) < HANDLE_PX then
-return "out"
-end
-if inn and screenDist(inn + q.n * 0.3) < HANDLE_PX then
-return "in"
-end
-return nil
-end
-local STRIDE = 4
-local function pickCurve(skip)
-local best, bd = nil, CURVE_PX
-for _, c in sv.curves or {} do
-local P, n = c.P, #c.P
-local near, nd = nil, math.huge
-for k = 1, n, STRIDE do
-if not (skip and skip(c.cv, c.S[k])) then
-local d = screenDist(P[k] + c.U[k] * 0.3)
-if d < nd then
-near, nd = k, d
-end
-end
-end
-if near then
-for k = math.max(1, near - STRIDE), math.min(n, near + STRIDE) do
-if not (skip and skip(c.cv, c.S[k])) then
-local d = screenDist(P[k] + c.U[k] * 0.3)
-if d < bd then
-best, bd = { cv = c.cv, p = P[k], n = c.U[k], seg = c.S[k] }, d
-end
-end
-end
-end
-end
-return best
-end
-local snapTo
-local function findSnap(ref, extra)
-local q = ref.cv.pts[ref.i]
-local function mine(cv, i, o)
-return (cv == ref.cv and i == ref.i) or (o.p - q.p).Magnitude < WELD or (extra and extra[o])
-end
-local hitPt = pickPoint(function(cv, i, o)
-return mine(cv, i, o) or (cv == ref.cv and math.abs(i - ref.i) == 1)
-end)
-if hitPt then
-return { kind = "point", ref = hitPt }
-end
-local isEnd = ref.i == 1 or ref.i == #ref.cv.pts
-if not isEnd then
-return nil
-end
-local hitCv = pickCurve(function(cv, seg)
-return cv == ref.cv and (seg == ref.i or seg == ref.i - 1 or seg == ref.i - 2 or seg == ref.i + 1)
-end)
-if hitCv then
-return { kind = "curve", at = hitCv }
-end
-return nil
-end
-local function growAction()
-local sp = App.area and App.area.spline
-if not sp or #sp.pts == 0 or not validPt(selPt) then
-return "append"
-end
-local cv, i = selPt.cv, selPt.i
-local open = not cv.closed or #cv.pts < 3
-if open and i == #cv.pts then
-return "append"
-elseif open and cv == sp and i == 1 then
-return "prepend"
-end
-return "branch"
-end
-App.refreshSplineInfo = function()
-if not App.ui.splineInfo then
-return
-end
-local sp = App.area and App.area.spline
-if not sp or #sp.pts == 0 then
-App.ui.splineInfo.Text = "No spline yet. Press Draw, then click in the viewport to place points."
-return
-end
-local len = 0
-for _, cv in Engine.splineCurves(sp) do
-local P = Engine.splineCurve(cv, 2)
-for k = 2, #P do
-len += (P[k] - P[k - 1]).Magnitude
-end
-end
-local n, nb, nl = totalPoints(), 0, 0
-for _, b in sp.branches or {} do
-if b.closed then
-nl += 1
-else
-nb += 1
-end
-end
-App.ui.splineInfo.Text = string.format(
-"%d point%s · %s studs · %s%s%s%s",
-n,
-n == 1 and "" or "s",
-num(len),
-(sp.closed and #sp.pts >= 3) and "loop" or "open",
-nb > 0 and string.format(" · %d branch%s", nb, nb == 1 and "" or "es") or "",
-nl > 0 and string.format(" · %d more loop%s", nl, nl == 1 and "" or "s") or "",
-(sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
-)
-end
-local function pointParams()
-local skip = App.templates()
-local road = App.area and Engine.roadOf(App.area)
-if road then
-table.insert(skip, road)
-end
-return (Engine.rayParams(skip))
-end
-local function commitSpline(rec)
-local sp = App.area.spline
-local stripChanged = false
-if sp and (sp.width or 0) > 0 then
-local before = App.area.rows
-refreshParams()
-Engine.maskFromSpline(App.area, pointParams())
-local after = App.area.rows
-for _, pair in { { before, after }, { after, before } } do
-for cz, row in pair[1] do
-local other = pair[2][cz]
-for cx in row do
-if not (other and other[cx]) then
-App.dirtyRows[cz] = true
-stripChanged = true
-break
-end
-end
-end
-end
-end
-saveArea()
-endRec(rec)
-local roadMatters = false
-if sp and Engine.roadWidth(sp) > 0 then
-for _, l in App.area.layers do
-roadMatters = roadMatters or not Engine.isLine(l)
-end
-end
-if stripChanged or roadMatters then
-App.analysisDirty = true
-end
-if G.live and canGenerate() then
-runGenerate(false)
-end
-App.drawSpline()
-App.refreshSplineInfo()
-App.checkShape()
-if not (G.live and canGenerate()) then
-App.markPending()
-App.refreshScan()
-App.refreshCounts()
-App.status(select(2, canGenerate()) or "Spline updated. Press Generate.")
-end
-end
-local function splineEdit(name, fn)
-local rec = beginRec("Smart Scatter: " .. name)
-fn()
-commitSpline(rec)
-end
-local function pointHit()
-local rp = pointParams()
-local ray = rawMouse.UnitRay
-local hit = Engine.cast(ray.Origin, ray.Direction * 5000, rp)
-local sp = App.area and App.area.spline
-if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), rp)
-if down and down.Normal.Y >= 0.55 then
-return down
-end
-end
-return hit
-end
-local function splineLabel(hit, text)
-gizmoFolder()
-App.gz.ring.Visible, App.gz.disc.Visible, App.gz.sq.Visible = false, false, false
-App.gz.dot.Visible = hit ~= nil and not hoverPt
-if hit then
-App.gz.dot.CFrame = CFrame.new(hit.Position)
-App.gz.dot.Color3 = VIEW.accent
-App.gz.anchor.CFrame = CFrame.new(hit.Position)
-end
-setLabel(hit and text or "")
-end
-local drawPending = false
-local function requestDraw()
-drawPending = true
-end
-track(App.RunService.Heartbeat:Connect(function()
-if drawPending then
-drawPending = false
-App.drawSpline()
-end
-end))
-mouse.Move:Connect(function()
-if App.mode ~= "Spline" then
-return
-end
-if App.shapeTool then
-App.shapeMove()
-return
-end
-local sp = App.area and App.area.spline
-if dragHandle and validPt(selPt) then
-local q = selPt.cv.pts[selPt.i]
-local ray = rawMouse.UnitRay
-local nrm = Vector3.yAxis
-if shiftHeld() then
-local look = workspace.CurrentCamera.CFrame.LookVector
-nrm = Vector3.new(look.X, 0, look.Z)
-nrm = nrm.Magnitude > 1e-3 and nrm.Unit or Vector3.xAxis
-end
-local denom = ray.Direction:Dot(nrm)
-if math.abs(denom) > 1e-4 then
-local t = (q.p - ray.Origin):Dot(nrm) / denom
-if t > 0 then
-local off = ray.Origin + ray.Direction * t - q.p
-if shiftHeld() then
-local cur = q.h or Engine.autoHandle(curveOf(selPt.cv), selPt.i)
-local was = dragHandle == "out" and cur or -cur
-off = Vector3.new(was.X, off.Y, was.Z)
-end
-q.h = dragHandle == "out" and off or -off
-dragMoved = true
-requestDraw()
-end
-end
-splineLabel(nil)
-return
-end
-if drawing then
-local hit = pointHit()
-if hit and sv.tail then
-local from = drawing.anchor + Vector3.new(0, 0.3, 0)
-local to = hit.Position + hit.Normal * 0.3
-local len = (to - from).Magnitude
-sv.tail.Visible = len > 0.05
-if len > 0.05 then
-sv.tail.CFrame, sv.tail.Length = CFrame.lookAt(from, to), len
-end
-end
-if hit and (hit.Position - drawing.anchor).Magnitude >= drawing.spacing then
-local q = { p = hit.Position, n = hit.Normal }
-local cv = drawing.cv
-if drawing.prepend then
-table.insert(cv.pts, 1, q)
-else
-table.insert(cv.pts, q)
-end
-table.insert(drawing.pts, q)
-drawing.anchor = hit.Position
-selPt = { cv = cv, i = drawing.prepend and 1 or #cv.pts }
-requestDraw()
-end
-splineLabel(hit, "Drawing · release to finish")
-return
-end
-if dragPt and validPt(dragPt) then
-local q = dragPt.cv.pts[dragPt.i]
-local before = q.p
-if shiftHeld() then
-local ray = rawMouse.UnitRay
-local look = workspace.CurrentCamera.CFrame.LookVector
-local nrm = Vector3.new(look.X, 0, look.Z)
-if nrm.Magnitude > 1e-3 then
-nrm = nrm.Unit
-local denom = ray.Direction:Dot(nrm)
-if math.abs(denom) > 1e-4 then
-local t = (q.p - ray.Origin):Dot(nrm) / denom
-if t > 0 then
-q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
-local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, pointParams())
-q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
-end
-end
-end
-splineLabel(nil)
-else
-local hit = pointHit()
-if hit then
-q.p = hit.Position
-q.n = hit.Normal
-q.raised = nil
-end
-snapTo = findSnap(dragPt)
-if snapTo then
-local target = snapTo.kind == "point" and snapTo.ref.cv.pts[snapTo.ref.i] or snapTo.at
-q.p, q.n = target.p, target.n
-end
-splineLabel(
-hit,
-snapTo and (snapTo.kind == "point" and "Release to join these points" or "Release to join the curve here") or "Moving point"
-)
-end
-if q.p ~= before then
-dragMoved = true
-for _, w in welded do
-local o = w.cv.pts[w.i]
-if o then
-o.p, o.n, o.raised = q.p, q.n, q.raised
-end
-end
-requestDraw()
-end
-return
-end
-local wasHandle, wasPt = hoverHandle, hoverPt
-hoverHandle = pickHandle()
-hoverPt = not hoverHandle and pickPoint() or nil
-hoverIns = not hoverHandle and not hoverPt and pickCurve() or nil
-if sv.ghost then
-sv.ghost.Visible = hoverIns ~= nil
-if hoverIns then
-sv.ghost.CFrame = CFrame.new(hoverIns.p + hoverIns.n * 0.3)
-sv.ghost.Radius = handleRadius(hoverIns.p) * 0.8
-end
-end
-if hoverHandle ~= wasHandle or ((hoverPt or wasPt) and not samePt(hoverPt, wasPt)) then
-updateHandles()
-end
-local hit = pointHit()
-local text
-if hoverHandle then
-text = "Drag to bend the curve · Shift for height"
-elseif hoverPt then
-text = "Drag to move · click to select · right-click to delete"
-elseif hoverIns then
-text = "Click to insert a point here"
-elseif not sp or #sp.pts == 0 then
-text = "Click to start the spline · hold and drag to draw it"
-else
-local act = growAction()
-text = act == "branch" and "Click to start a branch from the selected point"
-or act == "prepend" and "Click to extend from the start"
-or "Click to add a point · hold and drag to draw"
-end
-splineLabel(hit, text)
-end)
-mouse.Button1Down:Connect(function()
-if App.mode ~= "Spline" or (App.overViewportUI and App.overViewportUI()) then
-return
-end
-if App.shapeTool then
-App.shapeDown()
-return
-end
-if hoverHandle and validPt(selPt) then
-dragHandle = hoverHandle
-dragRec = beginRec("Smart Scatter: Spline handle")
-dragMoved = false
-return
-end
-local sp = ensureSpline()
-snapTo = nil
-dragRec = beginRec("Smart Scatter: Spline")
-dragMoved = false
-table.clear(welded)
-if hoverPt and validPt(hoverPt) then
-dragPt = hoverPt
-local at = dragPt.cv.pts[dragPt.i].p
-for _, cv in editCurves() do
-for i, q in cv.pts do
-if (q.p - at).Magnitude < WELD and not (cv == dragPt.cv and i == dragPt.i) then
-table.insert(welded, { cv = cv, i = i })
-end
-end
-end
-elseif hoverIns then
-table.insert(hoverIns.cv.pts, hoverIns.seg + 1, { p = hoverIns.p, n = hoverIns.n })
-dragPt = { cv = hoverIns.cv, i = hoverIns.seg + 1 }
-dragMoved = true
-else
-local hit = pointHit()
-if not hit then
-endRec(dragRec, true)
-dragRec = nil
-return
-end
-local q = { p = hit.Position, n = hit.Normal }
-local act = growAction()
-local cv, prepend
-if act == "branch" then
-local root = selPt.cv.pts[selPt.i]
-cv = { pts = { { p = root.p, n = root.n }, q }, closed = false }
-table.insert(sp.branches, cv)
-elseif act == "prepend" then
-cv, prepend = sp, true
-table.insert(sp.pts, 1, q)
-else
-cv = validPt(selPt) and selPt.cv or sp
-table.insert(cv.pts, q)
-end
-local camDist = (workspace.CurrentCamera.CFrame.Position - hit.Position).Magnitude
-drawing = { cv = cv, prepend = prepend, anchor = hit.Position, spacing = math.clamp(camDist * 0.045, 1.2, 30), pts = { q } }
-dragMoved = true
-selectPt({ cv = cv, i = prepend and 1 or #cv.pts })
-hoverIns = nil
-App.drawSpline()
-return
-end
-selectPt(dragPt)
-hoverIns = nil
-App.drawSpline()
-end)
-function joinSnap(ref, snap)
-local sp = App.area.spline
-if snap.kind == "point" then
-local how = Engine.joinToPoint(sp, ref, snap.ref)
-if how == "closed" then
-selectPt({ cv = ref.cv, i = 1 })
-return "Closed the loop."
-end
-return how and "Joined. The two points now move together." or nil
-end
-local at = snap.at
-Engine.joinToCurve(ref, at.cv, at.seg, at.p, at.n)
-return "Joined into the curve (a junction point was added)."
-end
-local function finishDrawing()
-local d = drawing
-drawing = nil
-if sv.tail then
-sv.tail.Visible = false
-end
-local hit = pointHit()
-local cv = d.cv
-if hit and (hit.Position - d.anchor).Magnitude >= d.spacing * 0.4 then
-local q = { p = hit.Position, n = hit.Normal }
-if d.prepend then
-table.insert(cv.pts, 1, q)
-else
-table.insert(cv.pts, q)
-end
-table.insert(d.pts, q)
-end
-local own = {}
-for k = 2, #d.pts do
-own[d.pts[k]] = true
-end
-local endRef = { cv = cv, i = d.prepend and 1 or #cv.pts }
-local snap = #d.pts >= 2 and findSnap(endRef, own)
-if snap then
-local target = snap.kind == "point" and snap.ref.cv.pts[snap.ref.i] or snap.at
-local q = cv.pts[endRef.i]
-q.p, q.n = target.p, target.n
-end
-local anchor = snap and (snap.kind == "point" and snap.ref.cv.pts[snap.ref.i] or snap.at.cv.pts[snap.at.seg])
-local drop = Engine.thinStroke(d.pts, d.spacing)
-for i = #cv.pts, 1, -1 do
-if drop[cv.pts[i]] then
-table.remove(cv.pts, i)
-end
-end
-if snap then
-local list = snap.kind == "point" and snap.ref.cv.pts or snap.at.cv.pts
-local i = anchor and table.find(list, anchor)
-if not i then
-snap = nil
-elseif snap.kind == "point" then
-snap.ref = { cv = snap.ref.cv, i = i }
-else
-snap.at.seg = i
-end
-end
-local joined
-if snap then
-joined = joinSnap({ cv = cv, i = d.prepend and 1 or #cv.pts }, snap)
-end
-if not (joined and joined == "Closed the loop.") then
-selectPt({ cv = cv, i = d.prepend and 1 or #cv.pts })
-end
-if joined then
-App.status(joined)
-end
-end
-App.onMouseUp(function()
-if App.mode == "Spline" and App.shapeTool then
-App.shapeUp()
-return
-end
-if App.mode == "Spline" and dragHandle then
-dragHandle = nil
-local rec = dragRec
-dragRec = nil
-if dragMoved then
-commitSpline(rec)
-else
-endRec(rec, true)
-end
-return
-end
-if drawing and App.area then
-finishDrawing()
-local rec = dragRec
-dragRec = nil
-commitSpline(rec)
-return
-end
-if App.mode ~= "Spline" or not dragPt then
-return
-end
-local joined = snapTo and validPt(dragPt) and dragMoved and joinSnap(dragPt, snapTo)
-snapTo = nil
-dragPt = nil
-table.clear(welded)
-local rec = dragRec
-dragRec = nil
-if dragMoved then
-commitSpline(rec)
-if joined then
-App.status(joined)
-end
-else
-endRec(rec, true)
-updateHandles()
-end
-end)
-App.resetSplineDrag = function(cancel)
-if App.cancelShape then
-App.cancelShape()
-end
-local rec, moved = dragRec, dragMoved
-if drawing and App.area and not cancel then
-finishDrawing()
-end
-drawing, dragPt, dragHandle, snapTo, dragRec, dragMoved = nil, nil, nil, nil, nil, false
-table.clear(welded)
-if rec then
-if moved and not cancel and App.area then
-commitSpline(rec)
-else
-endRec(rec, true)
-end
-end
-end
-local function deletePoint(ref)
-local sp = App.area and App.area.spline
-if not sp or not validPt(ref) then
-return
-end
-splineEdit("Spline", function()
-table.remove(ref.cv.pts, ref.i)
-if ref.cv ~= sp and #ref.cv.pts < 3 then
-ref.cv.closed = nil
-end
-if ref.cv ~= sp and #ref.cv.pts < 2 then
-table.remove(sp.branches, table.find(sp.branches, ref.cv))
-elseif ref.cv == sp and #sp.pts == 0 and #(sp.branches or {}) > 0 then
-sp.pts = table.remove(sp.branches, 1).pts
-end
-end)
-hoverPt = nil
-if validPt(ref) and ref.i > 1 then
-selectPt({ cv = ref.cv, i = ref.i - 1 })
-elseif validPt(ref) then
-selectPt(ref)
-else
-selectPt(nil)
-end
-updateHandles()
-end
-local function setSharp(ref, on)
-local q = ref.cv.pts[ref.i]
-splineEdit("Spline corner", function()
-for _, cv in editCurves() do
-for _, o in cv.pts do
-if (o.p - q.p).Magnitude < WELD then
-o.sharp = on or nil
-if on then
-o.h = nil
-end
-end
-end
-end
-end)
-App.status(on and "Sharp corner. Press C again to smooth it." or "Smooth point.")
-if App.ui.refreshPoint then
-App.ui.refreshPoint()
-end
-end
-App.selectedPoint = function()
-return App.mode == "Spline" and validPt(selPt) and selPt.cv.pts[selPt.i] or nil
-end
-App.pointAction = function(what)
-if not validPt(selPt) then
-return
-end
-if what == "sharp" then
-setSharp(selPt, not selPt.cv.pts[selPt.i].sharp)
-elseif what == "resetHandle" then
-local q = selPt.cv.pts[selPt.i]
-splineEdit("Spline handle", function()
-q.h = nil
-end)
-if App.ui.refreshPoint then
-App.ui.refreshPoint()
-end
-elseif what == "delete" then
-deletePoint(selPt)
-end
-end
-App.onRightClick(function()
-if App.mode == "Spline" and hoverPt then
-deletePoint(hoverPt)
-end
-end)
-App.clickSplinePoint = function(at)
-if App.mode == "Spline" or not sv.folder or not App.area or not App.area.spline or App.area.locked then
-return false
-end
-mouseAt = at
-local ref = pickPoint()
-mouseAt = nil
-if not ref then
-return false
-end
-App.setMode("Spline")
-if App.mode ~= "Spline" then
-return false
-end
-selectPt(ref)
-App.drawSpline()
-App.status("Editing the spline: drag points, or select one and click the ground to extend or branch.")
-return true
-end
-track(game:GetService("UserInputService").InputBegan:Connect(function(input)
-if input.UserInputType ~= Enum.UserInputType.MouseButton1 or App.mode ~= "Off" or not App.widget.Enabled then
-return
-end
-local before = App.Selection:Get()
-if App.clickSplinePoint(Vector2.new(input.Position.X, input.Position.Y)) then
-task.defer(function()
-App.Selection:Set(before)
-end)
-end
-end))
-App.splineKey = function(name)
-if name == "back" then
-local sp = App.area and App.area.spline
-if sp and #sp.pts > 0 then
-deletePoint(hoverPt or (validPt(selPt) and selPt) or { cv = sp, i = #sp.pts })
-end
-elseif name == "delete" then
-local ref = hoverPt or (validPt(selPt) and selPt)
-if ref then
-deletePoint(ref)
-else
-App.status("Hover or select a point, then press X to delete it.")
-end
-elseif name == "corner" then
-local ref = hoverPt or (validPt(selPt) and selPt)
-if not ref then
-App.status("Select a point first, then press C for a sharp corner.")
-return
-end
-setSharp(ref, not ref.cv.pts[ref.i].sharp)
-elseif name == "cancel" and App.shapeTool then
-App.cancelShape()
-elseif name == "close" or name == "cancel" then
-selectPt(nil)
-App.setMode("Off")
-end
-end
-App.clearSplineFn = function(rec)
-local sp = App.area and App.area.spline
-if not sp then
-return
-end
-table.clear(sp.pts)
-sp.branches = {}
-hoverPt = nil
-selectPt(nil)
-commitSpline(rec)
-end
-App.newSplineFn = function(opts)
-local n = 1
-while Engine.getOut():FindFirstChild("Path " .. n) do
-n += 1
-end
-local rec = beginRec("Smart Scatter: New Spline")
-local a = Engine.createArea("Path " .. n, nil)
-a.folder:SetAttribute("SS_Kind", "Path")
-endRec(rec)
-switchArea(a.folder)
-ensureSpline()
-if not (opts and opts.keepMode) then
-App.setMode("Spline")
-end
-end
-App.subdivideSpline = function()
-local sp = App.area and App.area.spline
-if not sp or totalPoints() < 2 then
-App.status("Draw a path or place a shape first, then subdivide it.")
-return
-end
-local list = validPt(selPt) and { selPt.cv } or editCurves()
-local added = 0
-splineEdit("Subdivide", function()
-for _, cv in list do
-if #cv.pts + #cv.pts <= 512 then
-added += Engine.subdivide(curveOf(cv))
-end
-end
-end)
-hoverPt = nil
-if validPt(selPt) then
-selectPt({ cv = selPt.cv, i = math.min(selPt.i * 2 - 1, #selPt.cv.pts) })
-end
-App.status(
-added > 0 and string.format("Added %d point%s, one halfway along each side.", added, added == 1 and "" or "s")
-or "That curve already has plenty of points."
-)
-end
-App.registerTool({
-id = "path",
-group = "Path",
-icon = "spline",
-name = "Draw a path",
-when = function()
-return not (App.selected and App.selected.kind == "Clear")
-end,
-on = function()
-return App.mode == "Spline"
-end,
-click = function()
-if App.mode == "Spline" then
-App.setMode("Off")
-elseif App.area and App.selected and (App.selected.kind == "Zone" or App.selected.kind == "Path") then
-ensureSpline()
-App.setMode("Spline")
-else
-App.newSplineFn()
-end
-end,
-})
-App.commitSplineFn = commitSpline
-App.ensureSplineFn = ensureSpline
-App.splinePointHit = pointHit
-App.splineLabel = splineLabel
-App.selectSplinePoint = selectPt
-App.removeSplineViz = removeSplineViz
-end
-end)()
--- #module App/Viewport/Shapes
-MODULES["App/Viewport/Shapes"] = (function()
---[[
-Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
-round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
-centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
-rectangle. The shape is a real closed curve of the path from the first move, so what shows while dragging is what
-you get, each corner on the ground under it. An empty path becomes the shape; otherwise it's a loop of its own in the
-same path (same width and objects). One shape per pick, then it's back to editing points, Blender style.
-The spline editor (Viewport/Spline) hands its mouse over while a shape is picked.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local Engine, beginRec, endRec, rawMouse = App.Engine, App.beginRec, App.endRec, App.rawMouse
-local MIN = 2
-local placing
-App.shapeTool = nil
-local function refresh()
-if App.ui.refreshShapes then
-App.ui.refreshShapes()
-end
-if App.refreshFocus then
-App.refreshFocus()
-end
-end
-local function onPlane(y)
-local ray = rawMouse.UnitRay
-if ray.Direction.Y < -1e-3 then
-local t = (y - ray.Origin.Y) / ray.Direction.Y
-if t > 0 then
-return ray.Origin + ray.Direction * t
-end
-end
-local hit = App.splinePointHit()
-return hit and hit.Position
-end
-local function ground(v, up, reach)
-local hit = Engine.cast(v + Vector3.new(0, reach, 0), Vector3.new(0, -reach * 3 - 50, 0), App.probeParams)
-if hit then
-return hit.Position, hit.Normal
-end
-return v, up
-end
-local function fill(to, free)
-local pl = placing
-local corners, smooth = Engine.shapePoints(pl.kind, pl.from, to, free)
-local dx, dz = to.X - pl.from.X, to.Z - pl.from.Z
-local size = math.sqrt(dx * dx + dz * dz)
-local pts = pl.cv.pts
-table.clear(pts)
-for _, c in corners do
-local p, n = ground(c, pl.up, 10 + size * 0.6)
-table.insert(pts, { p = p, n = n, sharp = not smooth or nil })
-end
-pl.size = size
-pl.text = pl.kind == "Rectangle" and string.format("Rectangle · %s × %s studs", App.num(math.abs(dx)), App.num(math.abs(dz)))
-or string.format("%s · %s studs across", pl.kind, App.num(size * 2))
-end
-local function unplace(pl)
-local sp = App.area and App.area.spline
-if not sp then
-return
-end
-if pl.main then
-table.clear(sp.pts)
-sp.closed = pl.wasClosed
-else
-local i = table.find(sp.branches, pl.cv)
-if i then
-table.remove(sp.branches, i)
-end
-end
-end
-App.pickShape = function(kind)
-if App.shapeTool == kind then
-App.cancelShape()
-return
-end
-if App.mode ~= "Spline" then
-App.ensureSplineFn()
-App.setMode("Spline")
-if App.mode ~= "Spline" then
-return
-end
-end
-App.cancelShape()
-App.shapeTool = kind
-App.selectSplinePoint(nil)
-refresh()
-App.status(
-kind == "Rectangle" and "Drag from one corner of the rectangle to the opposite one."
-or string.format("Drag from the centre of the %s outward. It turns in 15° steps; hold Shift to turn freely.", string.lower(kind))
-)
-end
-App.shapeDown = function()
-local hit = App.splinePointHit()
-if not hit then
-return
-end
-local sp = App.ensureSplineFn()
-local main = #sp.pts == 0
-local cv = main and sp or { pts = {}, closed = true }
-placing = {
-kind = App.shapeTool,
-from = hit.Position,
-up = hit.Normal,
-cv = cv,
-main = main,
-wasClosed = sp.closed,
-rec = beginRec("Smart Scatter: " .. App.shapeTool),
-size = 0,
-}
-if main then
-sp.closed = true
-else
-table.insert(sp.branches, cv)
-end
-end
-App.shapeMove = function()
-if not placing then
-local hit = App.splinePointHit()
-App.splineLabel(
-hit,
-App.shapeTool == "Rectangle" and "Rectangle · drag from one corner to the other"
-or App.shapeTool .. " · drag from its centre outward"
-)
-return
-end
-local to = onPlane(placing.from.Y)
-if to then
-fill(to, App.shiftHeld())
-App.drawSpline()
-end
-App.splineLabel({ Position = to or placing.from }, placing.text or placing.kind)
-end
-App.shapeUp = function()
-local pl = placing
-placing = nil
-if not pl then
-return
-end
-if pl.size < MIN or #pl.cv.pts < 3 then
-unplace(pl)
-endRec(pl.rec, true)
-App.drawSpline()
-App.status("Hold and drag to size the shape.")
-return
-end
-App.shapeTool = nil
-App.selectSplinePoint({ cv = pl.cv, i = 1 })
-App.commitSplineFn(pl.rec)
-refresh()
-App.status(
-pl.kind
-.. " placed. Drag a corner to move it, click an edge to add a point, "
-.. App.keyText("delete")
-.. " deletes one, and Subdivide adds one on every side."
-)
-end
-App.cancelShape = function()
-local pl = placing
-placing = nil
-if pl then
-unplace(pl)
-endRec(pl.rec, true)
-if App.drawSpline then
-App.drawSpline()
-end
-end
-if App.shapeTool then
-App.shapeTool = nil
-refresh()
-end
-end
-end
-end)()
--- #module App/Viewport/Stamp
-MODULES["App/Viewport/Stamp"] = (function()
---[[
-Smart Scatter — Stamp: one model, put down exactly where and how you want it, anywhere on the ground. No area,
-painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
-folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
-The model floats under the mouse, see-through, standing just as it will; a click puts it down, a drag from where
-you pressed turns it to face the mouse (15° steps; Shift turns freely). Keys turn it, size it, pick the model or
-roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
-Workspace › Stamps: Generate, Erase and the areas never touch them; Ctrl+Z takes one back, Delete removes one.
-Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
-local STEP = math.rad(15)
-local DRAG_PX = 6
-local FOLDER = "Stamps"
-local BARE = { s = {} }
-local stamp = { models = {}, vi = 1, yaw = 0, k = 1, from = nil }
-App.stamp = stamp
-local measured = setmetatable({}, { __mode = "k" })
-local function variantOf(inst)
-local v = measured[inst]
-if v == nil then
-v = Engine.makeVariant(inst, 1, 1) or false
-measured[inst] = v
-end
-return v or nil
-end
-local function current()
-local inst = stamp.models[stamp.vi] or stamp.models[1]
-return inst, inst and variantOf(inst)
-end
-local function selectedModels()
-local out = {}
-local placedByUs = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
-local function ours(inst)
-if inst:GetAttribute("SS_Type") ~= nil then
-return true
-end
-for _, f in placedByUs do
-if f and inst:IsDescendantOf(f) then
-return true
-end
-end
-return false
-end
-local function take(inst)
-if (inst:IsA("Model") or inst:IsA("BasePart")) and not ours(inst) and variantOf(inst) then
-table.insert(out, inst)
-end
-end
-for _, s in App.Selection:Get() do
-if s:IsA("Folder") then
-for _, c in s:GetChildren() do
-take(c)
-end
-else
-take(s)
-end
-end
-return out
-end
-App.startStamp = function(from)
-local models
-if from then
-models = {}
-for _, v in from.variants do
-table.insert(models, v.inst)
-end
-else
-models = selectedModels()
-if #models == 0 then
-models = #stamp.models > 0 and stamp.models or nil
-from = stamp.from
-end
-if not models and App.brushTarget() then
-from = App.brushTarget()
-models = {}
-for _, v in from.variants do
-table.insert(models, v.inst)
-end
-end
-end
-if not models or #models == 0 then
-App.status("Select a model in the Explorer (or a folder of them), then press Stamp.")
-return false
-end
-if models ~= stamp.models then
-stamp.models, stamp.vi, stamp.from = models, 1, from
-local s = from and from.s
-stamp.k = s and (s.scaleMin + s.scaleMax) / 2 or 1
-stamp.base = stamp.k
-end
-if App.mode ~= "Stamp" then
-App.setMode("Stamp")
-end
-if App.refreshStamp then
-App.refreshStamp()
-end
-local inst = current()
-App.status(
-string.format(
-"Stamping %s%s. Click to put it down, drag to turn it.",
-inst.Name,
-#models > 1 and string.format(" (and %d more)", #models - 1) or ""
-)
-)
-return true
-end
-local ghost
-local press
-local function clearGhost()
-if ghost then
-ghost.clone:Destroy()
-ghost = nil
-end
-end
-local function ghostFor(inst, v, sc)
-if ghost and ghost.v == v and math.abs(ghost.sc - sc) < 1e-4 and ghost.clone.Parent then
-return ghost
-end
-clearGhost()
-local c = (v.src or inst):Clone()
-c.Archivable = false
-local all = c:GetDescendants()
-table.insert(all, c)
-for _, d in all do
-if d:IsA("BasePart") then
-d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow, d.Locked = true, false, false, false, false, true
-d.Transparency = 1 - (1 - d.Transparency) * 0.5
-elseif d:IsA("Decal") then
-d.Transparency = 1 - (1 - d.Transparency) * 0.5
-elseif d:IsA("Script") or d:IsA("LocalScript") then
-d:Destroy()
-end
-end
-ghost = { clone = c, v = v, sc = sc }
-return ghost
-end
-local function stand(v, pos, up)
-local m, sc = v.m, stamp.k * v.size
-local upV = (G.stampAlign and up and up.Y > 0.2) and up or Vector3.yAxis
-local y = pos.Y
-if upV == Vector3.yAxis then
-local r = math.max(m.radius * sc * 0.6, 0.4)
-for k = 0, 3 do
-local a = k * math.pi / 2 + stamp.yaw
-local h = Engine.cast(
-Vector3.new(pos.X + math.cos(a) * r, pos.Y + r + 4, pos.Z + math.sin(a) * r),
-Vector3.new(0, -(r * 3 + 8), 0),
-App.probeParams
-)
-if h and h.Position.Y < y then
-y = math.max(h.Position.Y, y - r * 1.5)
-end
-end
-end
-local cf = CFrame.new(pos.X, y, pos.Z) * Engine.rotateUp(upV) * CFrame.Angles(0, stamp.yaw, 0)
-return cf, sc
-end
-local function describe(inst, extra)
-return string.format(
-"Stamp · %s · %d° · %.2f×%s",
-inst.Name,
-math.floor(math.deg(stamp.yaw) + 0.5) % 360,
-stamp.k,
-extra and ("  ·  " .. extra) or ""
-)
-end
-local function label(at, text)
-App.gizmoFolder()
-App.gz.anchor.CFrame = CFrame.new(at)
-App.setLabel(text)
-end
-local function show(pos, up)
-local inst, v = current()
-if not v then
-clearGhost()
-return
-end
-local cf, sc = stand(v, pos, up)
-local gh = ghostFor(inst, v, sc)
-if not gh.offset then
-Engine.poseCopy(gh.clone, BARE, v, sc, cf, 0)
-gh.offset = cf:Inverse() * gh.clone:GetPivot()
-gh.clone.Parent = App.gizmoFolder()
-else
-gh.clone:PivotTo(cf * gh.offset)
-end
-label(cf.Position, describe(inst, press and press.turning and "release to put it down" or "click to put it down, drag to turn"))
-end
-local function onPlane(y)
-local ray = rawMouse.UnitRay
-if math.abs(ray.Direction.Y) > 1e-3 then
-local t = (y - ray.Origin.Y) / ray.Direction.Y
-if t > 0 then
-return ray.Origin + ray.Direction * t
-end
-end
-return nil
-end
-App.stampMove = function()
-if press then
-local m = Vector2.new(rawMouse.X, rawMouse.Y)
-press.turning = press.turning or (m - press.at).Magnitude > DRAG_PX
-if press.turning then
-local to = onPlane(press.pos.Y)
-local d = to and Vector3.new(to.X - press.pos.X, 0, to.Z - press.pos.Z)
-if d and d.Magnitude > 0.5 then
-local yaw = math.atan2(-d.X, -d.Z)
-stamp.yaw = App.shiftHeld() and yaw or math.floor(yaw / STEP + 0.5) * STEP
-end
-end
-show(press.pos, press.up)
-return
-end
-local hit = App.mouseHit()
-if not hit then
-clearGhost()
-App.setLabel("")
-return
-end
-show(hit.Position, hit.Normal)
-end
-local function roll()
-stamp.yaw = math.random() * math.pi * 2
-stamp.base = stamp.base or stamp.k
-stamp.k = stamp.base * (0.8 + math.random() * 0.4)
-stamp.vi = math.random(1, math.max(#stamp.models, 1))
-end
-local function refresh()
-if App.refreshStamp then
-App.refreshStamp()
-end
-App.stampMove()
-end
-local function put(pos, up)
-local inst, v = current()
-if not v then
-return
-end
-local cf, sc = stand(v, pos, up)
-local rec = beginRec("Smart Scatter: Stamp " .. inst.Name)
-local folder = workspace:FindFirstChild(FOLDER)
-if not folder then
-folder = Instance.new("Folder")
-folder.Name = FOLDER
-folder.Parent = workspace
-end
-local copy = (v.src or inst):Clone()
-Engine.poseCopy(copy, BARE, v, sc, cf, 0)
-for _, d in copy:GetDescendants() do
-if d:IsA("BasePart") then
-d.Anchored = true
-end
-end
-if copy:IsA("BasePart") then
-copy.Anchored = true
-end
-copy.Parent = folder
-endRec(rec)
-App.status(describe(inst, "put down in Workspace › Stamps. Ctrl+Z takes it back."))
-if G.stampRandom then
-roll()
-if App.refreshStamp then
-App.refreshStamp()
-end
-end
-end
-App.stampDown = function()
-local hit = App.mouseHit()
-if hit and current() then
-press = { pos = hit.Position, up = hit.Normal, at = Vector2.new(rawMouse.X, rawMouse.Y) }
-end
-end
-App.stampUp = function()
-local pr = press
-press = nil
-if pr then
-put(pr.pos, pr.up)
-if pr.turning and App.refreshStamp then
-App.refreshStamp()
-end
-App.stampMove()
-end
-end
-App.stampKey = function(name)
-if name == "turn" then
-stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + (App.shiftHeld() and -1 or 1)) * STEP % (math.pi * 2)
-elseif name == "grow" or name == "shrink" then
-stamp.k = math.clamp(stamp.k * (name == "grow" and 1.1 or 1 / 1.1), 0.05, 20)
-stamp.base = stamp.k
-elseif name == "model" then
-stamp.vi = stamp.vi % math.max(#stamp.models, 1) + 1
-elseif name == "shuffle" then
-roll()
-elseif name == "size" then
-return true
-elseif name == "cancel" and press then
-press = nil
-else
-return false
-end
-refresh()
-return true
-end
-App.setStamp = function(yaw, k, vi)
-stamp.yaw = yaw and math.rad(yaw) % (math.pi * 2) or stamp.yaw
-if k then
-stamp.k, stamp.base = k, k
-end
-stamp.vi = vi or stamp.vi
-if App.mode == "Stamp" then
-App.stampMove()
-end
-end
-App.rollStamp = function()
-roll()
-refresh()
-end
-App.registerTool({
-id = "stamp",
-group = "Stamp",
-icon = "stamp",
-name = "Stamp (the selected models, or the last ones)",
-on = function()
-return App.mode == "Stamp"
-end,
-click = function()
-if App.mode == "Stamp" then
-App.setMode("Off")
-else
-App.startStamp()
-end
-end,
-})
-App.clearStamp = function()
-press = nil
-clearGhost()
-end
-end
-end)()
--- #module App/Viewport/Select
-MODULES["App/Viewport/Select"] = (function()
---[[
-Smart Scatter — Select: the strip's Select tool. Point at something Smart Scatter made and it's named by the mouse;
-a click selects it (Core/Selection), so the panel shows it:
-  a placed copy     its zone, with its object active
-  a path            the path (its curve, or a point of it, within a few pixels on screen)
-  painted ground    the zone painted there (a keep-clear zone if no zone is)
-Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local Engine, HttpService = App.Engine, game:GetService("HttpService")
-local rawMouse = App.rawMouse
-local NEAR_PX = 10
-local cache = setmetatable({}, { __mode = "k" })
-local function shapeOf(f)
-local c = cache[f]
-if not c then
-c = {}
-cache[f] = c
-end
-local mask = f:GetAttribute("SS_Mask") or ""
-if c.mask ~= mask then
-c.mask, c.cells = mask, {}
-for cz, rest in string.gmatch(mask, "(-?%d+):([^|]*)") do
-for s, e in string.gmatch(rest, "(-?%d+)~(-?%d+)") do
-for cx = tonumber(s), tonumber(e) do
-c.cells[cx * 1000003 + tonumber(cz)] = true
-end
-end
-end
-c.cell = f:GetAttribute("SS_Cell") or Engine.MASK_CELL
-end
-local spline = f:GetAttribute("SS_Spline") or ""
-if c.spline ~= spline then
-c.spline, c.curves = spline, {}
-local ok, sd = pcall(HttpService.JSONDecode, HttpService, spline ~= "" and spline or "null")
-if ok and type(sd) == "table" then
-for _, list in { { sd.pts }, sd.branches or {}, sd.loops or {} } do
-for _, pts in list do
-local curve = {}
-for _, q in type(pts) == "table" and pts or {} do
-if type(q) == "table" and #q >= 3 then
-table.insert(curve, Vector3.new(q[1], q[2], q[3]))
-end
-end
-if #curve > 0 then
-table.insert(c.curves, curve)
-end
-end
-end
-end
-end
-return c
-end
-local cam = function()
-return workspace.CurrentCamera
-end
-local function screen(p)
-local v, on = cam():WorldToViewportPoint(p)
-return Vector2.new(v.X, v.Y), on and v.Z > 0
-end
-local function segDist(m, a, b)
-local pa, oka = screen(a)
-local pb, okb = screen(b)
-if not (oka or okb) then
-return math.huge
-end
-local ab = pb - pa
-local t = ab.Magnitude > 1e-3 and math.clamp((m - pa):Dot(ab) / ab:Dot(ab), 0, 1) or 0
-return (m - (pa + ab * t)).Magnitude
-end
-App.pickAt = function()
-local out = workspace:FindFirstChild(Engine.OUT)
-if not out then
-return nil
-end
-local ray = rawMouse.UnitRay
-local rp = RaycastParams.new()
-rp.FilterType = Enum.RaycastFilterType.Include
-rp.FilterDescendantsInstances = { out }
-local hit = workspace:Raycast(ray.Origin, ray.Direction * 5000, rp)
-if hit then
-local key, area
-local cur = hit.Instance
-while cur and cur ~= out do
-key = key or cur:GetAttribute("SS_Key")
-if cur.Parent == out then
-area = cur
-end
-cur = cur.Parent
-end
-if area then
-return App.thingOf(area), key
-end
-end
-local m = Vector2.new(rawMouse.X, rawMouse.Y)
-local best, bestD = nil, NEAR_PX
-for _, f in Engine.listAreas() do
-for _, curve in shapeOf(f).curves do
-for i = 1, #curve do
-local d = segDist(m, curve[i], curve[math.min(i + 1, #curve)])
-if d < bestD then
-best, bestD = f, d
-end
-end
-end
-end
-if best then
-return App.thingOf(best)
-end
-local g = App.mouseHit()
-if g then
-local clear
-for _, f in Engine.listAreas() do
-local c = shapeOf(f)
-local k = math.floor(g.Position.X / c.cell) * 1000003 + math.floor(g.Position.Z / c.cell)
-if c.cells[k] then
-local t = App.thingOf(f)
-if t.kind ~= "Clear" then
-return t
-end
-clear = clear or t
-end
-end
-return clear
-end
-return nil
-end
-App.selectMove = function()
-local thing, key = App.pickAt()
-local g = App.mouseHit()
-App.gizmoFolder()
-for _, k in { "ring", "disc", "halo", "sq", "dot" } do
-if App.gz[k] then
-App.gz[k].Visible = false
-end
-end
-if thing and g then
-App.gz.anchor.CFrame = CFrame.new(g.Position)
-local what = thing.folder and thing.folder.Name or "?"
-if key then
-what ..= " · " .. (string.match(key, "([^%.]+)$") or key)
-end
-App.setLabel("Click to select " .. what)
-else
-App.setLabel("")
-end
-end
-App.selectDown = function()
-local thing, key = App.pickAt()
-if not thing then
-return
-end
-local object
-if key then
-App.select(thing)
-for _, l in App.area and App.area.layers or {} do
-if Engine.layerKey(l) == key then
-object = l
-end
-end
-end
-App.select(thing, object)
-App.status("Selected " .. (thing.folder and thing.folder.Name or thing.kind) .. (object and (" · " .. object.inst.Name) or "") .. ".")
-end
-App.registerTool({
-id = "select",
-group = "Select",
-icon = "cursor",
-name = "Select: click a zone, a path or a placed copy",
-on = function()
-return App.mode == "Select"
-end,
-click = function()
-App.setMode(App.mode == "Select" and "Off" or "Select")
-end,
-})
-end
-end)()
--- #module App/Viewport/Focus
-MODULES["App/Viewport/Focus"] = (function()
---[[
-Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
-brushing one object, removing copies), the world steps back a touch so the tool stands out, and the viewport's top
-left says what's going on, the way Blender's does: the tool, then what it works on, then how to stop. Small, plain
-text; no frame, no badges. The world only loses a little colour (a colour correction on the camera, never saved
-with the place). The tool's name turns red while it takes things away. Settings › Viewport can turn it off.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local G, P, tween, MED, FAST = App.G, App.P, App.tween, App.MED, App.FAST
-local new, box, label = App.new, App.box, App.label
-local SANS, SANS_M = App.SANS, App.SANS_M
-local LAYER_MODES = App.LAYER_MODES
-local LOOK = { Saturation = -0.18, Brightness = -0.03, Contrast = 0 }
-local WHITE = Color3.fromRGB(235, 235, 235)
-local cc
-local gui, group, tick, title, detail, stop
-local function describe()
-local m = App.mode
-local shift = App.shiftHeld and App.shiftHeld()
-local area = App.area and App.area.folder.Name or nil
-local function on(...)
-local bits = {}
-for _, b in { ... } do
-if b then
-table.insert(bits, b)
-end
-end
-return table.concat(bits, "  ·  ")
-end
-if m == "Paint" or m == "Erase" then
-local erase = (m == "Erase") ~= (shift == true)
-return erase and "Erase" or "Paint", on(area, G.tool), erase
-elseif m == "Spline" and App.shapeTool then
-return App.shapeTool, on(area, App.shapeTool == "Rectangle" and "drag corner to corner" or "drag from the centre"), false
-elseif m == "Spline" then
-return "Draw path", on(area), false
-elseif m == "Stamp" then
-local inst = App.stamp and App.stamp.models[App.stamp.vi]
-return "Stamp", inst and inst.Name or nil, false
-elseif m == "Remove" then
-return "Remove copies", on(area, "click one"), true
-elseif m == "Select" then
-return "Select", "click a zone, a path or a copy", false
-elseif LAYER_MODES[m] then
-local act = shift and App.LAYER_OPPOSITE[m] or m
-local name = App.paintLayer and App.paintLayer.inst.Name or nil
-return App.LAYER_LABEL[act], (area and name) and (area .. "  ›  " .. name) or on(area, name), act == "None" or act == "Less"
-end
-return nil, nil, false
-end
-local function build()
-gui = new("ScreenGui", {
-Name = "SmartScatterFocus",
-Archivable = false,
-IgnoreGuiInset = true,
-DisplayOrder = 50,
-ResetOnSpawn = false,
-ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-})
-group = new("CanvasGroup", { BackgroundTransparency = 1, GroupTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
-local corner =
-box({ Position = UDim2.fromOffset(14, 12), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = group })
-tick = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.accent,
-Position = UDim2.fromOffset(0, 3),
-Size = UDim2.fromOffset(2, 13),
-Parent = corner,
-})
-local lines = box(
-{ Position = UDim2.fromOffset(9, 0), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = corner },
-{
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }),
-}
-)
-local function line(size, font, order)
-local t = label("", size, WHITE, font, {
-Size = UDim2.fromOffset(0, size + 5),
-AutomaticSize = Enum.AutomaticSize.X,
-LayoutOrder = order,
-Parent = lines,
-})
-t.TextTruncate = Enum.TextTruncate.None
-t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.8
-return t
-end
-title = line(14, SANS_M, 1)
-detail = line(12, SANS, 2)
-detail.TextTransparency = 0.3
-stop = line(11, SANS, 3)
-stop.TextTransparency = 0.5
-pcall(function()
-gui.Parent = game:GetService("CoreGui")
-end)
-end
-local shown = false
-App.refreshFocus = function()
-local what, where, erase = describe()
-local on = G.focus ~= false and what ~= nil
-if on then
-if not (gui and gui.Parent) then
-build()
-end
-local col = erase and P.danger:Lerp(WHITE, 0.25) or WHITE
-tick.BackgroundColor3 = erase and P.danger or P.accent
-title.Text = what
-title.TextColor3 = col
-detail.Text = where or ""
-detail.Visible = where ~= nil and where ~= ""
-stop.Text = App.keyText("cancel") .. " to stop"
-local cam = workspace.CurrentCamera
-if cam and not (cc and cc.Parent == cam) then
-cc = new(
-"ColorCorrectionEffect",
-{ Name = "SmartScatterFocus", Archivable = false, Saturation = 0, Brightness = 0, Contrast = 0, Parent = cam }
-)
-end
-if not shown then
-tween(group, MED, { GroupTransparency = 0 })
-if cc then
-tween(cc, MED, LOOK)
-end
-end
-shown = true
-elseif shown then
-shown = false
-if group then
-tween(group, FAST, { GroupTransparency = 1 })
-end
-if cc then
-local gone = cc
-cc = nil
-tween(gone, MED, { Saturation = 0, Brightness = 0, Contrast = 0 })
-task.delay(0.3, function()
-gone:Destroy()
-end)
-end
-end
-end
-App.clearFocus = function()
-shown = false
-if cc then
-cc:Destroy()
-cc = nil
-end
-if gui then
-gui:Destroy()
-gui = nil
-end
-end
-local cam = workspace.CurrentCamera
-local old = cam and not App.ctx.preview and cam:FindFirstChild("SmartScatterFocus")
-if old then
-old:Destroy()
-end
-pcall(function()
-if App.ctx.preview then
-return
-end
-local g = game:GetService("CoreGui"):FindFirstChild("SmartScatterFocus")
-if g then
-g:Destroy()
-end
-end)
 end
 end)()
 

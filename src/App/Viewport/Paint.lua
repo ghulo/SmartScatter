@@ -198,12 +198,24 @@ return function(App)
 		return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 	end
 
+	-- Viewport modes that bring their own mouse handling (Stamp, Select, Array…): a module registers the mode's
+	-- handlers and Paint hands the viewport's mouse to them while it's on; no brush, no grid. spec: { move = fn,
+	-- down = fn, up = fn?, stop = fn? (drop what's half done: the mode ends), noArea = true? (it works with no area,
+	-- and a locked area doesn't stop it) }
+	App.modeHandlers = {}
+	App.registerMode = function(mode, spec)
+		App.modeHandlers[mode] = spec
+		if spec.noArea then
+			App.NO_AREA_MODES[mode] = true
+		end
+	end
+
 	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
 	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local smoothUp, lastRingAt -- the ring's eased tilt, and where it was last drawn
 	local function updateGizmo(hit)
-		if App.mode == "Stamp" or App.mode == "Select" then -- the stamp shows the model itself, Select names things
+		if App.modeHandlers[App.mode] then -- (its own look: the stamp shows the model, Select names things)
 			gizmoFolder()
 			for _, k in { "ring", "disc", "halo", "sq", "dot" } do
 				if App.gz[k] then
@@ -211,7 +223,7 @@ return function(App)
 				end
 			end
 		end
-		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" or App.mode == "Select" then
+		if App.mode == "Spline" or App.mode == "Remove" or App.modeHandlers[App.mode] then
 			if App.clearGrid then -- (no grid for these tools)
 				App.clearGrid()
 			end
@@ -690,12 +702,9 @@ return function(App)
 			markCopy(copyUnderMouse())
 			return
 		end
-		if App.mode == "Stamp" then
-			App.stampMove()
-			return
-		end
-		if App.mode == "Select" then -- (Viewport/Select)
-			App.selectMove()
+		local handler = App.modeHandlers[App.mode]
+		if handler then
+			handler.move()
 			return
 		end
 		if sizing then
@@ -747,12 +756,9 @@ return function(App)
 			end
 			return
 		end
-		if App.mode == "Select" then -- (Viewport/Select: what a click picks)
-			App.selectDown()
-			return
-		end
-		if App.mode == "Stamp" then -- (anywhere: a stamp needs no area)
-			App.stampDown()
+		local handler = App.modeHandlers[App.mode]
+		if handler then -- (a mode of its own: the stamp, Select…)
+			handler.down()
 			return
 		end
 		-- (a path's point under the brush doesn't take the click: painting paints. With no tool on, a click on a
@@ -859,8 +865,11 @@ return function(App)
 	end))
 
 	App.onMouseUp(function()
-		if App.mode == "Stamp" then
-			App.stampUp()
+		local handler = App.modeHandlers[App.mode]
+		if handler then
+			if handler.up then
+				handler.up()
+			end
 			return
 		end
 		if not down then
@@ -1082,6 +1091,7 @@ return function(App)
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		Select = "Click a zone's ground, a path or a placed copy to work on it.",
+		Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -1116,8 +1126,10 @@ return function(App)
 		if App.resetSplineDrag then
 			App.resetSplineDrag()
 		end
-		if App.clearStamp then
-			App.clearStamp()
+		for _, h in App.modeHandlers do -- (a mode of its own drops what it was in the middle of)
+			if h.stop then
+				h.stop()
+			end
 		end
 	end
 	App.setMode = function(m, layer)

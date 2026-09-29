@@ -2020,6 +2020,234 @@ local ok, err = xpcall(function()
 		end
 	end
 
+	-- arrays (the plugin's Panel/ArrayTools, with the engine and stand-ins): a line, a grid and a circle of copies where
+	-- they should be, on the ground; along a path; rebuilt when a setting changes; baked into plain models
+	do
+		local mod = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Panel") and SRC.App.Panel:FindFirstChild("ArrayTools")
+		if mod then
+			local conns = {}
+			local App = {
+				Engine = E,
+				P = { danger = Color3.new(1, 0, 0), dim = Color3.new(0.5, 0.5, 0.5), text = Color3.new(1, 1, 1) },
+				beginRec = function()
+					return {}
+				end,
+				endRec = function() end,
+				templates = function()
+					return { tree, rock, fence }
+				end,
+				track = function(c)
+					table.insert(conns, c)
+					return c
+				end,
+				ChangeHistoryService = game:GetService("ChangeHistoryService"),
+				Selection = game:GetService("Selection"),
+				select = function() end,
+				registerKind = function() end,
+				registerTab = function() end,
+				status = function() end,
+			}
+			local hadFolder = workspace:FindFirstChild("Arrays") ~= nil
+			loadstring(mod.Source)()(App)
+			local made2 = {}
+			local function copiesOf(m)
+				local c = m:FindFirstChild("Copies")
+				return c and c:GetChildren() or {}
+			end
+			local ok, err = pcall(function()
+				-- a line of rocks on the flat ground, heading +X
+				local at = ground(O + Vector3.new(-20, 0, -40)).Position
+				local line = App.newArray(rock, CFrame.lookAt(at, at + Vector3.xAxis), { shape = "Line", count = 5, spacing = 10 })
+				table.insert(made2, line)
+				local cs = copiesOf(line)
+				local far = 0
+				for _, c in cs do
+					far = math.max(far, c:GetPivot().Position.X - at.X)
+				end
+				local floating = 0
+				local rpA = E.rayParams({ tree, rock, fence, workspace:FindFirstChild("Arrays") }) -- (the ground, not the copies)
+				for _, c in cs do
+					local p = c:GetPivot().Position
+					local g = workspace:Raycast(Vector3.new(p.X, p.Y + 400, p.Z), Vector3.new(0, -800, 0), rpA)
+					local cf, size = c:GetBoundingBox()
+					if g and math.abs((cf.Position.Y - size.Y / 2) - g.Position.Y) > 0.6 then
+						floating += 1
+					end
+				end
+				check(
+					"array: a line of copies down its heading, on the ground",
+					#cs == 5 and math.abs(far - 40) < 1 and floating == 0,
+					string.format("%d copies, the last %.1f studs along, %d off the ground", #cs, far, floating)
+				)
+				local s = App.readArray(line)
+				s.shape, s.rows, s.cols = "Grid", 3, 4
+				App.saveArray(line, s, "test")
+				check("array: a new setting rebuilds its copies (a 3 × 4 grid)", #copiesOf(line) == 12, #copiesOf(line) .. " copies")
+				s.shape, s.count, s.radius, s.face = "Circle", 8, 15, "Out"
+				App.saveArray(line, s, "test")
+				local round = 0
+				for _, c in copiesOf(line) do
+					local d = c:GetPivot().Position - at
+					round += math.abs(Vector3.new(d.X, 0, d.Z).Magnitude - 15) < 1.5 and 1 or 0
+				end
+				check(
+					"array: a circle round its origin",
+					#copiesOf(line) == 8 and round == 8,
+					string.format("%d of %d on the circle", round, #copiesOf(line))
+				)
+				-- along a path: a curve over the flat ground
+				local pathArea = E.createArea("SS_Test_ArrayPath", {})
+				table.insert(made, pathArea)
+				pathArea.folder:SetAttribute("SS_Kind", "Path")
+				pathArea.spline = {
+					pts = splineAlong({ -40, 0, 40 }, function(x)
+						return 150 + x * 0.3
+					end),
+					closed = false,
+					width = 0,
+					snap = true,
+					branches = {},
+				}
+				E.saveArea(pathArea)
+				App.linkArray(line, "Path", pathArea.folder, "test")
+				s.shape, s.pathMode, s.count = "Path", "Count", 5
+				App.saveArray(line, s, "test")
+				local first, last = pathArea.spline.pts[1].p, pathArea.spline.pts[3].p
+				local ends = 0
+				for _, c in copiesOf(line) do
+					local p = c:GetPivot().Position
+					ends += (Vector3.new(p.X - first.X, 0, p.Z - first.Z).Magnitude < 2 or Vector3.new(p.X - last.X, 0, p.Z - last.Z).Magnitude < 2) and 1 or 0
+				end
+				check(
+					"array: along a path, one at each end",
+					#copiesOf(line) == 5 and ends == 2,
+					string.format("%d copies, %d at the ends", #copiesOf(line), ends)
+				)
+				-- baked: plain models, no settings, nothing rebuilds them
+				local n = #copiesOf(line)
+				line:SetAttribute("SS_Array", nil)
+				local baked = not App.isArrayModel(line) and #copiesOf(line) == n
+				check("array: baked, it's plain models", baked, n .. " copies kept")
+			end)
+			if not ok then
+				check("array checks ran", false, tostring(err))
+			end
+			for _, m in made2 do
+				m:Destroy()
+			end
+			local f = workspace:FindFirstChild("Arrays")
+			if f and not hadFolder and #f:GetChildren() == 0 then
+				f:Destroy()
+			end
+			for _, c in conns do
+				pcall(function()
+					c:Disconnect()
+				end)
+			end
+		end
+	end
+
+	-- the editing helpers (the plugin's Panel/EditTools, with the engine and stand-ins), on Studio's selection: dropped
+	-- onto the ground (not onto each other), lined up, spaced evenly, randomized in place, replaced. The selection is
+	-- put back as it was.
+	do
+		local mod = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Panel") and SRC.App.Panel:FindFirstChild("EditTools")
+		if mod then
+			local Sel = game:GetService("Selection")
+			local before = Sel:Get()
+			local App = {
+				Engine = E,
+				G = { editLean = false, editKeep = true, editTurn = 180, editSize = 0.3, editMatch = true, editAxis = "X", editBy = "Centers" },
+				saveG = function() end,
+				P = { text = Color3.new(1, 1, 1), dim = Color3.new(0.5, 0.5, 0.5) },
+				beginRec = function()
+					return {}
+				end,
+				endRec = function() end,
+				Selection = Sel,
+				templates = function()
+					return { tree, rock, fence }
+				end,
+				registerTab = function() end,
+				registerAction = function() end,
+				status = function() end,
+			}
+			loadstring(mod.Source)()(App)
+			local box = Instance.new("Folder")
+			box.Name = "EditTest"
+			box.Parent = world
+			local function block(x, y, z)
+				return part({ Name = "Block", Size = Vector3.new(4, 4, 4), CFrame = CFrame.new(O + Vector3.new(x, y, z)), Parent = box })
+			end
+			local ok, err = pcall(function()
+				-- three blocks in the air over flat ground, one right above another
+				local g = ground(O + Vector3.new(-40, 0, -100)).Position.Y -- (the ground, before anything stands on it)
+				local a, b, c = block(-40, 30, -100), block(-30, 50, -100), block(-30, 60, -100)
+				Sel:Set({ a, b, c })
+				App.dropToGround()
+				local function bottom(p)
+					return p.Position.Y - p.Size.Y / 2
+				end
+				check(
+					"edit: dropped onto the ground, not onto each other",
+					math.abs(bottom(a) - g) < 0.05 and math.abs(bottom(b) - g) < 0.05 and math.abs(bottom(c) - g) < 0.05,
+					string.format("bottoms %.2f %.2f %.2f, ground %.2f", bottom(a), bottom(b), bottom(c), g)
+				)
+				-- spread out, then lined up on Z to the lowest, then spaced evenly on X
+				a.Position, b.Position, c.Position =
+					a.Position + Vector3.new(0, 0, 3), b.Position + Vector3.new(4, 0, -6), c.Position + Vector3.new(30, 0, 9)
+				App.alignSelection("Z", "Min")
+				local zs = math.abs(a.Position.Z - b.Position.Z) < 0.01 and math.abs(b.Position.Z - c.Position.Z) < 0.01
+				App.distributeSelection("X", "Centers")
+				local gap1, gap2 = b.Position.X - a.Position.X, c.Position.X - b.Position.X
+				check(
+					"edit: lined up on an axis, then spaced evenly",
+					zs and math.abs(gap1 - gap2) < 0.01 and gap1 > 0,
+					string.format("same Z %s, gaps %.2f and %.2f", tostring(zs), gap1, gap2)
+				)
+				local bottoms = { bottom(a), bottom(b), bottom(c) }
+				App.randomizeSelection()
+				local kept = true
+				for i, p in { a, b, c } do
+					local cf, size = p.CFrame, p.Size
+					local lowest = math.huge
+					for _, sx in { -1, 1 } do
+						for _, sy in { -1, 1 } do
+							for _, sz in { -1, 1 } do
+								lowest = math.min(lowest, cf:PointToWorldSpace(Vector3.new(size.X * sx, size.Y * sy, size.Z * sz) / 2).Y)
+							end
+						end
+					end
+					kept = kept and math.abs(lowest - bottoms[i]) < 0.05
+				end
+				check("edit: randomized turns and sizes keep them on the ground", kept, "")
+				-- replaced by the rock, one each, where they were
+				local at = a.Position
+				Sel:Set({ rock })
+				App.pickReplacement()
+				Sel:Set({ a, b })
+				App.replaceSelection()
+				local now = Sel:Get()
+				local near = now[1]
+					and (Vector3.new(now[1]:GetPivot().Position.X, 0, now[1]:GetPivot().Position.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude < 1
+				check(
+					"edit: replaced, each by the chosen model, where it stood",
+					#now == 2 and now[1].Name == rock.Name and near and a.Parent == nil,
+					string.format("%d new, first %s, in place %s", #now, now[1] and now[1].Name or "none", tostring(near))
+				)
+				for _, n in now do
+					n:Destroy()
+				end
+			end)
+			if not ok then
+				check("edit checks ran", false, tostring(err))
+			end
+			pcall(E.clearSnapshot)
+			box:Destroy()
+			Sel:Set(before)
+		end
+	end
+
 	-- the selection (the plugin's Core/Selection, with the engine and stand-ins): one selected thing, one active
 	-- object, and a thing that went falls back to what's there
 	do

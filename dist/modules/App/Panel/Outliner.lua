@@ -112,7 +112,7 @@ return function(App)
 		local lastClick = 0
 		b.MouseButton1Click:Connect(function()
 			local now = os.clock()
-			if sel and spec.menu and now - lastClick < 0.35 and App.isArea(thing) then -- double-click: rename
+			if sel and spec.menu and now - lastClick < 0.35 and thing.folder then -- double-click: rename
 				App.startRename(thing)
 				return
 			end

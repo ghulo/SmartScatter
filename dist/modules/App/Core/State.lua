@@ -98,6 +98,15 @@ return function(App)
 		grid = true, -- the floor grid round the brush (Viewport/Grid)
 		tabs = {}, -- the properties tab last used for each kind of thing: [kind] = tab id (Panel/Properties)
 		outliner = true, -- the outliner is open (Panel/Outliner)
+		-- the Edit tab's choices (Panel/EditTools): align/distribute axis, distribute by, random turn (°) and size (±),
+		-- randomizing keeps things on the ground, dropping leans with the slope, replacing matches each one's size
+		editAxis = "X",
+		editBy = "Centers",
+		editTurn = 180,
+		editSize = 0.15,
+		editKeep = true,
+		editLean = false,
+		editMatch = true,
 	}
 	do
 		local saved = plugin:GetSetting(KEY)
@@ -329,8 +338,9 @@ return function(App)
 	--   "Stamp" (any model, no area: Viewport/Stamp) · "Spline" · "Remove" · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
 	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
-	-- the modes that need no area (nothing to paint on, no lock to respect): off, the stamp (it's no area's), Select
-	App.NO_AREA_MODES = { Off = true, Stamp = true, Select = true }
+	-- the modes that need no area (nothing to paint on, no lock to respect); a mode of its own adds itself (Paint's
+	-- App.registerMode)
+	App.NO_AREA_MODES = { Off = true }
 	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
 	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
 	App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }

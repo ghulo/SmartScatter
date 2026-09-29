@@ -14,6 +14,10 @@ round bends, and everything updates live as you tweak it.
 - **Rules per object** — size, spacing, clumping, piles, slopes, surfaces, height bands, distance from roads/water/buildings
 - **Stamp** — put any model down exactly, anywhere, no area needed: the real model shows under the mouse; drag to
   turn it, keys to size it or pick the model; stamps are plain models in Workspace › Stamps
+- **Arrays** — any model repeated in a line, a grid, a circle or along a path, like Blender's Array modifier: turn per
+  copy, random turn, size and nudge, dropped onto the ground; stays editable (and follows Studio's Move tool), or bake it
+- **Edit helpers** — for any models selected in Studio: drop them onto the ground (not onto each other), align them on
+  X/Y/Z, space them evenly by centres or gaps, randomize their turn and size, or replace them with another model
 - **Keep-clear zones** — ground no area may place anything on (spawns, doorways)
 - **Map scan** — finds every repeated model in a finished map and groups the copies into kinds by shape (renamed,
   turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click

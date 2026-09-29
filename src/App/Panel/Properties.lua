@@ -153,10 +153,18 @@ return function(App)
 			App.hintOn(b, t.title)
 			App.ui.tabs[t.id] = b
 		end
+		-- every tab the same way: icons and names; else names alone (they read better); else icons alone (the name
+		-- on hover). One tab without its name among named ones would look broken.
 		local function fit()
 			local cell = bar.AbsoluteSize.X / math.max(#tabs, 1)
+			local both, names = true, true
 			for text, ic in fits do
-				text.Visible = cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+				both = both and cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+				names = names and cell >= text.TextBounds.X + 8
+			end
+			for text, ic in fits do
+				text.Visible = both or names
+				ic.Visible = both or not names
 			end
 		end
 		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)

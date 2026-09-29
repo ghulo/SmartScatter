@@ -218,6 +218,9 @@ return function(App)
 			if App.hasPath() then
 				table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 			end
+		elseif m == "Array" then
+			title = "Array"
+			table.insert(items, { text = "Press and drag along where the copies go" })
 		elseif m == "Select" then
 			title = "Select"
 			table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })

@@ -11,11 +11,12 @@
 	  tool  a button of the viewport's tool strip (and the panel's tool row where the strip can't show):
 	        { id, group, order, icon, name, key? (a keymap id), danger?, when = fn() -> bool?, on = fn() -> bool,
 	          click = fn() }
+	  action  a line of the search menu: { id, name, group, icon?, words?, key?, when = fn() -> bool?, run = fn() }
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
-	local kinds, tabs, tools = {}, {}, {}
+	local kinds, tabs, tools, actions = {}, {}, {}, {}
 
 	local function byOrder(list)
 		table.sort(list, function(a, b)
@@ -48,6 +49,19 @@ return function(App)
 	end
 	App.registerTool = function(spec)
 		return put(tools, spec)
+	end
+	App.registerAction = function(spec)
+		return put(actions, spec)
+	end
+	-- the registered actions that apply now (the search menu adds them to its own)
+	App.registeredActions = function()
+		local out = {}
+		for _, a in actions do
+			if a.when == nil or a.when() ~= false then
+				table.insert(out, a)
+			end
+		end
+		return out
 	end
 
 	-- the thing kinds, in the outliner's order (App.kinds is the map scan's: Panel/MapTools)

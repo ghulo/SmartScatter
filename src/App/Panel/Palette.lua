@@ -298,6 +298,10 @@ return function(App)
 				})
 			end
 		end
+		-- the actions the features registered (Core/Registry)
+		for _, r in App.registeredActions() do
+			add({ id = r.id, name = r.name, group = r.group, icon = r.icon, words = r.words, key = r.key, danger = r.danger, run = r.run })
+		end
 		-- every other tool the features registered (Core/Registry): a new tool is found here with no change to this list.
 		-- (The ground, object, stamp, path and remove tools have their richer entries above; the search is this menu.)
 		local COVERED = { search = true, remove = true, stamp = true, path = true }
@@ -325,6 +329,14 @@ return function(App)
 			run = function()
 				App.newArea()
 			end,
+		})
+		add({
+			id = "newarray",
+			name = "New array from the selected model",
+			group = "Areas",
+			icon = "grid",
+			words = "repeat copies row grid circle radial duplicate",
+			run = App.newArrayFromSelection,
 		})
 		add({
 			id = "newzonefrom",

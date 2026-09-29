@@ -11,7 +11,22 @@
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons", "Layout" }
+local ORDER = {
+	"Scan",
+	"Assets",
+	"Areas",
+	"Paths",
+	"Arrays",
+	"Edit",
+	"Planning",
+	"Placement",
+	"Lines",
+	"Pins",
+	"Generate",
+	"Kinds",
+	"Seasons",
+	"Layout",
+}
 
 local function module(name) -- (a flattened release swaps this line for its own table of modules)
 	return require(script:FindFirstChild(name))

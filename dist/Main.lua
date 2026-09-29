@@ -93,6 +93,13 @@ focus = true,
 grid = true,
 tabs = {},
 outliner = true,
+editAxis = "X",
+editBy = "Centers",
+editTurn = 180,
+editSize = 0.15,
+editKeep = true,
+editLean = false,
+editMatch = true,
 }
 do
 local saved = plugin:GetSetting(KEY)
@@ -299,7 +306,7 @@ App.analysisDirty = true
 App.lastCounts, App.lastTotal, App.lastParts = {}, 0, 0
 App.mode = "Off"
 local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
-App.NO_AREA_MODES = { Off = true, Stamp = true, Select = true }
+App.NO_AREA_MODES = { Off = true }
 App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
 App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
 App.LAYER_OPPOSITE = { Place = "None", More = "Less", Less = "More", None = "Clear", Clear = "None" }
@@ -1418,6 +1425,11 @@ bar(0.7, 0.86, 0.58, 0.14)
 bar(0.5, 0.78, 0.5, 0.66)
 bar(0.5, 0.48, 0.5, 0.4)
 bar(0.5, 0.24, 0.5, 0.2)
+elseif name == "align" then
+bar(0.2, 0.14, 0.2, 0.86)
+bar(0.34, 0.3, 0.8, 0.3)
+bar(0.34, 0.5, 0.62, 0.5)
+bar(0.34, 0.7, 0.72, 0.7)
 elseif name == "cursor" then
 path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
@@ -3366,10 +3378,11 @@ those knows the features by name. Adding a tool is one module that registers wha
   tool  a button of the viewport's tool strip (and the panel's tool row where the strip can't show):
         { id, group, order, icon, name, key? (a keymap id), danger?, when = fn() -> bool?, on = fn() -> bool,
           click = fn() }
+  action  a line of the search menu: { id, name, group, icon?, words?, key?, when = fn() -> bool?, run = fn() }
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
-local kinds, tabs, tools = {}, {}, {}
+local kinds, tabs, tools, actions = {}, {}, {}, {}
 local function byOrder(list)
 table.sort(list, function(a, b)
 if (a.order or 0) ~= (b.order or 0) then
@@ -3399,6 +3412,18 @@ return put(tabs, spec)
 end
 App.registerTool = function(spec)
 return put(tools, spec)
+end
+App.registerAction = function(spec)
+return put(actions, spec)
+end
+App.registeredActions = function()
+local out = {}
+for _, a in actions do
+if a.when == nil or a.when() ~= false then
+table.insert(out, a)
+end
+end
+return out
 end
 App.thingKinds = function()
 return kinds
@@ -3894,6 +3919,9 @@ end
 item("area", "Zone", "Paint ground, fill it with objects", newArea, P.accent)
 item("layers", "Zone from selected models", "The models picked in the Explorer, ready to paint", function()
 App.newZoneFromSelection()
+end, P.accent)
+item("grid", "Array from selected model", "A row, grid or circle of it, or along a path", function()
+App.newArrayFromSelection()
 end, P.accent)
 item("spline", "Path", "Draw a curve: roads, fences, lamps", function()
 App.newSplineFn()
@@ -6434,6 +6462,8 @@ local ORDER = {
 	"Panel/StampTools",
 	"Panel/HandTools",
 	"Panel/MapTools",
+	"Panel/ArrayTools",
+	"Panel/EditTools",
 	"Panel/Tabs/Objects",
 	"Panel/Tabs/Object",
 	"Panel/Tabs/Zone",
@@ -6451,6 +6481,7 @@ local ORDER = {
 	"Viewport/Shapes",
 	"Viewport/Stamp",
 	"Viewport/Select",
+	"Viewport/ArrayTool",
 	"Viewport/Focus",
 	"Viewport/Toolbar",
 	"Panel/Palette",

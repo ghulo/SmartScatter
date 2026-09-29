@@ -548,6 +548,82 @@ do
 	check("a stamp's size stays sensible", E.stampPin(0, 0, 0, 0, 1, 1)[5] == 0.05 and E.stampPin(0, 0, 0, 99, 1, 1)[5] == 20)
 end
 
+-- ── arrays ──────────────────────────────────────────────────────────────────────────
+do
+	local line = E.arrayCopies({ shape = "Line", count = 4, spacing = 5 })
+	check(
+		"a line array: its count, down the front at its spacing, all facing ahead",
+		#line == 4 and near(line[4].pos.Z, -15) and near(line[4].pos.X, 0) and near(line[3].yaw, 0) and near(line[2].scale, 1),
+		#line .. " copies, last at " .. tostring(line[4] and line[4].pos)
+	)
+	local grid = E.arrayCopies({ shape = "Grid", rows = 2, cols = 3, spacingX = 4, spacingZ = 6 })
+	check("a grid array: rows × columns, columns to the right, rows down the front", #grid == 6 and near(grid[6].pos.X, 8) and near(grid[6].pos.Z, -6))
+	local ring = E.arrayCopies({ shape = "Circle", count = 4, radius = 10, face = "Out" })
+	local ok = #ring == 4
+	for _, c in ring do
+		-- facing out: its front (-Z turned by yaw) points away from the centre
+		local front = Vector3.new(-math.sin(c.yaw), 0, -math.cos(c.yaw))
+		ok = ok and near(c.pos.Magnitude, 10, 1e-6) and front:Dot(c.pos.Unit) > 0.999
+	end
+	check("a circle array: round the origin at its radius, each facing out", ok)
+	local inward = E.arrayCopies({ shape = "Circle", count = 3, radius = 10, face = "In" })[2]
+	local front = Vector3.new(-math.sin(inward.yaw), 0, -math.cos(inward.yaw))
+	check("facing in, they face the centre", front:Dot(-inward.pos.Unit) > 0.999)
+	local P = { Vector3.new(0, 0, 0), Vector3.new(10, 0, 0), Vector3.new(10, 0, 10) } -- 20 studs, one bend
+	local even = E.arrayCopies({ shape = "Path", count = 5 }, P)
+	check(
+		"along a path by count: one at each end, evenly between, facing along it",
+		#even == 5 and near(even[1].pos.X, 0) and near(even[5].pos.Z, 10) and near(even[3].pos.X, 10) and near(even[2].yaw, -math.pi / 2),
+		tostring(even[3] and even[3].pos) .. " yaw " .. tostring(even[2] and even[2].yaw)
+	)
+	local loop = E.arrayCopies({ shape = "Path", count = 4 }, P, true)
+	check("round a loop, the last isn't on top of the first", #loop == 4 and not near((loop[4].pos - loop[1].pos).Magnitude, 0))
+	local spaced = E.arrayCopies({ shape = "Path", pathMode = "Spacing", spacing = 6 }, P)
+	check("along a path by spacing: as many as fit", #spaced == 4, #spaced .. " copies")
+	local a1 = E.arrayCopies({ shape = "Line", count = 5, yawJitter = 30, scaleJitter = 0.3, posJitter = 2, seed = 3 })
+	local a2 = E.arrayCopies({ shape = "Line", count = 5, yawJitter = 30, scaleJitter = 0.3, posJitter = 2, seed = 3 })
+	local a3 = E.arrayCopies({ shape = "Line", count = 5, yawJitter = 30, scaleJitter = 0.3, posJitter = 2, seed = 4 })
+	check("the same seed gives the same array; another seed another", a1[3].yaw == a2[3].yaw and a1[3].pos == a2[3].pos and a1[3].yaw ~= a3[3].yaw)
+	local spiral = E.arrayCopies({ shape = "Line", count = 3, yawStep = 90 })
+	check("each copy turns by the step", near(spiral[3].yaw, math.pi))
+	check("an array never gets huge", #E.arrayCopies({ shape = "Grid", rows = 100, cols = 100 }) <= 1000)
+	local d = E.arrayDefaults({ count = "lots", shape = "Line", spacing = 3 })
+	check("saved settings are read safely: a bad value takes the default", d.count == 6 and d.spacing == 3)
+end
+
+-- ── editing helpers ──────────────────────────────────────────────────────────────────────
+do
+	local function box(x0, x1)
+		return { min = Vector3.new(x0, 0, 0), max = Vector3.new(x1, 2, 2) }
+	end
+	local boxes = { box(0, 2), box(5, 9), box(20, 22) }
+	local mn = E.alignMoves(boxes, "X", "Min")
+	check("align to min: every one starts where the lowest does", near(mn[1].X, 0) and near(mn[2].X, -5) and near(mn[3].X, -20) and near(mn[2].Y, 0))
+	local mx = E.alignMoves(boxes, "X", "Max")
+	check("align to max: every one ends where the highest does", near(mx[1].X, 20) and near(mx[2].X, 13) and near(mx[3].X, 0))
+	local mid = E.alignMoves(boxes, "X", "Center")
+	check("align to centre: every one centred on the selection's middle", near(mid[1].X, 10) and near(mid[2].X, 4) and near(mid[3].X, -10))
+	local ys = E.alignMoves({ { min = Vector3.new(0, 3, 0), max = Vector3.new(1, 5, 1) }, { min = Vector3.new(0, -1, 0), max = Vector3.new(1, 0, 1) } }, "Y", "Min")
+	check("align works on any axis", near(ys[1].Y, -4) and near(ys[2].Y, 0) and near(ys[1].X, 0))
+	-- distribute: the outer two stay; the middle one moves to even centres, or to even gaps
+	local c = E.distributeMoves({ box(0, 2), box(3, 5), box(20, 22) }, "X", "Centers")
+	check("distribute by centres: evenly between the outer two, which stay", near(c[1].X, 0) and near(c[3].X, 0) and near(c[2].X, 7))
+	local g = E.distributeMoves({ box(0, 2), box(3, 7), box(20, 22) }, "X", "Gaps")
+	-- span 22, sizes 2 + 4 + 2 = 8, two gaps of 7: the middle one starts at 2 + 7 = 9
+	check("distribute by gaps: the same space between neighbours", near(g[2].X, 6) and near(g[1].X, 0) and near(g[3].X, 0), tostring(g[2].X))
+	local shuffled = E.distributeMoves({ box(20, 22), box(0, 2), box(3, 5) }, "X", "Centers")
+	check("distribute goes by where they are, not the order they were picked", near(shuffled[3].X, 7) and near(shuffled[1].X, 0))
+	check("two or fewer: nothing to distribute", E.distributeMoves({ box(0, 1), box(5, 6) }, "X", "Gaps")[2] == Vector3.zero)
+	local r1, r2 = E.randomTurns(4, 30, 0.2, 9), E.randomTurns(4, 30, 0.2, 9)
+	local inRange = true
+	for _, r in r1 do
+		inRange = inRange and math.abs(r.yaw) <= math.rad(30) + 1e-9 and r.scale >= 0.8 - 1e-9 and r.scale <= 1.2 + 1e-9
+	end
+	check("random turns and sizes stay in range, the same for the same seed", inRange and r1[3].yaw == r2[3].yaw and r1[3].scale == r2[3].scale)
+	local none = E.randomTurns(2, 0, 0, 1)
+	check("no randomness asked: none given", none[1].yaw == 0 and none[2].scale == 1)
+end
+
 -- ── report ──────────────────────────────────────────────────────────────────────────
 if #failed > 0 then
 	print(table.concat(failed, "\n"))

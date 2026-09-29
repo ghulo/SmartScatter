@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX55"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX60"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -371,7 +371,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -399,6 +399,8 @@ local ORDER = {
 	"Panel/StampTools",
 	"Panel/HandTools",
 	"Panel/MapTools",
+	"Panel/ArrayTools",
+	"Panel/EditTools",
 	"Panel/Tabs/Objects",
 	"Panel/Tabs/Object",
 	"Panel/Tabs/Zone",
@@ -416,6 +418,7 @@ local ORDER = {
 	"Viewport/Shapes",
 	"Viewport/Stamp",
 	"Viewport/Select",
+	"Viewport/ArrayTool",
 	"Viewport/Focus",
 	"Viewport/Toolbar",
 	"Panel/Palette",
@@ -2546,6 +2549,11 @@ return function(App)
 			bar(0.5, 0.78, 0.5, 0.66)
 			bar(0.5, 0.48, 0.5, 0.4)
 			bar(0.5, 0.24, 0.5, 0.2)
+		elseif name == "align" then -- lining up: bars of three lengths against one edge
+			bar(0.2, 0.14, 0.2, 0.86)
+			bar(0.34, 0.3, 0.8, 0.3)
+			bar(0.34, 0.5, 0.62, 0.5)
+			bar(0.34, 0.7, 0.72, 0.7)
 		elseif name == "cursor" then -- selecting: a pointer, its tip at the top left
 			path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 			path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
@@ -3698,11 +3706,12 @@ end
 	  tool  a button of the viewport's tool strip (and the panel's tool row where the strip can't show):
 	        { id, group, order, icon, name, key? (a keymap id), danger?, when = fn() -> bool?, on = fn() -> bool,
 	          click = fn() }
+	  action  a line of the search menu: { id, name, group, icon?, words?, key?, when = fn() -> bool?, run = fn() }
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
-	local kinds, tabs, tools = {}, {}, {}
+	local kinds, tabs, tools, actions = {}, {}, {}, {}
 
 	local function byOrder(list)
 		table.sort(list, function(a, b)
@@ -3735,6 +3744,19 @@ return function(App)
 	end
 	App.registerTool = function(spec)
 		return put(tools, spec)
+	end
+	App.registerAction = function(spec)
+		return put(actions, spec)
+	end
+	-- the registered actions that apply now (the search menu adds them to its own)
+	App.registeredActions = function()
+		local out = {}
+		for _, a in actions do
+			if a.when == nil or a.when() ~= false then
+				table.insert(out, a)
+			end
+		end
+		return out
 	end
 
 	-- the thing kinds, in the outliner's order (App.kinds is the map scan's: Panel/MapTools)
@@ -4053,6 +4075,15 @@ return function(App)
 		grid = true, -- the floor grid round the brush (Viewport/Grid)
 		tabs = {}, -- the properties tab last used for each kind of thing: [kind] = tab id (Panel/Properties)
 		outliner = true, -- the outliner is open (Panel/Outliner)
+		-- the Edit tab's choices (Panel/EditTools): align/distribute axis, distribute by, random turn (°) and size (±),
+		-- randomizing keeps things on the ground, dropping leans with the slope, replacing matches each one's size
+		editAxis = "X",
+		editBy = "Centers",
+		editTurn = 180,
+		editSize = 0.15,
+		editKeep = true,
+		editLean = false,
+		editMatch = true,
 	}
 	do
 		local saved = plugin:GetSetting(KEY)
@@ -4284,8 +4315,9 @@ return function(App)
 	--   "Stamp" (any model, no area: Viewport/Stamp) · "Spline" · "Remove" · "Off"
 	-- the modes that work on one layer: "paint" changes how much of it grows where, "pins" puts copies down by hand
 	local LAYER_MODES = { More = "paint", Less = "paint", None = "paint", Clear = "paint", Place = "pins" }
-	-- the modes that need no area (nothing to paint on, no lock to respect): off, the stamp (it's no area's), Select
-	App.NO_AREA_MODES = { Off = true, Stamp = true, Select = true }
+	-- the modes that need no area (nothing to paint on, no lock to respect); a mode of its own adds itself (Paint's
+	-- App.registerMode)
+	App.NO_AREA_MODES = { Off = true }
 	-- how the one-layer brush shows them, in order; and what Shift turns each into (the opposite, as on the ground)
 	App.LAYER_ORDER = { "Place", "More", "Less", "None", "Clear" }
 	App.LAYER_LABEL = { Place = "Spray", More = "More", Less = "Less", None = "Erase", Clear = "Reset" }
@@ -4431,7 +4463,7 @@ return function(App)
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX30"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX32"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
 	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
 	and the welcome shown before there are any areas. Each builder fills the body it's given.
@@ -5186,7 +5218,568 @@ return function(App)
 	App.buildScanFix = buildScanFix
 	App.buildWelcome = buildWelcome
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">Backdrop</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX11"><Properties><string name="Name">ArrayTools</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — ArrayTools: arrays, one model repeated in a pattern (Engine/Arrays does the maths). An array is a
+	Model in Workspace › Arrays: its settings in an attribute (SS_Array), its source model and the path it may follow
+	as ObjectValues (Source, Path), its origin as its pivot (so moving it with Studio's Move tool moves the array),
+	and its copies in a folder (Copies) rebuilt from the settings whenever they change.
+	The copies stay out of the undo history, as an area's objects do: a setting changed is one undo step, and undo
+	brings the setting back and the copies are rebuilt from it. Bake turns an array into a plain model.
+	Here: making one, reading and saving its settings, building its copies, the outliner's Array kind and its tab.
+	The strip's Array tool (click and drag to make one) is Viewport/ArrayTool.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Engine, P, beginRec, endRec = App.Engine, App.P, App.beginRec, App.endRec
+	local HttpService = game:GetService("HttpService")
+	local FOLDER, ATTR = "Arrays", "SS_Array"
+	local BARE = { s = {} } -- (placing asks the layer only whether it's a line: an array's copy never is)
+	local LIVE_MAX = 250 -- a slider rebuilds as it moves up to this many copies; more wait for its release
+
+	--------------------------------------------------------------------------------
+	-- Arrays in the place
+	--------------------------------------------------------------------------------
+	local function folder(make)
+		local f = workspace:FindFirstChild(FOLDER)
+		if not f and make then
+			f = Instance.new("Folder")
+			f.Name = FOLDER
+			f.Parent = workspace
+		end
+		return f
+	end
+	local function isArray(m)
+		return m ~= nil and m:IsA("Model") and m:GetAttribute(ATTR) ~= nil
+	end
+	App.isArrayModel = isArray
+	App.arrays = function()
+		local out = {}
+		for _, m in (folder() and folder():GetChildren() or {}) do
+			if isArray(m) then
+				table.insert(out, m)
+			end
+		end
+		return out
+	end
+	App.arrayThing = function(m)
+		return { kind = "Array", folder = m }
+	end
+
+	-- its settings, as saved (with what's missing filled in)
+	local function read(m)
+		local ok, t = pcall(HttpService.JSONDecode, HttpService, m:GetAttribute(ATTR) or "{}")
+		return Engine.arrayDefaults(ok and type(t) == "table" and t or {})
+	end
+	App.readArray = read
+	local function linked(m, name)
+		local v = m:FindFirstChild(name)
+		return v and v:IsA("ObjectValue") and v.Value or nil
+	end
+
+	-- each model measured once
+	local measured = setmetatable({}, { __mode = "k" })
+	local function variantOf(inst)
+		local v = measured[inst]
+		if v == nil then
+			v = Engine.makeVariant(inst, 1, 1) or false
+			measured[inst] = v
+		end
+		return v or nil
+	end
+
+	-- ground under a point: what copies stand on (not arrays, areas' copies or the camera's gizmos)
+	local function groundParams()
+		local skip = App.templates()
+		local f = folder()
+		if f then
+			table.insert(skip, f)
+		end
+		return (Engine.rayParams(skip))
+	end
+
+	--------------------------------------------------------------------------------
+	-- Building the copies
+	--------------------------------------------------------------------------------
+	local built = setmetatable({}, { __mode = "k" }) -- [array] = the settings text its copies were built from
+
+	-- the path an array follows: its main curve, sampled, and whether it's a loop (nil when it has none)
+	local function pathOf(m)
+		local f = linked(m, "Path")
+		if not (f and f:IsDescendantOf(workspace)) then
+			return nil
+		end
+		local a = Engine.loadArea(f)
+		local sp = a.spline
+		if not (sp and #sp.pts >= 2) then
+			return nil
+		end
+		local pts = Engine.splineCurve(sp, 1)
+		return pts, sp.closed == true and #sp.pts >= 3
+	end
+
+	-- rebuild m's copies from settings s (default: its saved ones). Built out of sight and swapped in whole, so they
+	-- stay out of the undo history.
+	local function build(m, s)
+		s = s or read(m)
+		local src = linked(m, "Source")
+		local v = src and src.Parent and variantOf(src)
+		local holder = Instance.new("Folder")
+		holder.Name = "Copies"
+		holder.Archivable = false
+		local placed = 0
+		if v then
+			local P, closed
+			if s.shape == "Path" then
+				P, closed = pathOf(m)
+			end
+			local pivot = m:GetPivot()
+			local look = Vector3.new(pivot.LookVector.X, 0, pivot.LookVector.Z)
+			local origin = CFrame.lookAt(pivot.Position, pivot.Position + (look.Magnitude > 1e-3 and look.Unit or Vector3.new(0, 0, -1)))
+			local rp = s.ground and groundParams()
+			for _, c in Engine.arrayCopies(s, P, closed) do
+				local at = s.shape == "Path" and CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+					or origin * CFrame.new(c.pos) * CFrame.Angles(0, c.yaw, 0)
+				local pos = at.Position
+				if rp then -- (settled on the ground under it; a spot with no ground keeps its height)
+					local hit = Engine.cast(pos + Vector3.new(0, 60, 0), Vector3.new(0, -400, 0), rp)
+					if hit then
+						pos = Vector3.new(pos.X, hit.Position.Y, pos.Z)
+					end
+				end
+				at = at.Rotation + pos + Vector3.new(0, s.lift, 0)
+				local copy = (v.src or src):Clone()
+				Engine.poseCopy(copy, BARE, v, c.scale, at, 0)
+				for _, d in copy:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.Anchored = true
+					end
+				end
+				if copy:IsA("BasePart") then
+					copy.Anchored = true
+				end
+				copy.Parent = holder
+				placed += 1
+			end
+		end
+		local old = m:FindFirstChild("Copies")
+		if old then
+			Engine.dropOutput(old) -- (hidden first: the undo history never holds them)
+		end
+		holder.Parent = m
+		holder.Archivable = true
+		built[m] = m:GetAttribute(ATTR)
+		return placed, v ~= nil
+	end
+	App.buildArray = build
+
+	-- after an undo or a redo: an array whose settings came back rebuilds its copies from them
+	local function follow()
+		for _, m in App.arrays() do
+			if built[m] ~= m:GetAttribute(ATTR) or not m:FindFirstChild("Copies") then
+				build(m)
+			end
+		end
+	end
+	App.track(App.ChangeHistoryService.OnUndo:Connect(function()
+		task.defer(follow)
+	end))
+	App.track(App.ChangeHistoryService.OnRedo:Connect(function()
+		task.defer(follow)
+	end))
+
+	--------------------------------------------------------------------------------
+	-- Changing one
+	--------------------------------------------------------------------------------
+	-- save m's settings as one undo step (named `what`), then rebuild
+	App.saveArray = function(m, s, what)
+		local rec = beginRec("Smart Scatter: " .. (what or "Array"))
+		m:SetAttribute(ATTR, HttpService:JSONEncode(s))
+		endRec(rec)
+		build(m, s)
+		if App.refreshCounts then
+			App.refreshCounts()
+		end
+	end
+	-- a setting on the move (a slider dragged): the copies follow it, if that's quick enough; nothing is saved yet
+	App.previewArray = function(m, s)
+		local n = s.shape == "Grid" and s.rows * s.cols or s.count
+		if n <= LIVE_MAX then
+			build(m, s)
+		end
+	end
+	-- a linked instance changed (its source model, the path it follows), as one undo step
+	App.linkArray = function(m, name, value, what)
+		local rec = beginRec("Smart Scatter: " .. what)
+		local v = m:FindFirstChild(name)
+		if value and not v then
+			v = Instance.new("ObjectValue")
+			v.Name = name
+			v.Parent = m
+		end
+		if v then
+			if value then
+				v.Value = value
+			else
+				v.Parent = nil
+			end
+		end
+		endRec(rec)
+		build(m)
+	end
+
+	-- a model of the Explorer's selection that can be arrayed (not a copy Smart Scatter made)
+	App.arraySource = function()
+		local ours = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS), folder() }
+		for _, s in App.Selection:Get() do
+			if (s:IsA("Model") or s:IsA("BasePart")) and s:GetAttribute("SS_Type") == nil and variantOf(s) then
+				local mine = false
+				for _, f in ours do
+					mine = mine or (f ~= nil and s:IsDescendantOf(f))
+				end
+				if not mine then
+					return s
+				end
+			end
+		end
+		return nil
+	end
+
+	-- a new array of `src`, its origin at `origin` (a CFrame: where the first copy stands, facing where the line runs),
+	-- with settings s; one undo step. Selected, so its tab shows.
+	App.newArray = function(src, origin, s)
+		local v = variantOf(src)
+		if not v then
+			App.status("That model has no parts to repeat.")
+			return nil
+		end
+		s = Engine.arrayDefaults(s or {})
+		local n = 1
+		local f = folder()
+		while f and f:FindFirstChild("Array " .. n) do
+			n += 1
+		end
+		local rec = beginRec("Smart Scatter: New array")
+		f = folder(true)
+		local m = Instance.new("Model")
+		m.Name = "Array " .. n
+		m:SetAttribute(ATTR, HttpService:JSONEncode(s))
+		local link = Instance.new("ObjectValue")
+		link.Name = "Source"
+		link.Value = src
+		link.Parent = m
+		m.WorldPivot = origin
+		m.Parent = f
+		endRec(rec)
+		build(m, s)
+		App.select(App.arrayThing(m))
+		return m
+	end
+
+	-- the spacing that puts copies of a model side by side (a little apart), along its length
+	App.arraySpacing = function(src)
+		local v = variantOf(src)
+		if not v then
+			return 8
+		end
+		return math.max(math.floor(math.max(v.m.size.X, v.m.size.Z) * 1.1 * 10 + 0.5) / 10, 0.5)
+	end
+
+	-- + New › Array from selected model: a line of copies on the ground in front of the camera
+	App.newArrayFromSelection = function()
+		local src = App.arraySource()
+		if not src then
+			App.status("Select a model in the Explorer first, then make an array of it.")
+			return
+		end
+		local cam = workspace.CurrentCamera.CFrame
+		local hit = Engine.cast(cam.Position, cam.LookVector * 1000, groundParams())
+		local at = hit and hit.Position or (cam.Position + cam.LookVector * 40)
+		local flat = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
+		flat = flat.Magnitude > 1e-3 and flat.Unit or Vector3.new(0, 0, -1)
+		App.newArray(src, CFrame.lookAt(at, at + flat), { spacing = App.arraySpacing(src) })
+		App.status("Array made: tune it on its Array tab.")
+	end
+
+	-- bake: the copies stay as plain models in its Model; the array lets go of them (one undo step)
+	local function bake(m)
+		local rec = beginRec("Smart Scatter: Bake array")
+		m:SetAttribute(ATTR, nil)
+		for _, name in { "Source", "Path" } do
+			local v = m:FindFirstChild(name)
+			if v then
+				v.Parent = nil
+			end
+		end
+		endRec(rec)
+		App.select(nil)
+		App.status(m.Name .. " is plain models now.")
+	end
+	local function delete(m)
+		local rec = beginRec("Smart Scatter: Delete array")
+		m.Parent = nil
+		endRec(rec)
+		App.select(nil)
+		App.status("Array deleted. Ctrl+Z brings it back.")
+	end
+
+	--------------------------------------------------------------------------------
+	-- In the outliner and the properties
+	--------------------------------------------------------------------------------
+	App.registerKind({
+		kind = "Array",
+		icon = "grid",
+		title = "Array",
+		order = 35,
+		list = function()
+			local out = {}
+			for _, m in App.arrays() do
+				table.insert(out, App.arrayThing(m))
+			end
+			return out
+		end,
+		count = function(thing)
+			local c = thing.folder:FindFirstChild("Copies")
+			return c and #c:GetChildren() or 0
+		end,
+		menu = function(thing)
+			return {
+				{
+					"Rename",
+					function()
+						App.startRename(thing)
+					end,
+				},
+				{
+					"Bake to plain models",
+					function()
+						bake(thing.folder)
+					end,
+					P.dim,
+				},
+				"-",
+				{
+					"Delete",
+					function()
+						delete(thing.folder)
+					end,
+					P.danger,
+				},
+			}
+		end,
+	})
+
+	-- the Array tab: its model, its shape, how the copies vary, how they stand
+	local slider, segmented, switchRow, button, buttonRow, hintOn = App.slider, App.segmented, App.switchRow, App.button, App.buttonRow, App.hintOn
+	local label, box, para = App.label, App.box, App.para
+
+	local function buildTab(page)
+		local m = App.selected and App.selected.folder
+		if not (m and isArray(m)) then
+			return
+		end
+		local s = read(m)
+		local cs = App.cards(page, "array")
+		local function S(parent, key, text, min, max, fmt, step, hint, def)
+			slider(
+				text,
+				min,
+				max,
+				function()
+					return s[key]
+				end,
+				function(v)
+					s[key] = v
+				end,
+				fmt,
+				step,
+				function()
+					App.previewArray(m, s)
+				end,
+				function()
+					App.saveArray(m, s, "Array " .. string.lower(text))
+				end,
+				hint,
+				def
+			).Parent =
+				parent
+		end
+		local function pick(parent, key, options, rebuild)
+			segmented(options, function()
+				return s[key]
+			end, function(v)
+				s[key] = v
+			end, function()
+				App.saveArray(m, s, "Array " .. key)
+				if rebuild then
+					App.rebuildAll()
+				end
+			end).Parent =
+				parent
+		end
+
+		cs.add({
+			id = "arraymodel",
+			title = "Model",
+			icon = "cube",
+			sub = "What's repeated",
+			keys = "model source swap select",
+			build = function(b)
+				local src = linked(m, "Source")
+				local row = box({ Size = UDim2.new(1, 0, 0, 36), Parent = b })
+				if src then
+					local th = App.thumbnail(src, 32)
+					th.Position = UDim2.fromOffset(0, 2)
+					th.Parent = row
+				end
+				label(src and src.Name or "Its model is gone: select another and press Swap.", 13, src and P.text or P.danger, App.SANS_M, {
+					Position = UDim2.fromOffset(40, 0),
+					Size = UDim2.new(1, -40, 1, 0),
+					Parent = row,
+				})
+				local acts = buttonRow(b)
+				hintOn(
+					button("Swap for selected", nil, function()
+						local pick2 = App.arraySource()
+						if not pick2 then
+							App.status("Select the model to use in the Explorer first.")
+							return
+						end
+						App.linkArray(m, "Source", pick2, "Array model")
+						App.rebuildAll()
+					end, { Parent = acts }),
+					"Repeats the model selected in the Explorer instead, in the same pattern."
+				)
+				if src then
+					button("Select model", nil, function()
+						App.Selection:Set({ src })
+					end, { Parent = acts })
+				end
+			end,
+		})
+
+		cs.add({
+			id = "arrayshape",
+			title = "Shape",
+			icon = "grid",
+			sub = "Line, grid, circle, or along a path",
+			keys = "line grid circle path count spacing rows columns radius face",
+			build = function(b)
+				pick(b, "shape", Engine.ARRAY_SHAPES, true)
+				if s.shape == "Line" then
+					S(b, "count", "Count", 1, 200, "%d", 1, "How many copies.", 6)
+					S(b, "spacing", "Spacing", 0.5, 100, "%.1f studs", 0.5, "From one copy to the next.")
+				elseif s.shape == "Grid" then
+					S(b, "rows", "Rows", 1, 40, "%d", 1, "Rows, down the array's front.", 3)
+					S(b, "cols", "Columns", 1, 40, "%d", 1, "Columns, to its right.", 3)
+					S(b, "spacingZ", "Row spacing", 0.5, 100, "%.1f studs", 0.5, "From one row to the next.")
+					S(b, "spacingX", "Column spacing", 0.5, 100, "%.1f studs", 0.5, "From one column to the next.")
+				elseif s.shape == "Circle" then
+					S(b, "count", "Count", 1, 200, "%d", 1, "How many copies round the circle.", 6)
+					S(b, "radius", "Radius", 1, 300, "%.1f studs", 0.5, "How far from the centre.", 20)
+					App.stepLabel(b, nil, "Facing")
+					pick(b, "face", Engine.ARRAY_FACES)
+				else -- Path
+					local paths = {}
+					for _, f in Engine.listAreas() do
+						if f:GetAttribute("SS_Spline") then
+							table.insert(paths, f)
+						end
+					end
+					local on = linked(m, "Path")
+					if #paths == 0 then
+						local t = para("No paths yet. Draw one (the strip's Path tool), then pick it here.", { Parent = b })
+						t.TextColor3 = P.dim
+					else
+						App.stepLabel(b, nil, "Along")
+						local grid = App.chipGrid(b, 3, 28, 96)
+						for _, f in paths do
+							App.chip(grid, f.Name, function()
+								return on == f
+							end, function()
+								App.linkArray(m, "Path", f, "Array path")
+								App.rebuildAll()
+							end)
+						end
+					end
+					App.stepLabel(b, nil, "Copies")
+					pick(b, "pathMode", { "Count", "Spacing" }, true)
+					if s.pathMode == "Spacing" then
+						S(b, "spacing", "Spacing", 0.5, 100, "%.1f studs", 0.5, "From one copy to the next along the path; as many as fit.")
+					else
+						S(b, "count", "Count", 1, 500, "%d", 1, "How many, spread evenly from one end to the other (round a loop).", 6)
+					end
+				end
+			end,
+		})
+
+		cs.add({
+			id = "arrayvary",
+			title = "Variation",
+			icon = "blend",
+			sub = "Turn, size and spot, copy by copy",
+			keys = "rotate turn spiral random jitter size scale seed",
+			build = function(b)
+				S(b, "scale", "Size", 0.1, 5, "%.2f×", 0.05, "1× is the model's own size.", 1)
+				S(b, "yawStep", "Turn each copy by", -180, 180, "%d°", 1, "Each copy turns this much more than the one before: spirals, fans.", 0)
+				S(b, "yawJitter", "Random turn", 0, 180, "±%d°", 1, "Each copy turns a random amount, up to this.", 0)
+				S(b, "scaleJitter", "Random size", 0, 0.9, "±%.0f%%", 0.05, "Each copy a little bigger or smaller.", 0)
+				S(b, "posJitter", "Random nudge", 0, 20, "±%.1f studs", 0.1, "Each copy nudged off its spot.", 0)
+				hintOn(
+					button("New random", nil, function()
+						s.seed += 1
+						App.saveArray(m, s, "Array new random")
+					end, { Parent = buttonRow(b) }),
+					"The same settings, other random turns, sizes and nudges."
+				)
+			end,
+		})
+
+		cs.add({
+			id = "arraystand",
+			title = "Standing",
+			icon = "mountain",
+			sub = "On the ground, or level",
+			keys = "ground drop snap level lift height",
+			build = function(b)
+				switchRow("Drop onto the ground", function()
+					return s.ground
+				end, function(v)
+					s.ground = v
+				end, function()
+					App.saveArray(m, s, "Array ground")
+				end, "On: each copy stands on the ground under it. Off: they all stay at the array's height, level.").Parent =
+					b
+				S(b, "lift", "Lift", -20, 50, "%.1f studs", 0.1, "Raises every copy (or sinks it, below 0).", 0)
+			end,
+		})
+
+		cs.add({
+			id = "arrayfinish",
+			title = "Finish",
+			icon = "wand",
+			sub = "Keep it as plain models, or remove it",
+			keys = "bake delete remove plain",
+			more = true,
+			build = function(b)
+				local acts = buttonRow(b)
+				hintOn(
+					button("Bake to plain models", nil, function()
+						bake(m)
+					end, { Parent = acts }),
+					"The copies stay where they are as plain models; the array's settings go."
+				)
+				local del = App.dangerButton("Delete array", function()
+					delete(m)
+				end, { confirm = "Click again to delete" })
+				del.Parent = acts
+			end,
+		})
+	end
+
+	App.registerTab({ id = "array", icon = "grid", title = "Array", order = 10, kinds = { Array = true }, build = buildTab })
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">Backdrop</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
 	shades of it, so they follow the colour theme), wandering slowly round their spots and gently changing shape.
 	They sit under everything, the page scrolls over them and they carry on across panel rebuilds; cards let a
@@ -5370,7 +5963,472 @@ return function(App)
 		return G.blobs ~= false
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">EditTools</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — EditTools: helpers for the models selected in Studio (the Explorer or the viewport), whatever made
+	them: drop them onto the ground, line them up, space them evenly, give them random turns and sizes, or replace
+	them with another model. Each is one undo step. The Edit tab has them (it's there whatever is selected in the
+	outliner), and the search menu. The maths is Engine/Edit's; Replace is the map tools' swap (Engine/Kinds), so
+	Restore original on the World tab puts replaced models back too.
+	Copies an area or an array placed are left alone: its next rebuild would put them back where its rules say.
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local Engine, G, saveG, P, beginRec, endRec = App.Engine, App.G, App.saveG, App.P, App.beginRec, App.endRec
+	local Selection = App.Selection
+
+	--------------------------------------------------------------------------------
+	-- What's selected
+	--------------------------------------------------------------------------------
+	-- the selected models and parts to work on: top ones only (a part inside a selected model moves with it), none
+	-- an area or an array placed
+	local function items()
+		local sel = Selection:Get()
+		local set = {}
+		for _, s in sel do
+			set[s] = true
+		end
+		local skip = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+		local arrays = workspace:FindFirstChild("Arrays")
+		local out = {}
+		for _, s in sel do
+			if (s:IsA("Model") or s:IsA("BasePart")) and s:IsDescendantOf(workspace) and s ~= workspace.Terrain then
+				local ok = true
+				for _, f in skip do
+					ok = ok and not (f and s:IsDescendantOf(f))
+				end
+				if arrays and s:IsDescendantOf(arrays) then -- (an array's copies, not the array itself)
+					local copies = s:FindFirstAncestor("Copies")
+					ok = ok and not (copies and copies:IsDescendantOf(arrays))
+				end
+				local up = s.Parent
+				while ok and up and up ~= workspace do
+					ok = not set[up]
+					up = up.Parent
+				end
+				if ok then
+					table.insert(out, s)
+				end
+			end
+		end
+		return out
+	end
+	App.editItems = items
+
+	-- a thing's extent in the world: { min, max }
+	local function boxOf(inst)
+		local cf, size
+		if inst:IsA("BasePart") then
+			cf, size = inst.CFrame, inst.Size
+		else
+			cf, size = inst:GetBoundingBox()
+		end
+		local h = size / 2
+		local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+		for _, sx in { -1, 1 } do
+			for _, sy in { -1, 1 } do
+				for _, sz in { -1, 1 } do
+					local p = cf:PointToWorldSpace(Vector3.new(h.X * sx, h.Y * sy, h.Z * sz))
+					lo, hi = lo:Min(p), hi:Max(p)
+				end
+			end
+		end
+		return { min = lo, max = hi }
+	end
+	local function moveBy(inst, d)
+		if d.Magnitude > 1e-6 then
+			inst:PivotTo(inst:GetPivot() + d)
+		end
+	end
+	-- turned about the vertical line through a point
+	local function turnAbout(inst, at, yaw)
+		local r = CFrame.new(at) * CFrame.Angles(0, yaw, 0) * CFrame.new(-at)
+		inst:PivotTo(r * inst:GetPivot())
+	end
+	local function scaleBy(inst, f)
+		if math.abs(f - 1) < 1e-4 then
+			return
+		end
+		if inst:IsA("Model") then
+			inst:ScaleTo(inst:GetScale() * f)
+		else
+			inst.Size *= f
+		end
+	end
+
+	-- one step: `what` done to the selection, as one undo step; fn(list) does it and returns what to say
+	local function step(what, fn, min)
+		local list = items()
+		if #list < (min or 1) then
+			App.status(
+				min and min > 1 and string.format("Select at least %d models (in the Explorer or the viewport) first.", min)
+					or "Select the models to work on (in the Explorer or the viewport) first."
+			)
+			return
+		end
+		local rec = beginRec("Smart Scatter: " .. what)
+		local ok, said = pcall(fn, list)
+		endRec(rec, not ok)
+		if not ok then
+			warn("[Smart Scatter] " .. tostring(said))
+			App.status(what .. " didn't work: " .. tostring(said), "error")
+			return
+		end
+		App.status(said or string.format("%s: %d done. Ctrl+Z undoes it.", what, #list))
+	end
+
+	--------------------------------------------------------------------------------
+	-- The helpers
+	--------------------------------------------------------------------------------
+	-- the ground under a thing: the lowest of a few rays over its footprint (so no side floats), never deeper than
+	-- its own size below the middle one; what's selected and what areas placed are passed through
+	local function groundUnder(inst, b, rp)
+		local c = (b.min + b.max) / 2
+		local rx, rz = (b.max.X - b.min.X) * 0.35, (b.max.Z - b.min.Z) * 0.35
+		local top = b.max.Y + 4
+		local best, normal
+		local mid = Engine.cast(Vector3.new(c.X, top, c.Z), Vector3.new(0, -2000, 0), rp)
+		if not mid then
+			return nil
+		end
+		best, normal = mid.Position.Y, mid.Normal
+		for _, o in { Vector3.new(rx, 0, 0), Vector3.new(-rx, 0, 0), Vector3.new(0, 0, rz), Vector3.new(0, 0, -rz) } do
+			local h = Engine.cast(Vector3.new(c.X + o.X, top, c.Z + o.Z), Vector3.new(0, -2000, 0), rp)
+			if h and h.Position.Y < best and mid.Position.Y - h.Position.Y < math.max(rx, rz) * 1.5 then
+				best = h.Position.Y
+			end
+		end
+		return best, normal, Vector3.new(c.X, best, c.Z)
+	end
+	App.dropToGround = function()
+		step("Drop to ground", function(list)
+			local skip = App.templates()
+			for _, inst in list do
+				table.insert(skip, inst)
+			end
+			local rp = Engine.rayParams(skip)
+			local missed = 0
+			for _, inst in list do
+				local b = boxOf(inst)
+				local y, normal, base = groundUnder(inst, b, rp)
+				if y then
+					moveBy(inst, Vector3.new(0, y - b.min.Y, 0))
+					if G.editLean and normal.Y > 0.2 then -- tilted so its up is the ground's
+						local r = CFrame.new(base) * Engine.rotateUp(normal) * CFrame.new(-base)
+						inst:PivotTo(r * inst:GetPivot())
+					end
+				else
+					missed += 1
+				end
+			end
+			return string.format(
+				"Dropped %d onto the ground%s.",
+				#list - missed,
+				missed > 0 and string.format(" (%d had no ground under them)", missed) or ""
+			)
+		end)
+	end
+
+	App.alignSelection = function(axis, where)
+		step("Align " .. axis .. " " .. string.lower(where), function(list)
+			local boxes = {}
+			for i, inst in list do
+				boxes[i] = boxOf(inst)
+			end
+			for i, d in Engine.alignMoves(boxes, axis, where) do
+				moveBy(list[i], d)
+			end
+			return string.format("Lined up %d on %s (%s).", #list, axis, string.lower(where == "Center" and "centre" or where))
+		end, 2)
+	end
+
+	App.distributeSelection = function(axis, by)
+		step("Distribute " .. axis, function(list)
+			local boxes = {}
+			for i, inst in list do
+				boxes[i] = boxOf(inst)
+			end
+			for i, d in Engine.distributeMoves(boxes, axis, by) do
+				moveBy(list[i], d)
+			end
+			return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, axis)
+		end, 3)
+	end
+
+	local seed = 1
+	App.randomizeSelection = function()
+		seed += 1
+		step("Randomize", function(list)
+			local r = Engine.randomTurns(#list, G.editTurn, G.editSize, seed + os.clock() * 1000)
+			for i, inst in list do
+				local b = boxOf(inst)
+				local base = Vector3.new((b.min.X + b.max.X) / 2, b.min.Y, (b.min.Z + b.max.Z) / 2)
+				turnAbout(inst, base, r[i].yaw)
+				scaleBy(inst, r[i].scale)
+				if G.editKeep then -- its underside back where it was
+					moveBy(inst, Vector3.new(0, b.min.Y - boxOf(inst).min.Y, 0))
+				end
+			end
+			return string.format("Gave %d a random turn and size. Press again for another.", #list)
+		end)
+	end
+
+	local replacement -- the model Replace puts in (picked from the selection)
+	App.pickReplacement = function()
+		local s = Selection:Get()[1]
+		if not (s and (s:IsA("Model") or s:IsA("BasePart"))) then
+			App.status("Select the model to replace with (in the Explorer), then press this.")
+			return
+		end
+		replacement = s
+		App.status(s.Name .. " is what Replace puts in. Now select the models to replace.")
+		if App.refreshEditTab then
+			App.refreshEditTab()
+		end
+	end
+	App.replaceSelection = function()
+		if not (replacement and replacement.Parent) then
+			App.status("Pick the model to replace with first: select it and press Use the selected.")
+			return
+		end
+		local made = {}
+		step("Replace", function(list)
+			for i, inst in list do
+				if inst ~= replacement then
+					for _, pair in
+						Engine.swapCopies({ { inst = inst, scale = 1 } }, { { inst = replacement, w = 1 } }, { match = G.editMatch, seed = i })
+					do
+						table.insert(made, pair.new)
+					end
+				end
+			end
+			return string.format("Replaced %d with %s. Restore original (World tab) or Ctrl+Z puts them back.", #made, replacement.Name)
+		end)
+		if #made > 0 then
+			Selection:Set(made)
+		end
+	end
+
+	--------------------------------------------------------------------------------
+	-- The Edit tab and the search menu
+	--------------------------------------------------------------------------------
+	local slider, segmented, switchRow, button, buttonRow, hintOn = App.slider, App.segmented, App.switchRow, App.button, App.buttonRow, App.hintOn
+	local para = App.para
+	local AXES = { "X", "Y", "Z" }
+
+	App.registerTab({
+		id = "edit",
+		icon = "align",
+		title = "Edit",
+		order = 85,
+		kinds = "all",
+		build = function(page)
+			local cs = App.cards(page, "edit")
+			cs.add({
+				id = "editsel",
+				title = "The selection",
+				icon = "cursor",
+				sub = "What these helpers work on",
+				keys = "selected models explorer viewport",
+				build = function(b)
+					local t = para("", { Parent = b })
+					local function count()
+						local n = #items()
+						t.Text = n > 0 and string.format("%d selected in Studio.", n)
+							or "Select models or parts in the Explorer or the viewport. (Copies an area or an array placed are left alone.)"
+						t.TextColor3 = n > 0 and P.text or P.dim
+					end
+					count()
+					local conn
+					conn = Selection.SelectionChanged:Connect(function()
+						if not t.Parent then
+							conn:Disconnect()
+							return
+						end
+						count()
+					end)
+				end,
+			})
+			cs.add({
+				id = "editground",
+				title = "Drop to the ground",
+				icon = "mountain",
+				sub = "Each one onto whatever is under it",
+				keys = "ground drop snap floor land settle",
+				build = function(b)
+					switchRow("Lean with the slope", function()
+						return G.editLean
+					end, function(v)
+						G.editLean = v
+					end, saveG, "On: each one tilts to stand square on the ground under it. Off: they stay upright.").Parent =
+						b
+					hintOn(
+						button("Drop to the ground", "accent", App.dropToGround, { Parent = buttonRow(b) }),
+						"Each selected model lands on what's under it; selected models don't land on each other."
+					)
+				end,
+			})
+			cs.add({
+				id = "editalign",
+				title = "Align and space",
+				icon = "align",
+				sub = "Line them up, or space them evenly",
+				keys = "align line up distribute space evenly gap center centre min max",
+				build = function(b)
+					segmented(AXES, function()
+						return G.editAxis
+					end, function(v)
+						G.editAxis = v
+					end, saveG).Parent = b
+					App.stepLabel(b, nil, "Align to the selection's")
+					local row = buttonRow(b)
+					for _, w in { { "Min", "Lowest" }, { "Center", "Middle" }, { "Max", "Highest" } } do
+						hintOn(
+							button(w[2], nil, function()
+								App.alignSelection(G.editAxis, w[1])
+							end, { Parent = row }),
+							"Every selected one moves on the chosen axis to the selection's " .. string.lower(w[2]) .. " edge (or middle)."
+						)
+					end
+					App.stepLabel(b, nil, "Space evenly by")
+					segmented({ "Centers", "Gaps" }, function()
+						return G.editBy
+					end, function(v)
+						G.editBy = v
+					end, saveG).Parent =
+						b
+					hintOn(
+						button("Distribute", nil, function()
+							App.distributeSelection(G.editAxis, G.editBy)
+						end, { Parent = buttonRow(b) }),
+						"The two outermost stay put; the rest spread evenly between them: the same distance centre to centre, or the same gap between neighbours."
+					)
+				end,
+			})
+			cs.add({
+				id = "editrandom",
+				title = "Randomize",
+				icon = "refresh",
+				sub = "A random turn and size for each",
+				keys = "random turn rotate size scale vary jitter",
+				build = function(b)
+					slider("Turn", 0, 180, function()
+						return G.editTurn
+					end, function(v)
+						G.editTurn = v
+					end, "±%d°", 5, nil, saveG, "How far each one may turn, either way.", 180).Parent =
+						b
+					slider("Size", 0, 0.9, function()
+						return G.editSize
+					end, function(v)
+						G.editSize = v
+					end, "±%.0f%%", 0.05, nil, saveG, "How much bigger or smaller each one may get.", 0.15).Parent =
+						b
+					switchRow("Keep on the ground", function()
+						return G.editKeep
+					end, function(v)
+						G.editKeep = v
+					end, saveG, "Their undersides stay where they were as they grow or shrink.").Parent =
+						b
+					hintOn(button("Randomize", nil, App.randomizeSelection, { Parent = buttonRow(b) }), "Each press, another random turn and size.")
+				end,
+			})
+			cs.add({
+				id = "editreplace",
+				title = "Replace",
+				icon = "swap",
+				sub = "Put another model in each one's place",
+				keys = "replace swap exchange model",
+				build = function(b)
+					local t = para("", { Parent = b })
+					local function show()
+						local ok = replacement and replacement.Parent
+						t.Text = ok and ("Replacing with " .. replacement.Name .. ".")
+							or "Pick the model to put in: select it, then Use the selected."
+						t.TextColor3 = ok and P.text or P.dim
+					end
+					show()
+					App.refreshEditTab = function()
+						if t.Parent then
+							show()
+						end
+					end
+					local row = buttonRow(b)
+					hintOn(button("Use the selected", nil, App.pickReplacement, { Parent = row }), "The model selected now is what Replace puts in.")
+					hintOn(
+						button("Replace the selected", "accent", App.replaceSelection, { Parent = row }),
+						"Each selected model makes way for the replacement: same spot, same turn, its base where the old one's was."
+					)
+					switchRow("Match each one's size", function()
+						return G.editMatch
+					end, function(v)
+						G.editMatch = v
+					end, saveG, "On: each new one is as big as the one it replaces. Off: the replacement keeps its own size.").Parent =
+						b
+				end,
+			})
+		end,
+	})
+
+	-- the search menu finds them too
+	local function any()
+		return #Selection:Get() > 0
+	end
+	App.registerAction({
+		id = "edit:drop",
+		name = "Drop the selection to the ground",
+		group = "Edit",
+		icon = "mountain",
+		words = "ground snap land floor",
+		when = any,
+		run = App.dropToGround,
+	})
+	for _, axis in AXES do
+		for _, w in { { "Min", "lowest" }, { "Center", "middle" }, { "Max", "highest" } } do
+			App.registerAction({
+				id = "edit:align" .. axis .. w[1],
+				name = string.format("Align the selection on %s, to its %s", axis, w[2]),
+				group = "Edit",
+				icon = "align",
+				words = "align line up",
+				when = any,
+				run = function()
+					App.alignSelection(axis, w[1])
+				end,
+			})
+		end
+		App.registerAction({
+			id = "edit:distribute" .. axis,
+			name = "Space the selection evenly on " .. axis,
+			group = "Edit",
+			icon = "align",
+			words = "distribute spread even",
+			when = any,
+			run = function()
+				App.distributeSelection(axis, G.editBy)
+			end,
+		})
+	end
+	App.registerAction({
+		id = "edit:random",
+		name = "Randomize the selection's turn and size",
+		group = "Edit",
+		icon = "refresh",
+		words = "random rotate scale",
+		when = any,
+		run = App.randomizeSelection,
+	})
+	App.registerAction({
+		id = "edit:replace",
+		name = "Replace the selection",
+		group = "Edit",
+		icon = "swap",
+		words = "swap exchange model",
+		when = any,
+		run = App.replaceSelection,
+	})
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — HandTools: one object, by hand, as its Object tab shows it. The tools themselves (Spray, More,
 	Less, Erase, Reset) are in the viewport's strip and act on the active object; here: what they do, what was done
 	to this object by hand, and taking it back.
@@ -5470,7 +6528,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Header: what's done to areas (lock, clear, bake, delete, copy settings), the three area kinds as the
 	outliner lists them (Zone, Path, Keep-clear zone) with their menus, the + New menu, a small popup menu, marking
 	surfaces, dialogs, and helpers the panel shares.
@@ -5804,6 +6862,9 @@ return function(App)
 		item("layers", "Zone from selected models", "The models picked in the Explorer, ready to paint", function()
 			App.newZoneFromSelection()
 		end, P.accent)
+		item("grid", "Array from selected model", "A row, grid or circle of it, or along a path", function()
+			App.newArrayFromSelection()
+		end, P.accent)
 		item("spline", "Path", "Draw a curve: roads, fences, lamps", function()
 			App.newSplineFn()
 		end, P.accent)
@@ -5964,7 +7025,7 @@ return function(App)
 	App.maskOp = maskOp
 	App.primaryButton = primaryButton
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
 	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
@@ -7018,7 +8079,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
 	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
 	settings (a card per rule), biomes, presets, the performance report and removing single copies.
@@ -8506,7 +9567,7 @@ return function(App)
 		return liveBox(parent, fillRemoveCopies)
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">Outliner</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Outliner</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Outliner: everything Smart Scatter made in this place, a row per thing, by kind (the kinds the
 	features registered: zones, paths, keep-clear zones, stamps). Click one to select it; the selected zone or path
 	opens to its objects, and a click on one makes it the active object. Double-click a name to rename it; the … at
@@ -8620,7 +9681,7 @@ return function(App)
 		local lastClick = 0
 		b.MouseButton1Click:Connect(function()
 			local now = os.clock()
-			if sel and spec.menu and now - lastClick < 0.35 and App.isArea(thing) then -- double-click: rename
+			if sel and spec.menu and now - lastClick < 0.35 and thing.folder then -- double-click: rename
 				App.startRename(thing)
 				return
 			end
@@ -8774,7 +9835,7 @@ return function(App)
 		return wrap
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Palette: the search menu, like Blender's F3 (Space here, or whatever Settings › Shortcuts says).
 	Pressed anywhere in the viewport while the panel is open, it opens at the mouse: type a few letters of anything the
 	plugin can do, pick it with the arrow keys and Enter (or a click), and it's done. Actions that take things away
@@ -9074,6 +10135,10 @@ return function(App)
 				})
 			end
 		end
+		-- the actions the features registered (Core/Registry)
+		for _, r in App.registeredActions() do
+			add({ id = r.id, name = r.name, group = r.group, icon = r.icon, words = r.words, key = r.key, danger = r.danger, run = r.run })
+		end
 		-- every other tool the features registered (Core/Registry): a new tool is found here with no change to this list.
 		-- (The ground, object, stamp, path and remove tools have their richer entries above; the search is this menu.)
 		local COVERED = { search = true, remove = true, stamp = true, path = true }
@@ -9101,6 +10166,14 @@ return function(App)
 			run = function()
 				App.newArea()
 			end,
+		})
+		add({
+			id = "newarray",
+			name = "New array from the selected model",
+			group = "Areas",
+			icon = "grid",
+			words = "repeat copies row grid circle radial duplicate",
+			run = App.newArrayFromSelection,
 		})
 		add({
 			id = "newzonefrom",
@@ -9718,7 +10791,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Properties</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Properties</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Properties: the tabs for what's selected (Core/Selection), from the tabs the features registered
 	(Core/Registry), and the page of the open one. Like Blender's properties editor: pick a thing and its settings are
 	here; pick one of its objects and its Object tab opens.
@@ -9873,10 +10946,18 @@ return function(App)
 			App.hintOn(b, t.title)
 			App.ui.tabs[t.id] = b
 		end
+		-- every tab the same way: icons and names; else names alone (they read better); else icons alone (the name
+		-- on hover). One tab without its name among named ones would look broken.
 		local function fit()
 			local cell = bar.AbsoluteSize.X / math.max(#tabs, 1)
+			local both, names = true, true
 			for text, ic in fits do
-				text.Visible = cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+				both = both and cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
+				names = names and cell >= text.TextBounds.X + 8
+			end
+			for text, ic in fits do
+				text.Visible = both or names
+				ic.Visible = both or not names
 			end
 		end
 		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
@@ -9954,7 +11035,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shell: the panel's frame. At the top the name with + New and Settings, the search box, the
 	outliner (Panel/Outliner) and the selection's tabs (Panel/Properties); under them the page that scrolls; the bar
 	pinned to the bottom (Generate, Live update, Shuffle, Undo, the history) and toasts; and the whole-panel rebuild,
@@ -10772,7 +11853,7 @@ return function(App)
 	end)
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
 	needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
 	area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
@@ -10901,7 +11982,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX28"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Object</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX30"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Object</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Object tab: the active object (the one picked in the outliner or the Objects list). Its name and
 	actions, then its rules, a card each; what was done to it by hand is one of them. Only there while an object is
 	active.
@@ -10923,7 +12004,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Objects</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Objects</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Objects tab (a zone or a path): what it places. The list (click one to open it in the Object tab),
 	adding models from the Explorer, how much and how big everything is; a biome, presets and the cost report under
 	More options, and bringing back copies taken out one by one.
@@ -10982,7 +12063,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Path</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Path</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Curve and Road tabs: a path's own settings, for a Path or a zone that has one drawn. Curve: the
 	path itself (length, points, Subdivide, Clear, the selected point), its strip and what it sticks to. Road: a solid
 	road or dirt path down the middle.
@@ -11047,7 +12128,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Settings page (the ⚙ at the top): the plugin's own settings, the same in every area. Look and text
 	size, the viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -11291,7 +12372,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamps: the one outliner entry for everything stamped (Workspace › Stamps, plain models no area
 	owns), and its Stamp tab: what the stamp puts down and how (Panel/StampTools). The tool itself is the strip's.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -11328,7 +12409,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — World tab (always there, whatever is selected): the finished map as a whole. Scanning it for
 	repeated models and keeping the originals, swapping models, re-spacing a layout, seasons; and telling the scan
 	what a part is when it guesses wrong.
@@ -11392,7 +12473,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Zone</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Zone</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Zone tab (a zone or a keep-clear zone): the ground itself. What's painted and the overlay's colours;
 	then, for a zone, the look of the whole zone (pattern, colour zones, edges and wind); under More options, which
 	surfaces painting sticks to and tidying the painted edge.
@@ -11476,7 +12557,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
@@ -11937,7 +13018,148 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX40"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX43"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">ArrayTool</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — ArrayTool: the strip's Array tool. With a model selected in the Explorer (or an array selected: its
+	model), press on the ground and drag: a line runs from the press to the mouse, and on letting go an array of the
+	model lines up along it, as many as fit at the model's own spacing. A plain click makes a row of six running the
+	way the camera looks. The array is then selected, its tab open to tune it (Panel/ArrayTools).
+	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+
+return function(App)
+	local rawMouse = App.rawMouse
+	local DRAG_PX = 6 -- a press that moves further than this is a drag
+
+	local press -- { at = the ground where it was pressed, px = screen position, src, spacing }
+	local line -- the preview line from the press to the mouse
+
+	-- what the tool arrays: the Explorer's selected model, else the selected array's model
+	local function source()
+		local src = App.arraySource()
+		if not src and App.selected and App.selected.kind == "Array" then
+			local v = App.selected.folder:FindFirstChild("Source")
+			src = v and v.Value
+		end
+		return src
+	end
+
+	local function onGround(y)
+		local ray = rawMouse.UnitRay
+		if math.abs(ray.Direction.Y) > 1e-3 then
+			local t = (y - ray.Origin.Y) / ray.Direction.Y
+			if t > 0 then
+				return ray.Origin + ray.Direction * t
+			end
+		end
+		return nil
+	end
+	local function clearLine()
+		if line then
+			line:Destroy()
+			line = nil
+		end
+	end
+
+	local function move()
+		App.gizmoFolder()
+		local hit = App.mouseHit()
+		if not press then
+			if hit then
+				App.gz.anchor.CFrame = CFrame.new(hit.Position)
+				local src = source()
+				App.setLabel(src and ("Array of " .. src.Name .. " · press and drag along where they go") or "Select a model in the Explorer first")
+			end
+			return
+		end
+		local to = onGround(press.at.Y)
+		if not to then
+			return
+		end
+		local d = Vector3.new(to.X - press.at.X, 0, to.Z - press.at.Z)
+		if not line then
+			line = App.new("LineHandleAdornment", {
+				Adornee = workspace.Terrain,
+				AlwaysOnTop = true,
+				Thickness = 4,
+				ZIndex = 5,
+				Color3 = App.VIEW.accent,
+				Parent = App.gizmoFolder(),
+			})
+		end
+		line.Visible = d.Magnitude > 0.05
+		if d.Magnitude > 0.05 then
+			local from = press.at + Vector3.new(0, 0.3, 0)
+			line.CFrame, line.Length = CFrame.lookAt(from, from + d), d.Magnitude
+		end
+		local n = math.max(math.floor(d.Magnitude / press.spacing) + 1, 2)
+		App.gz.anchor.CFrame = CFrame.new(to)
+		App.setLabel(string.format("%d × %s · let go to make it", n, press.src.Name))
+	end
+
+	local function down()
+		local src = source()
+		local hit = App.mouseHit()
+		if not src then
+			App.status("Select a model in the Explorer first: the array repeats it.")
+			return
+		end
+		if hit then
+			press = { at = hit.Position, px = Vector2.new(rawMouse.X, rawMouse.Y), src = src, spacing = App.arraySpacing(src) }
+		end
+	end
+
+	local function up()
+		local pr = press
+		press = nil
+		clearLine()
+		if not pr then
+			return
+		end
+		local to = onGround(pr.at.Y)
+		local dragged = (Vector2.new(rawMouse.X, rawMouse.Y) - pr.px).Magnitude > DRAG_PX and to ~= nil
+		local dir, count
+		if dragged then
+			local d = Vector3.new(to.X - pr.at.X, 0, to.Z - pr.at.Z)
+			dir = d.Magnitude > 1e-3 and d.Unit or Vector3.new(0, 0, -1)
+			count = math.max(math.floor(d.Magnitude / pr.spacing) + 1, 2)
+		else -- a click: six in a row, the way the camera looks
+			local look = workspace.CurrentCamera.CFrame.LookVector
+			local flat = Vector3.new(look.X, 0, look.Z)
+			dir = flat.Magnitude > 1e-3 and flat.Unit or Vector3.new(0, 0, -1)
+			count = 6
+		end
+		App.setMode("Off")
+		App.newArray(pr.src, CFrame.lookAt(pr.at, pr.at + dir), { shape = "Line", count = count, spacing = pr.spacing })
+		App.status(string.format("Array of %d %s made. Tune it on its Array tab.", count, pr.src.Name))
+	end
+
+	-- leaving the tool halfway through a drag drops it
+	local function stop()
+		press = nil
+		clearLine()
+	end
+	App.registerMode("Array", { move = move, down = down, up = up, stop = stop, noArea = true })
+	App.registerTool({
+		id = "array",
+		group = "Stamp",
+		order = 2,
+		icon = "grid",
+		name = "Array: drag along the ground to line up copies of the selected model",
+		on = function()
+			return App.mode == "Array"
+		end,
+		click = function()
+			if App.mode == "Array" then
+				App.setMode("Off")
+			elseif source() then
+				App.setMode("Array")
+			else
+				App.status("Select a model in the Explorer first: the array repeats it.")
+			end
+		end,
+	})
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a touch so the tool stands out, and the viewport's top
 	left says what's going on, the way Blender's does: the tool, then what it works on, then how to stop. Small, plain
@@ -11985,6 +13207,8 @@ return function(App)
 			return "Remove copies", on(area, "click one"), true
 		elseif m == "Select" then
 			return "Select", "click a zone, a path or a copy", false
+		elseif m == "Array" then
+			return "Array", "drag along where the copies go", false
 		elseif LAYER_MODES[m] then
 			local act = shift and App.LAYER_OPPOSITE[m] or m
 			local name = App.paintLayer and App.paintLayer.inst.Name or nil
@@ -12115,7 +13339,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
 	ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
 	toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
@@ -12246,7 +13470,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Overlay: the widget and the painted-area overlay in the viewport.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -12597,7 +13821,7 @@ return function(App)
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -12797,12 +14021,24 @@ return function(App)
 		return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
 	end
 
+	-- Viewport modes that bring their own mouse handling (Stamp, Select, Array…): a module registers the mode's
+	-- handlers and Paint hands the viewport's mouse to them while it's on; no brush, no grid. spec: { move = fn,
+	-- down = fn, up = fn?, stop = fn? (drop what's half done: the mode ends), noArea = true? (it works with no area,
+	-- and a locked area doesn't stop it) }
+	App.modeHandlers = {}
+	App.registerMode = function(mode, spec)
+		App.modeHandlers[mode] = spec
+		if spec.noArea then
+			App.NO_AREA_MODES[mode] = true
+		end
+	end
+
 	-- The size key (B) resizes the brush like Blender's sculpt brushes: the ring stays put and follows the mouse's distance from
 	-- its centre; a click, the key again or Enter keeps the size, Esc or a right-click puts it back
 	local sizing -- { hit = the ground under the ring, from = the size before }
 	local smoothUp, lastRingAt -- the ring's eased tilt, and where it was last drawn
 	local function updateGizmo(hit)
-		if App.mode == "Stamp" or App.mode == "Select" then -- the stamp shows the model itself, Select names things
+		if App.modeHandlers[App.mode] then -- (its own look: the stamp shows the model, Select names things)
 			gizmoFolder()
 			for _, k in { "ring", "disc", "halo", "sq", "dot" } do
 				if App.gz[k] then
@@ -12810,7 +14046,7 @@ return function(App)
 				end
 			end
 		end
-		if App.mode == "Spline" or App.mode == "Remove" or App.mode == "Stamp" or App.mode == "Select" then
+		if App.mode == "Spline" or App.mode == "Remove" or App.modeHandlers[App.mode] then
 			if App.clearGrid then -- (no grid for these tools)
 				App.clearGrid()
 			end
@@ -13289,12 +14525,9 @@ return function(App)
 			markCopy(copyUnderMouse())
 			return
 		end
-		if App.mode == "Stamp" then
-			App.stampMove()
-			return
-		end
-		if App.mode == "Select" then -- (Viewport/Select)
-			App.selectMove()
+		local handler = App.modeHandlers[App.mode]
+		if handler then
+			handler.move()
 			return
 		end
 		if sizing then
@@ -13346,12 +14579,9 @@ return function(App)
 			end
 			return
 		end
-		if App.mode == "Select" then -- (Viewport/Select: what a click picks)
-			App.selectDown()
-			return
-		end
-		if App.mode == "Stamp" then -- (anywhere: a stamp needs no area)
-			App.stampDown()
+		local handler = App.modeHandlers[App.mode]
+		if handler then -- (a mode of its own: the stamp, Select…)
+			handler.down()
 			return
 		end
 		-- (a path's point under the brush doesn't take the click: painting paints. With no tool on, a click on a
@@ -13458,8 +14688,11 @@ return function(App)
 	end))
 
 	App.onMouseUp(function()
-		if App.mode == "Stamp" then
-			App.stampUp()
+		local handler = App.modeHandlers[App.mode]
+		if handler then
+			if handler.up then
+				handler.up()
+			end
 			return
 		end
 		if not down then
@@ -13681,6 +14914,7 @@ return function(App)
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
 		Select = "Click a zone's ground, a path or a placed copy to work on it.",
+		Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
 		None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
@@ -13715,8 +14949,10 @@ return function(App)
 		if App.resetSplineDrag then
 			App.resetSplineDrag()
 		end
-		if App.clearStamp then
-			App.clearStamp()
+		for _, h in App.modeHandlers do -- (a mode of its own drops what it was in the middle of)
+			if h.stop then
+				h.stop()
+			end
 		end
 	end
 	App.setMode = function(m, layer)
@@ -13856,7 +15092,7 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Select</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Select</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Select: the strip's Select tool. Point at something Smart Scatter made and it's named by the mouse;
 	a click selects it (Core/Selection), so the panel shows it:
 	  a placed copy     its zone, with its object active
@@ -14035,6 +15271,8 @@ return function(App)
 		App.status("Selected " .. (thing.folder and thing.folder.Name or thing.kind) .. (object and (" · " .. object.inst.Name) or "") .. ".")
 	end
 
+	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, noArea = true })
+
 	App.registerTool({
 		id = "select",
 		group = "Select",
@@ -14048,7 +15286,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
 	round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
 	centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
@@ -14236,7 +15474,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -15390,7 +16628,7 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamp: one model, put down exactly where and how you want it, anywhere on the ground. No area,
 	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
 	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
@@ -15709,6 +16947,17 @@ return function(App)
 		end
 	end
 
+	-- the viewport's mouse while stamping (Paint hands it over); a stamp is no area's
+	App.registerMode("Stamp", {
+		move = App.stampMove,
+		down = App.stampDown,
+		up = App.stampUp,
+		stop = function()
+			App.clearStamp()
+		end,
+		noArea = true,
+	})
+
 	-- the stamp's keys; true when the key was one of them
 	App.stampKey = function(name)
 		if name == "turn" then
@@ -15772,7 +17021,7 @@ return function(App)
 		clearGhost()
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Toolbar: the viewport's tools, like Blender's; the one place tools live. Down the left edge, a strip
 	of small square tool buttons in groups (the tools the features registered: Core/Registry), the one in use lit.
 	Along the top, while a tool is on, a bar with what it acts on and its settings (the brush's size and shape, the
@@ -15992,6 +17241,9 @@ return function(App)
 			if App.hasPath() then
 				table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 			end
+		elseif m == "Array" then
+			title = "Array"
+			table.insert(items, { text = "Press and drag along where the copies go" })
 		elseif m == "Select" then
 			title = "Select"
 			table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })
@@ -16248,7 +17500,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX54"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX59"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -16261,7 +17513,22 @@ end
 	A module may use what an earlier one put on E or I. To add a module: create it here and add its name to ORDER.
 ]]
 
-local ORDER = { "Scan", "Assets", "Areas", "Paths", "Planning", "Placement", "Lines", "Pins", "Generate", "Kinds", "Seasons", "Layout" }
+local ORDER = {
+	"Scan",
+	"Assets",
+	"Areas",
+	"Paths",
+	"Arrays",
+	"Edit",
+	"Planning",
+	"Placement",
+	"Lines",
+	"Pins",
+	"Generate",
+	"Kinds",
+	"Seasons",
+	"Layout",
+}
 
 local function module(name) -- (a flattened release swaps this line for its own table of modules)
 	return require(script:FindFirstChild(name))
@@ -16278,7 +17545,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -17264,7 +18531,148 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX43"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX46"><Properties><string name="Name">Arrays</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Arrays: one model repeated in a pattern, like Blender's Array modifier (and its Curve one).
+	Plain maths: from an array's settings, where each copy stands (a position and a heading, relative to the array's
+	origin, or in the world along a path) and how big it is. The plugin makes the copies (App's Panel/ArrayTools); nothing here touches
+	the world, so it's checked by the offline tests.
+	Settings (s): shape "Line" | "Grid" | "Circle" | "Path"
+	  Line   count, spacing                      copies in a row down the origin's front (-Z)
+	  Grid   rows, cols, spacingX, spacingZ      rows down the front, columns to the right
+	  Circle count, radius, face "Out"|"In"|"Keep" round the origin
+	  Path   count, spacing, pathMode "Count"|"Spacing"   along a path's curve (samples given), facing along it
+	  every shape: yawStep (degrees added per copy), yawJitter (± degrees), scaleJitter (± share), posJitter (± studs),
+	  seed, scale
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E)
+	E.ARRAY_SHAPES = { "Line", "Grid", "Circle", "Path" }
+	E.ARRAY_FACES = { "Out", "In", "Keep" }
+	local MAX = 1000 -- copies in one array at most (a slider can't make Studio stall)
+
+	-- the settings an array starts with, and what's missing from saved ones filled in
+	function E.arrayDefaults(s)
+		local d = {
+			shape = "Line",
+			count = 6,
+			spacing = 8,
+			rows = 3,
+			cols = 3,
+			spacingX = 8,
+			spacingZ = 8,
+			radius = 20,
+			face = "Out",
+			pathMode = "Count",
+			yawStep = 0,
+			yawJitter = 0,
+			scaleJitter = 0,
+			posJitter = 0,
+			seed = 1,
+			scale = 1,
+			ground = true,
+			lift = 0,
+		}
+		for k, v in s or {} do
+			if d[k] ~= nil and type(v) == type(d[k]) then
+				d[k] = v
+			end
+		end
+		d.count = math.clamp(math.floor(d.count), 1, MAX)
+		d.rows = math.clamp(math.floor(d.rows), 1, 100)
+		d.cols = math.clamp(math.floor(d.cols), 1, 100)
+		while d.rows * d.cols > MAX do
+			d.rows -= 1
+		end
+		return d
+	end
+
+	-- points along a sampled curve (a list of Vector3, in order) at the given distances from its start: position and
+	-- the flat direction it runs there. The curve's length comes back too.
+	local function along(P, dists)
+		local cum = { 0 }
+		for k = 2, #P do
+			cum[k] = cum[k - 1] + (P[k] - P[k - 1]).Magnitude
+		end
+		local out, seg = {}, 2
+		for _, d in dists do
+			while seg < #P and cum[seg] < d do
+				seg += 1
+			end
+			local a, b = P[seg - 1] or P[1], P[seg] or P[1]
+			local len = cum[seg] - (cum[seg - 1] or 0)
+			local t = len > 1e-6 and math.clamp((d - (cum[seg - 1] or 0)) / len, 0, 1) or 0
+			local dir = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+			table.insert(out, { p = a:Lerp(b, t), dir = dir.Magnitude > 1e-4 and dir.Unit or Vector3.new(0, 0, -1) })
+		end
+		return out, cum[#P] or 0
+	end
+	E.arrayAlong = along
+
+	-- the heading (radians about the vertical, 0 = facing -Z, Roblox's front) of a flat direction
+	local function heading(dir)
+		return math.atan2(-dir.X, -dir.Z)
+	end
+
+	-- Where each copy stands: { { pos = Vector3, yaw = radians, scale = number } }. In the array's own space (its
+	-- origin at 0, facing -Z) for Line, Grid and Circle; in the world for Path (P: the path's curve, sampled; closed: a
+	-- loop). yaw is its heading with its own turn (yawStep, jitter) added. The same settings give the same copies.
+	function E.arrayCopies(s, P, closed)
+		s = E.arrayDefaults(s)
+		local rng = Random.new(math.floor(s.seed) * 7919 + 17)
+		local spots = {} -- { pos, yaw } before each copy's own turn
+		if s.shape == "Line" then
+			for i = 0, s.count - 1 do
+				table.insert(spots, { Vector3.new(0, 0, -i * s.spacing), 0 })
+			end
+		elseif s.shape == "Grid" then
+			for r = 0, s.rows - 1 do
+				for c = 0, s.cols - 1 do
+					table.insert(spots, { Vector3.new(c * s.spacingX, 0, -r * s.spacingZ), 0 })
+				end
+			end
+		elseif s.shape == "Circle" then
+			for i = 0, s.count - 1 do
+				local a = i / s.count * math.pi * 2
+				local p = Vector3.new(math.sin(a) * s.radius, 0, -math.cos(a) * s.radius)
+				local yaw = 0
+				if s.face == "Out" then -- its front away from the centre
+					yaw = heading(p)
+				elseif s.face == "In" then
+					yaw = heading(Vector3.zero - p)
+				end
+				table.insert(spots, { p, yaw })
+			end
+		elseif s.shape == "Path" and P and #P >= 2 then
+			local _, len = along(P, {})
+			local dists = {}
+			if s.pathMode == "Spacing" then
+				local n = math.min(math.floor(len / math.max(s.spacing, 0.1)) + 1, MAX)
+				for i = 0, n - 1 do
+					table.insert(dists, i * s.spacing)
+				end
+			else
+				local n = s.count
+				for i = 0, n - 1 do -- (a loop spaces them all round; an open path puts one at each end)
+					table.insert(dists, n == 1 and 0 or len * i / (closed and n or (n - 1)))
+				end
+			end
+			for _, pt in along(P, dists) do
+				table.insert(spots, { pt.p, heading(pt.dir) })
+			end
+		end
+		local out = {}
+		for i, spot in spots do
+			local yaw = spot[2] + math.rad(s.yawStep * (i - 1) + (s.yawJitter > 0 and rng:NextNumber(-s.yawJitter, s.yawJitter) or 0))
+			local scale = s.scale * (1 + (s.scaleJitter > 0 and rng:NextNumber(-s.scaleJitter, s.scaleJitter) or 0))
+			local nudge = s.posJitter > 0 and Vector3.new(rng:NextNumber(-s.posJitter, s.posJitter), 0, rng:NextNumber(-s.posJitter, s.posJitter))
+				or Vector3.zero
+			table.insert(out, { pos = spot[1] + nudge, yaw = yaw, scale = math.max(scale, 0.05) })
+		end
+		return out
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX47"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18064,7 +19472,93 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX48"><Properties><string name="Name">Edit</string><ProtectedString name="Source"><![CDATA[--[[
+	Smart Scatter — Engine/Edit: the maths of the editing helpers (App's Panel/EditTools): lining things up, spacing
+	them evenly, and random turns and sizes. Plain numbers in, plain moves out; nothing here touches the world, so the
+	offline tests check it.
+	A box is { min = Vector3, max = Vector3 } (something's extent in the world); an axis is "X", "Y" or "Z".
+	Adds to E (the engine API); shares internals with the other engine modules through I.
+]]
+
+return function(E)
+	local function comp(v, axis)
+		return axis == "X" and v.X or axis == "Y" and v.Y or v.Z
+	end
+	local function along(axis, d)
+		return axis == "X" and Vector3.new(d, 0, 0) or axis == "Y" and Vector3.new(0, d, 0) or Vector3.new(0, 0, d)
+	end
+
+	-- Aligns boxes on an axis to the selection's own extent there: "Min" (all start where the lowest starts), "Center"
+	-- (all centred on its middle) or "Max". Returns the move for each box.
+	function E.alignMoves(boxes, axis, where)
+		local lo, hi = math.huge, -math.huge
+		for _, b in boxes do
+			lo, hi = math.min(lo, comp(b.min, axis)), math.max(hi, comp(b.max, axis))
+		end
+		local out = {}
+		for i, b in boxes do
+			local a, z = comp(b.min, axis), comp(b.max, axis)
+			local d = where == "Min" and lo - a or where == "Max" and hi - z or (lo + hi) / 2 - (a + z) / 2
+			out[i] = along(axis, d)
+		end
+		return out
+	end
+
+	-- Spreads boxes evenly on an axis between the two outermost (which stay put): "Centers" (the same distance centre
+	-- to centre) or "Gaps" (the same empty space between neighbours). Returns the move for each box.
+	function E.distributeMoves(boxes, axis, mode)
+		local out, order = {}, {}
+		for i in boxes do
+			out[i] = Vector3.zero
+			table.insert(order, i)
+		end
+		if #order < 3 then
+			return out
+		end
+		local function mid(i)
+			return (comp(boxes[i].min, axis) + comp(boxes[i].max, axis)) / 2
+		end
+		table.sort(order, function(a, b)
+			return mid(a) < mid(b)
+		end)
+		local n = #order
+		if mode == "Gaps" then
+			local total, span = 0, comp(boxes[order[n]].max, axis) - comp(boxes[order[1]].min, axis)
+			for _, i in order do
+				total += comp(boxes[i].max, axis) - comp(boxes[i].min, axis)
+			end
+			local gap = (span - total) / (n - 1)
+			local at = comp(boxes[order[1]].max, axis) + gap
+			for k = 2, n - 1 do
+				local i = order[k]
+				out[i] = along(axis, at - comp(boxes[i].min, axis))
+				at += comp(boxes[i].max, axis) - comp(boxes[i].min, axis) + gap
+			end
+		else
+			local first, last = mid(order[1]), mid(order[n])
+			for k = 2, n - 1 do
+				local i = order[k]
+				out[i] = along(axis, first + (last - first) * (k - 1) / (n - 1) - mid(i))
+			end
+		end
+		return out
+	end
+
+	-- A random turn (radians, up to ± turn degrees) and size (× 1 ± size) for each of n things; the same seed gives
+	-- the same ones
+	function E.randomTurns(n, turn, size, seed)
+		local rng = Random.new(math.floor(seed or 1) * 104729 + 3)
+		local out = {}
+		for i = 1, n do
+			out[i] = {
+				yaw = turn > 0 and math.rad(rng:NextNumber(-turn, turn)) or 0,
+				scale = size > 0 and math.max(1 + rng:NextNumber(-size, size), 0.05) or 1,
+			}
+		end
+		return out
+	end
+end
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX49"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -18515,7 +20009,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX50"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -19030,7 +20524,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX46"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX51"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -19666,7 +21160,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX47"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX52"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -20744,7 +22238,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX48"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX53"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -21518,7 +23012,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX49"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX54"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -21650,7 +23144,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX50"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX55"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -22676,7 +24170,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX51"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX56"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -23001,7 +24495,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX52"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX57"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -23513,7 +25007,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX53"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX58"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or

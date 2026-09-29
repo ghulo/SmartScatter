@@ -177,6 +177,8 @@ return function(App)
 		App.status("Selected " .. (thing.folder and thing.folder.Name or thing.kind) .. (object and (" · " .. object.inst.Name) or "") .. ".")
 	end
 
+	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, noArea = true })
+
 	App.registerTool({
 		id = "select",
 		group = "Select",

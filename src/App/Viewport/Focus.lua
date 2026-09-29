@@ -46,6 +46,8 @@ return function(App)
 			return "Remove copies", on(area, "click one"), true
 		elseif m == "Select" then
 			return "Select", "click a zone, a path or a copy", false
+		elseif m == "Array" then
+			return "Array", "drag along where the copies go", false
 		elseif LAYER_MODES[m] then
 			local act = shift and App.LAYER_OPPOSITE[m] or m
 			local name = App.paintLayer and App.paintLayer.inst.Name or nil
