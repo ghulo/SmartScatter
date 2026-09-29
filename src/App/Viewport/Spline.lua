@@ -479,6 +479,7 @@ return function(App)
 		App.refreshSplineInfo()
 		App.checkShape()
 		if not (G.live and canGenerate()) then
+			App.markPending()
 			App.refreshScan()
 			App.refreshCounts()
 			App.status(select(2, canGenerate()) or "Spline updated. Press Generate.")

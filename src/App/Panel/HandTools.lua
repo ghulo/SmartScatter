@@ -114,7 +114,7 @@ return function(App)
 					if App.paintLayer == l then
 						App.recolorOverlay()
 					end
-					App.commit(l)
+					App.applyNow(l, "Reset painting")
 					App.refreshObjects()
 				end, { Parent = buttonRow(parent) }),
 				"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
@@ -123,7 +123,7 @@ return function(App)
 		if l.pins then
 			local rm = App.dangerButton(string.format("Remove all %d put down by hand", #l.pins), function()
 				l.pins = nil
-				App.commit(l)
+				App.applyNow(l, "Remove hand-placed")
 				App.refreshObjects()
 			end, { confirm = "Click again to remove", full = true })
 			rm.Parent = parent

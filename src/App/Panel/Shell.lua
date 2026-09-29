@@ -70,7 +70,7 @@ return function(App)
 		end
 		App.status(
 			G.live
-					and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+					and (G.liveBoxes and "Live on: changes show as you make them (a big area as see-through boxes until Generate)." or "Live update on: every change rebuilds as you make it.")
 				or "Live off: changes wait for Generate."
 		)
 	end
@@ -265,7 +265,10 @@ return function(App)
 			if App.failure then
 				return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
 			end
-			return "Places the real models now. With Live on, changes show as see-through boxes first; this turns them into the models."
+			if App.hasPending() then
+				return "You've changed settings, ground or the path since the last Generate. Click to place them."
+			end
+			return "Places the real models now. With Live on, a big area's changes show as see-through boxes first; this turns them into the models."
 		end)
 
 		-- Live update: a pill that lights up when on
@@ -299,7 +302,7 @@ return function(App)
 		live.MouseButton1Click:Connect(App.toggleLive)
 		hintOn(
 			live,
-			"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
+			"On: every change shows right away (a big area as see-through boxes until Generate). Off: changes wait for Generate; brushing one object and its buttons always show at once."
 		)
 
 		local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)

@@ -524,10 +524,15 @@ return function(App)
 			if not layerPaint then
 				App.analysisDirty = true
 			end
-			if G.live and canGenerate() then
-				runGenerate(false, layerPaint or nil, box)
+			if layerPaint and box then
+				-- one object by hand (Spray, More, Less, Erase, Reset): its real copies in the stroke's patch change now,
+				-- Live on or off, the way a stamp goes down at once
+				App.applyNow(layerPaint, nil, box)
+			elseif G.live and canGenerate() then
+				runGenerate(false, nil, box)
 			elseif App.area then
 				dropErased(erased, wiped, layerPaint)
+				App.markPending()
 			end
 		end
 		if not changed then

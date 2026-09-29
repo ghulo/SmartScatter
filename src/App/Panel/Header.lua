@@ -46,6 +46,7 @@ return function(App)
 		Engine.clearOutputs(App.area)
 		endRec(rec)
 		App.lastCounts, App.lastTotal = {}, 0
+		App.markPending()
 		App.refreshCounts()
 		App.status("Cleared. The area and objects are kept; Generate brings it all back.")
 	end
@@ -246,6 +247,8 @@ return function(App)
 		App.refreshObjects()
 		if G.live and canGenerate() then
 			runGenerate(true)
+		else
+			App.markPending()
 		end
 	end
 
@@ -425,6 +428,7 @@ return function(App)
 					end
 				end
 				App.dropErased(gone, {})
+				App.markPending()
 			end
 		end
 		if #changed == 0 then

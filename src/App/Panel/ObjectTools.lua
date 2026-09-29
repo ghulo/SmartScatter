@@ -354,7 +354,7 @@ return function(App)
 									return
 								end
 								App.status(string.format("Swapped %s for %s. Copies stay on the same spots where they fit.", old, pick.Name))
-								commit(l)
+								App.applyNow(l, "Swap model")
 								App.refreshObjects()
 							end,
 						},
@@ -717,7 +717,10 @@ return function(App)
 		hintOn(
 			button("New look", "accent", function()
 				l.s.seed = (tonumber(l.s.seed) or 0) + 1
-				c.done()
+				App.applyNow(l, "New look") -- (a button asks to see it: it rebuilds now, Live or not)
+				if App.heatLayer == l then
+					recolorOverlay()
+				end
 			end, { Parent = actions }),
 			"Rerolls just this object: new positions, same settings. The other objects stay where they are."
 		)
@@ -1319,11 +1322,8 @@ return function(App)
 		if n > 0 then
 			button(string.format("Bring back %d removed", n), "ghost", function()
 				App.area.removed = {}
-				commit()
+				App.applyNow(nil, "Bring back removed")
 				App.refreshObjects()
-				if not G.live then
-					App.status("Press Generate to bring them back.")
-				end
 			end, { Parent = fix })
 		end
 	end
@@ -1406,8 +1406,8 @@ return function(App)
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
 			local ok = canGenerate()
 			local failed = ok and App.failure ~= nil
-			-- always one short word; what's missing, or why it failed, is in its tooltip
-			App.ui.genBtn.Text = failed and "Try again" or "Generate"
+			-- always short; what's missing, why it failed, or what's waiting is in its tooltip
+			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Generate  ·  changes waiting" or "Generate"
 			tween(App.ui.genBtn, FAST, {
 				BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 				TextColor3 = ok and P.onAccent or P.faint,

@@ -155,7 +155,7 @@ return function(App)
 			chapter = "Placing",
 			title = "Placing it all",
 			text = "This bar stays at the bottom. Generate places the real models. Turn Live on for a quick preview: every "
-				.. "change shows right away as see-through boxes, and Generate turns them into the models.\n\n"
+				.. "change shows right away (on a big area as see-through boxes, which Generate turns into the models).\n\n"
 				.. "Shuffle gives a new random layout, and Undo (or Ctrl+Z) takes back any step. The ticks above the bar "
 				.. "are your history: click one to jump back (or forward) to that step.",
 			target = function()

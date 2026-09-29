@@ -378,15 +378,41 @@ return function(E, I)
 		end
 	end
 
-	-- a quick stand-in for a copy when previewing: one see-through box the size of the model, standing where it would
-	local function ghostOf(v, sc, cf, sink)
+	-- the colour a model reads as from a distance: its biggest visible part's (worked out once per model)
+	local function mainColor(v)
+		if v._ghostColor == nil then
+			local best, col = 0, Color3.fromRGB(143, 186, 151)
+			for _, p in v.m.parts or {} do
+				local vol = p.Size.X * p.Size.Y * p.Size.Z
+				if p.Transparency < 0.9 and vol > best then
+					best, col = vol, p.Color
+				end
+			end
+			v._ghostColor = col
+		end
+		return v._ghostColor
+	end
+	-- a quick stand-in for a copy when previewing: one see-through box the size of the model, in its colour, standing
+	-- where it would (a line's piece by its pole, and stretched to fit a bend, as poseCopy stands the model)
+	local function ghostOf(l, v, sc, cf, sink, stretch)
 		local m = v.m
+		local size, off = m.size * sc, Vector3.zero
+		if isLine(l) then
+			overhangYaw(v)
+			if v._foot then -- stood by the pole: the box sits out along the arm, where the model is
+				off = Vector3.new((m.cx - v._foot.X) * sc, 0, (m.cz - v._foot.Y) * sc)
+			end
+			if stretch and math.abs(stretch - 1) > 0.005 then
+				local f = math.min(stretch, 1.15)
+				size = alongXOf(l.s, m) and Vector3.new(size.X * f, size.Y, size.Z) or Vector3.new(size.X, size.Y, size.Z * f)
+			end
+		end
 		local p = Instance.new("Part")
 		p.Name = v.inst.Name
-		p.Size = m.size * sc
-		p.CFrame = cf * CFrame.new(0, m.size.Y * sc / 2 - sink, 0)
+		p.Size = size
+		p.CFrame = cf * CFrame.new(off.X, m.size.Y * sc / 2 - sink, off.Z)
 		p.Transparency, p.CastShadow, p.CanCollide, p.CanTouch, p.CanQuery = 0.55, false, false, false, false
-		p.Material, p.Color = Enum.Material.SmoothPlastic, Color3.fromRGB(143, 186, 151)
+		p.Material, p.Color = Enum.Material.SmoothPlastic, mainColor(v)
 		return p
 	end
 
@@ -425,7 +451,7 @@ return function(E, I)
 		local s, m = l.s, v.m
 		local out = ctx.output
 		if out.ghost then
-			local box = ghostOf(v, sc, cf, sink)
+			local box = ghostOf(l, v, sc, cf, sink, stretch)
 			ctx.parts += 1
 			return tag(ctx, l, box, x, z, item, gid, stacked)
 		end
