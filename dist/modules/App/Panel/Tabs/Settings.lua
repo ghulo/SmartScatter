@@ -129,9 +129,9 @@ return function(App)
 			"Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
 		)
 		outSwitch(
-			"Live previews as boxes",
+			"Big previews as boxes",
 			"liveBoxes",
-			"With Live on, changes show as a see-through box per copy: quick, even on big areas. Generate places the real models. Off: Live places the real models every time."
+			"With Live on, a light area shows the real models as you change it; a big one shows a see-through box per copy, quick to redo, until Generate places the models. Off: Live places the real models every time."
 		)
 		box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 		App.ui.perf = para("", { Parent = b })

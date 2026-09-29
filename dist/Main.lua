@@ -437,6 +437,7 @@ Runs once, in the order App/init.lua sets; shared state and cross-module functio
 ]]
 return function(App)
 local TextService = game:GetService("TextService")
+local UIS = game:GetService("UserInputService")
 local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 local TweenService = game:GetService("TweenService")
@@ -1076,9 +1077,17 @@ dragging = true
 look()
 fromX(input.Position.X)
 local conn
+local sawHeld = false
 conn = RunService.Heartbeat:Connect(function()
 if not dragging then
 conn:Disconnect()
+return
+end
+local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+if ok and held then
+sawHeld = true
+elseif ok and sawHeld then
+stop()
 return
 end
 fromX(App.widget:GetRelativeMousePosition().X)
@@ -1120,9 +1129,10 @@ local n = tonumber(string.match(value.Text, "%-?[%d%.]+"))
 if n and pct then
 n /= 100
 end
+local was = get()
 apply(n, true)
 show(get(), true)
-if onCommit then
+if onCommit and get() ~= was then
 onCommit()
 end
 end)
@@ -1702,7 +1712,6 @@ do
 TYPED[d] = n
 end
 local function captureKey(over, done)
-local UIS = game:GetService("UserInputService")
 local tb = new("TextBox", {
 Text = "",
 TextTransparency = 1,
@@ -2088,7 +2097,6 @@ local SUB = {
 scanfix = "Tell it what's a road, building or water",
 line = "What it follows and which way it faces",
 variants = "Mix several models in one object",
-layerpaint = "Brush more or less of it by hand",
 size = "Random sizes, smallest to largest",
 spread = "Spacing, clumping and a limit",
 groups = "Small piles, like rocks or crates",
@@ -2112,7 +2120,6 @@ clearzone = "clear",
 paint = "brush",
 stamp = "stamp",
 objectbrush = "spray",
-layerpaint = "spray",
 removecopies = "close",
 paintfilter = "filter",
 tidy = "wand",
@@ -2731,9 +2738,14 @@ return true
 end
 return worldPrint() ~= lastPrint
 end
+local function snapshot()
+App.savedAttrs = App.area and { folder = App.area.folder, attrs = App.area.folder:GetAttributes() } or nil
+end
+App.snapshotArea = snapshot
 local function saveArea()
 if App.area then
 Engine.saveArea(App.area)
+snapshot()
 end
 end
 local function canGenerate()
@@ -2775,10 +2787,30 @@ end
 return ALL
 end
 local FIRST_SLICE, SLICE = 0.08, 0.03
+local LIVE_SLICE = 0.015
 local HEAVY_PARTS = 25000
+local LIGHT_PARTS = 3000
 local heavyAsked = setmetatable({}, { __mode = "k" })
 local job
 local liveFrom, liveLoop = nil, false
+local pendingFor = setmetatable({}, { __mode = "k" })
+local function markPending()
+if G.live or not App.area then
+return
+end
+local first = not pendingFor[App.area.folder]
+pendingFor[App.area.folder] = true
+if first and App.hint then
+App.hint("pending", "Saved. Changes show when you press Generate (or turn Live on).")
+end
+if App.refreshCounts then
+App.refreshCounts()
+end
+end
+App.markPending = markPending
+App.hasPending = function()
+return App.area ~= nil and pendingFor[App.area.folder] == true
+end
 local lostPatch
 local function joinBoxes(a, b)
 if not (a and b) then
@@ -2826,14 +2858,14 @@ me.from, me.region = from, not recorded and region or nil
 App.heavyWarning = nil
 local area = App.area
 local t0, slice = os.clock(), os.clock()
-local budget = FIRST_SLICE
+local budget = (me.live and not region) and LIVE_SLICE or FIRST_SLICE
 local phase = "Scanning"
 local function tick(progress)
 if me.cancel or App.area ~= area then
 return false
 end
 if os.clock() - slice > budget then
-budget = SLICE
+budget = (me.live and not me.region) and LIVE_SLICE or SLICE
 if App.showProgress then
 App.showProgress(phase, progress)
 end
@@ -2856,8 +2888,19 @@ end
 if from and not table.find(area.layers, from) then
 from = nil
 end
-if me.live or preview then
-local copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+local copies, parts
+if preview then
+if me.region then
+preview = false
+else
+copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+preview = parts > LIGHT_PARTS
+end
+end
+if (me.live or preview) and not me.region then
+if not copies then
+copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+end
 if (preview and copies or parts) > HEAVY_PARTS then
 App.heavyWarning = { copies = copies, parts = parts, area = area }
 return
@@ -2875,6 +2918,9 @@ if counts then
 App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 me.done = true
 lostPatch = nil
+if not preview and from == nil and me.region == nil then
+pendingFor[area.folder] = nil
+end
 end
 end, function(e)
 trace = debug.traceback(tostring(e), 2)
@@ -2982,6 +3028,7 @@ local rec = beginRec("Smart Scatter: " .. (what or "Change settings"))
 saveArea()
 endRec(rec)
 if not G.live then
+markPending()
 return
 end
 local f = mergeFrom(liveFrom, from)
@@ -2991,6 +3038,24 @@ end
 liveFrom = nil
 task.spawn(function()
 runGenerate(true, f ~= ALL and f or nil)
+end)
+end
+local function applyNow(from, what, region)
+if what then
+local rec = beginRec("Smart Scatter: " .. what)
+saveArea()
+endRec(rec)
+end
+if not canGenerate() then
+return
+end
+liveFrom = nil
+task.spawn(function()
+if region then
+runGenerate(false, from, region, true)
+else
+runGenerate(true, from, nil, true)
+end
 end)
 end
 function App.countPlaced()
@@ -3021,6 +3086,7 @@ end
 local function switchArea(folder)
 cancelJob()
 App.area = folder and Engine.loadArea(folder) or nil
+snapshot()
 App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil
 App.expanded = nil
 App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
@@ -3141,6 +3207,7 @@ App.cancelJob = cancelJob
 App.busy = busy
 App.requestLive = requestLive
 App.commit = commit
+App.applyNow = applyNow
 App.switchArea = switchArea
 App.newArea = newArea
 App.deleteArea = deleteArea
@@ -3214,6 +3281,7 @@ return 0
 end
 App.historyJumping = true
 local steps, back = 0, target < H.pos
+local names = {}
 for _ = 1, 400 do
 if H.pos == target then
 break
@@ -3264,11 +3332,12 @@ if H.list[H.pos + 1] and H.list[H.pos + 1].name == name then
 H.pos += 1
 end
 end
+names[name] = true
 steps += 1
 end
 App.historyJumping = false
 if steps > 0 and App.afterHistory then
-task.defer(App.afterHistory)
+task.defer(App.afterHistory, names)
 end
 changed()
 return steps
@@ -3317,6 +3386,7 @@ local rec = beginRec("Smart Scatter: Clear")
 Engine.clearOutputs(App.area)
 endRec(rec)
 App.lastCounts, App.lastTotal = {}, 0
+App.markPending()
 App.refreshCounts()
 App.status("Cleared. The area and objects are kept; Generate brings it all back.")
 end
@@ -3510,6 +3580,8 @@ saveArea()
 App.refreshObjects()
 if G.live and canGenerate() then
 runGenerate(true)
+else
+App.markPending()
 end
 end
 local function heading(parent, text, gapTop)
@@ -3676,6 +3748,7 @@ gone[App.cellKey(cc[1], cc[2])] = true
 end
 end
 App.dropErased(gone, {})
+App.markPending()
 end
 end
 if #changed == 0 then
@@ -3872,19 +3945,6 @@ end,
 })
 local refresh = tiles.refresh
 App.ui.refreshMode = refresh
-legend(parent)
-keyChips(parent, {
-{ "Shift", "erase" },
-{ App.keyText("size"), "size" },
-{ App.keyText("shrink") .. " " .. App.keyText("grow"), "step" },
-{ App.keyText("cancel"), "stop" },
-})
-hintOn(
-button("Fill selected parts", nil, function()
-App.fillSelection()
-end, { Parent = buttonRow(parent) }),
-"Select parts or models in the Explorer (an island, a roof, a platform), then click: their tops join the area and count as ground."
-)
 local brushOpts = col({ Parent = parent }, { vlist(6) })
 slider(
 "Brush size",
@@ -3934,6 +3994,20 @@ App.ui.refreshTool = function()
 refresh()
 showTool()
 end
+keyChips(parent, {
+{ "Shift", "erase" },
+{ App.keyText("size"), "size" },
+{ App.keyText("shrink") .. " " .. App.keyText("grow"), "step" },
+{ App.keyText("cancel"), "stop" },
+})
+legend(parent)
+gap(parent, 2)
+hintOn(
+button("Fill selected parts", nil, function()
+App.fillSelection()
+end, { Parent = buttonRow(parent) }),
+"Select parts or models in the Explorer (an island, a roof, a platform), then click: their tops join the area and count as ground."
+)
 if App.area and App.area.count > 0 then
 gap(parent, 2)
 App.fadeLine(parent, nil, 0.14)
@@ -4684,7 +4758,6 @@ commit(l)
 reheat()
 end
 function c.changed(rebuild)
-c.live()
 c.done()
 if rebuild then
 App.refreshObjects()
@@ -4930,7 +5003,7 @@ App.status("Select the model to swap in, in the Explorer, then click Swap.")
 return
 end
 App.status(string.format("Swapped %s for %s. Copies stay on the same spots where they fit.", old, pick.Name))
-commit(l)
+App.applyNow(l, "Swap model")
 App.refreshObjects()
 end,
 },
@@ -5278,39 +5351,64 @@ b,
 end,
 })
 end
-local function buildActions(l, parent, c)
+local function buildActions(l, parent, head)
+for i, a in
+{
+{
+"cube",
+"Select the source model in the Explorer.",
+function()
+Selection:Set({ l.inst })
+end,
+},
+{
+"refresh",
+"Reset settings: this object's rules back to the smart defaults for its type. A line stays a line.",
+function()
+Engine.resetLayer(l)
+commit(l)
+App.refreshObjects()
+end,
+},
+{
+"trash",
+"Remove this object and what it placed. Ctrl+Z brings it back.",
+function()
+removeObject(l)
+end,
+},
+}
+do
+local b = App.iconButton(a[1], a[2], a[3], false, 28)
+b.LayoutOrder = i
+b.Parent = head
+end
 local actions = buttonRow(parent)
 hintOn(
 button("New look", "accent", function()
 l.s.seed = (tonumber(l.s.seed) or 0) + 1
-c.done()
+App.applyNow(l, "New look")
+if App.heatLayer == l then
+recolorOverlay()
+end
 end, { Parent = actions }),
 "Rerolls just this object: new positions, same settings. The other objects stay where they are."
 )
+if not (Engine.isLine(l) and l.s.follow == "Spline") then
 hintOn(
-button("Reset settings", nil, function()
-Engine.resetLayer(l)
-commit(l)
-App.refreshObjects()
+button("Brush by hand", nil, function()
+App.handLayer = l
+App.openCard("Brush", "objectbrush")
 end, { Parent = actions }),
-"Puts this object's rules back to the smart defaults for its type. A line stays a line."
+"Spray copies of it, or brush where it grows more or less: the Brush tab, with this object picked."
 )
-hintOn(
-button("Select model", nil, function()
-Selection:Set({ l.inst })
-end, { Parent = actions }),
-"Selects the source model in the Explorer."
-)
-button("Remove object", "danger", function()
-removeObject(l)
-end, { Parent = actions })
+end
 end
 local function layerRules(l, parent, c)
 local s = l.s
 local spl = App.area and App.area.spline
 if Engine.isLine(l) and spl and #spl.pts >= 2 and (App.area.count or 0) == 0 and s.follow ~= "Spline" then
 s.follow = "Spline"
-App.saveArea()
 end
 local line = Engine.isLine(l)
 local onSpline = line and s.follow == "Spline"
@@ -5323,9 +5421,6 @@ end
 buildSize(l, cs, c)
 if not line then
 buildSpread(cs, c)
-end
-if not onSpline then
-App.buildLayerPaint(l, cs, true)
 end
 if not line then
 buildGroups(l, cs, c)
@@ -5426,11 +5521,18 @@ local head = box({ Size = UDim2.new(1, 0, 0, 44), Parent = parent })
 local th = thumbnail(l.inst, 40)
 th.Position = UDim2.fromOffset(0, 2)
 th.Parent = head
-label(l.inst.Name, 16, P.text, SANS_B, { Position = UDim2.fromOffset(52, 2), Size = UDim2.new(1, -52, 0, 22), Parent = head })
-local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -52, 0, 16), Parent = head })
+label(l.inst.Name, 16, P.text, SANS_B, { Position = UDim2.fromOffset(52, 2), Size = UDim2.new(1, -150, 0, 22), Parent = head })
+local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -150, 0, 16), Parent = head })
 rowRefs[l] = { sub = sub }
+local tools = box({
+AnchorPoint = Vector2.new(1, 0.5),
+Position = UDim2.new(1, 0, 0.5, 0),
+Size = UDim2.fromOffset(0, 28),
+AutomaticSize = Enum.AutomaticSize.X,
+Parent = head,
+}, { hlist(6) })
 local c = controls(l)
-buildActions(l, parent, c)
+buildActions(l, parent, tools)
 if not Engine.isLine(l) then
 switchRow(
 "Show where it grows",
@@ -5852,11 +5954,8 @@ local n = App.area and Engine.removedCount(App.area) or 0
 if n > 0 then
 button(string.format("Bring back %d removed", n), "ghost", function()
 App.area.removed = {}
-commit()
+App.applyNow(nil, "Bring back removed")
 App.refreshObjects()
-if not G.live then
-App.status("Press Generate to bring them back.")
-end
 end, { Parent = fix })
 end
 end
@@ -5888,6 +5987,15 @@ App.saveArea()
 end
 local boxes = App.ui.live or {}
 if #boxes > 0 then
+local sc = App.scroll
+local at = sc and sc.Parent and sc.CanvasPosition
+if at then
+task.defer(function()
+if sc.Parent then
+sc.CanvasPosition = at
+end
+end)
+end
 table.clear(rowRefs)
 for _, lb in boxes do
 for _, d in lb.holder:GetDescendants() do
@@ -5932,7 +6040,7 @@ end
 if App.ui.genBtn and not App.busy() then
 local ok = canGenerate()
 local failed = ok and App.failure ~= nil
-App.ui.genBtn.Text = failed and "Try again" or "Generate"
+App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Generate  ·  changes waiting" or "Generate"
 tween(App.ui.genBtn, FAST, {
 BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 TextColor3 = ok and P.onAccent or P.faint,
@@ -6095,97 +6203,51 @@ end)()
 -- #module Panel/HandTools
 MODULES["Panel/HandTools"] = (function()
 --[[
-Smart Scatter — HandTools: one object, by hand. Its tools come in two groups, each a tile that says what it does
-without hovering: putting copies down (Stamp: one, aimed; Spray: many, where you brush) and changing how much of it
-grows where (More, Less, Erase, Reset). Under the tiles, the picked tool's own panel: how to use it, its settings
-and its keys, and nothing of the tools not in use. Then what was done by hand, and undoing it all.
-Used by the object's page and by the Brush tab's "One object by hand" card (App.buildLayerPaint).
+Smart Scatter — HandTools: one object, by hand. One row of tool tiles, like the ground's paint tools: Spray (copies
+where you brush) and the four that change how much of it grows where (More, Less, Erase, Reset). Under them, only
+the picked tool's own lines: how to use it, the brush size, its keys and (for the painting ones) the overlay's
+colours. Then what was done by hand, and taking it back. (Stamping one copy is the Stamp card's.)
+Used by the Brush tab's "One object by hand" card (App.buildHandTools).
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
-local G, saveG, P, SANS, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_B
-local box, col, label, para, vlist, corner, stroke, pad = App.box, App.col, App.label, App.para, App.vlist, App.corner, App.stroke, App.pad
-local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
-App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
+local G, saveG, P = App.G, App.saveG, App.P
+local col, para, vlist = App.col, App.para, App.vlist
+local slider, button, buttonRow, hintOn = App.slider, App.button, App.buttonRow, App.hintOn
 local key = App.keyText
-local GROUPS = {
-{
-title = "Put copies down",
-{ mode = "Stamp", icon = "stamp", text = "Stamp", sub = "One copy, aimed" },
-{ mode = "Place", icon = "spray", text = "Spray", sub = "Copies where you brush" },
-},
-{
-title = "Change how much grows",
-{ mode = "More", icon = "plus", text = "More", sub = "Thicker here" },
-{ mode = "Less", icon = "minus", text = "Less", sub = "Thinner here" },
-{ mode = "None", icon = "trash", text = "Erase", sub = "None of it here", danger = true },
-{ mode = "Clear", icon = "refresh", text = "Reset", sub = "Back to its rules" },
-},
+local TOOLS = {
+{ mode = "Place", icon = "spray", text = "Spray" },
+{ mode = "More", icon = "plus", text = "More" },
+{ mode = "Less", icon = "minus", text = "Less" },
+{ mode = "None", icon = "trash", text = "Erase", danger = true },
+{ mode = "Clear", icon = "refresh", text = "Reset" },
 }
-local TOOL = {}
-for _, g in GROUPS do
-for _, t in ipairs(g) do
-TOOL[t.mode] = t
-end
-end
 local HOW = {
-Stamp = "Click the ground to put one of its models down, exactly as it shows under the mouse, anywhere: stamps are plain models in Workspace › Stamps. Press and drag to turn it.",
 Place = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
 More = "Brush where you want it thicker, up to three times as much.",
 Less = "Brush where you want it thinner. Twice over clears it.",
 None = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
 Clear = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
 }
-local SHIFT = { Stamp = "turn freely", Place = "take away", More = "less", Less = "more", None = "reset", Clear = "erase" }
-local function brushSize(parent)
+local SHIFT = { Place = "take away", More = "less", Less = "more", None = "reset", Clear = "erase" }
+local function toolPanel(l, parent)
+local m = App.paintLayer == l and HOW[App.mode] and App.mode or nil
+if not m then
+local hint = para("Pick a tool, then brush in the viewport. Esc stops.", { Parent = parent })
+hint.TextColor3 = P.faint
+return
+end
+local how = para(HOW[m], { Parent = parent })
+how.TextColor3 = P.dim
 slider("Brush size", 4, 200, function()
 return G.radius
 end, function(v)
 G.radius = v
 end, "%.0f studs", 1, nil, saveG, "Radius of the brush. While brushing, " .. key("size") .. " sizes it with the mouse.", 24).Parent =
 parent
-end
-local function toolPanel(l, parent, rebuild)
-local stamping = App.mode == "Stamp" and App.stamp.from == l
-local m = stamping and "Stamp" or (App.paintLayer == l and App.mode or nil)
-local t = m and TOOL[m]
-if not t then
-local hint = para("Pick a tool, then work in the viewport. Esc stops.", { Parent = parent })
-hint.TextColor3 = P.faint
-return
-end
-local color = t.danger and P.danger or P.accent
-local card = col(
-{ BackgroundTransparency = 0, BackgroundColor3 = color:Lerp(P.card, 0.9), Parent = parent },
-{ corner(10), stroke(color:Lerp(P.card, 0.55)), pad(12, 12, 10, 12), vlist(6) }
-)
-local head = box({ Size = UDim2.new(1, 0, 0, 18), Parent = card }, {
-App.new("UIListLayout", {
-FillDirection = Enum.FillDirection.Horizontal,
-VerticalAlignment = Enum.VerticalAlignment.Center,
-Padding = UDim.new(0, 7),
-SortOrder = Enum.SortOrder.LayoutOrder,
-}),
-})
-local ic = App.icon(t.icon, 15, color)
-ic.LayoutOrder = 0
-ic.Parent = head
-label(t.text .. "  ·  " .. l.inst.Name, 13, color, SANS_B, {
-Size = UDim2.fromOffset(0, 18),
-AutomaticSize = Enum.AutomaticSize.X,
-LayoutOrder = 1,
-Parent = head,
-})
-local how = para(HOW[m], { Parent = card })
-how.TextColor3 = P.text
-if m == "Stamp" then
-App.stampControls(card, rebuild)
-else
-brushSize(card)
-App.keyChips(card, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
+App.keyChips(parent, { { "Shift", SHIFT[m] }, { key("size"), "size" }, { key("cancel"), "stop" } })
 if m ~= "Place" then
-App.overlayLegendRows(card, "object")
-end
+App.overlayLegendRows(parent, "object")
 end
 end
 local function handWork(l, parent)
@@ -6193,6 +6255,7 @@ if not (l.paint or l.pins) then
 return
 end
 App.fadeLine(parent, nil, 0.14)
+local row = buttonRow(parent)
 if l.paint then
 hintOn(
 button("Reset all painting", nil, function()
@@ -6200,85 +6263,56 @@ l.paint = nil
 if App.paintLayer == l then
 App.recolorOverlay()
 end
-App.commit(l)
+App.applyNow(l, "Reset painting")
 App.refreshObjects()
-end, { Parent = buttonRow(parent) }),
+end, { Parent = row }),
 "Forgets every More, Less and Erase for this object: it grows by its rules alone again."
 )
 end
 if l.pins then
-local rm = App.dangerButton(string.format("Remove all %d put down by hand", #l.pins), function()
+local rm = App.dangerButton(string.format("Remove %d put down by hand", #l.pins), function()
 l.pins = nil
-App.commit(l)
+App.applyNow(l, "Remove hand-placed")
 App.refreshObjects()
-end, { confirm = "Click again to remove", full = true })
-rm.Parent = parent
-hintOn(rm, "Takes out every copy of it you put down with Stamp or Spray. Ctrl+Z brings them back.")
+end, { confirm = "Click again to remove" })
+rm.Parent = row
+hintOn(rm, "Takes out every copy of it you put down with Spray. Ctrl+Z brings them back.")
 end
 end
-App.buildLayerPaint = function(l, parent, more)
-parent.add({
-id = "layerpaint",
-title = "By hand",
-sub = "Stamp or spray copies, or paint where it grows",
-keys = "brush more less erase reset place spray pins stamp single one copy add rotate turn size by hand",
-more = more,
-build = function(b)
-local groups = {}
-for _, g in GROUPS do
-label(g.title, 12, P.dim, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
-local tiles = App.toolTiles(b, 2, 52, 120)
-for _, t in ipairs(g) do
+App.buildHandTools = function(l, parent)
+local tiles = App.toolTiles(parent, 3, 36, 88)
+for _, t in TOOLS do
 tiles.add({
 icon = t.icon,
 text = t.text,
-sub = t.sub,
 color = t.danger and P.danger or nil,
 tinted = t.danger,
-hint = HOW[t.mode],
+hint = t.text .. ": " .. HOW[t.mode],
 on = function()
-if t.mode == "Stamp" then
-return App.mode == "Stamp" and App.stamp.from == l
-end
 return App.paintLayer == l and App.mode == t.mode
 end,
 click = function()
-if t.mode ~= "Stamp" then
 App.setMode(t.mode, l)
-elseif App.mode == "Stamp" and App.stamp.from == l then
-App.setMode("Off")
-else
-App.startStamp(l)
-end
 end,
 })
 end
-table.insert(groups, tiles)
-end
-local panel = col({ Parent = b }, { vlist(6) })
+local panel = col({ Parent = parent }, { vlist(6) })
 local function buildPanel()
 for _, c in panel:GetChildren() do
 if c:IsA("GuiObject") then
 c:Destroy()
 end
 end
-toolPanel(l, panel, buildPanel)
+toolPanel(l, panel)
 end
 buildPanel()
-App.stampViews.hand = function()
+App.ui.refreshLayerBrush = function()
+tiles.refresh()
 if panel.Parent then
 buildPanel()
 end
 end
-App.ui.refreshLayerBrush = function()
-for _, tiles in groups do
-tiles.refresh()
-end
-buildPanel()
-end
-handWork(l, b)
-end,
-})
+handWork(l, parent)
 end
 end
 end)()

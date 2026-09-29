@@ -97,20 +97,7 @@ return function(App)
 		})
 		local refresh = tiles.refresh
 		App.ui.refreshMode = refresh
-		legend(parent)
-		keyChips(parent, {
-			{ "Shift", "erase" },
-			{ App.keyText("size"), "size" },
-			{ App.keyText("shrink") .. " " .. App.keyText("grow"), "step" },
-			{ App.keyText("cancel"), "stop" },
-		})
-		hintOn(
-			button("Fill selected parts", nil, function()
-				App.fillSelection()
-			end, { Parent = buttonRow(parent) }),
-			"Select parts or models in the Explorer (an island, a roof, a platform), then click: their tops join the area and count as ground."
-		)
-		-- tool-specific options (shown for the tool in use)
+		-- the tool in use's own options, right under the tiles (brush size and shape, or a fill's reach)
 		local brushOpts = col({ Parent = parent }, { vlist(6) })
 		slider(
 			"Brush size",
@@ -161,6 +148,22 @@ return function(App)
 			showTool()
 		end
 
+		-- then its keys and what the overlay's colours mean
+		keyChips(parent, {
+			{ "Shift", "erase" },
+			{ App.keyText("size"), "size" },
+			{ App.keyText("shrink") .. " " .. App.keyText("grow"), "step" },
+			{ App.keyText("cancel"), "stop" },
+		})
+		legend(parent)
+		-- and the one-off actions, apart at the bottom
+		gap(parent, 2)
+		hintOn(
+			button("Fill selected parts", nil, function()
+				App.fillSelection()
+			end, { Parent = buttonRow(parent) }),
+			"Select parts or models in the Explorer (an island, a roof, a platform), then click: their tops join the area and count as ground."
+		)
 		-- erase everything painted: only once there is some, at the bottom, apart, and it asks twice
 		if App.area and App.area.count > 0 then
 			gap(parent, 2)

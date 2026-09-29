@@ -1146,7 +1146,6 @@ Runs once, in the order App/init.lua sets; shared state and cross-module functio
 return function(App)
 local Engine, P, SANS = App.Engine, App.P, App.SANS
 local label, hintOn = App.label, App.hintOn
-local picked
 local function paintable(l)
 return not (Engine.isLine(l) and l.s.follow == "Spline")
 end
@@ -1166,65 +1165,39 @@ b,
 )
 return
 end
-if not table.find(list, picked) then
-picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
+if not table.find(list, App.handLayer) then
+App.handLayer = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 end
-App.handLayer = picked
+local picked = App.handLayer
+if #list > 1 then
+local grid = App.chipGrid(b, 3, 28, 96)
 for _, l in list do
-local on = picked == l
-local row = App.new("TextButton", {
-Text = "",
-AutoButtonColor = false,
-BackgroundColor3 = on and P.accentSoft or P.raised,
-Size = UDim2.new(1, 0, 0, 48),
-Parent = b,
-}, { App.corner(10) })
-local st = App.stroke(on and P.accentLine or P.line)
-st.Parent = row
-local th = App.thumbnail(l.inst, 38)
-th.Position = UDim2.fromOffset(5, 5)
-th.Parent = row
-label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, on and P.accent or P.text, App.SANS_B, {
-Position = UDim2.fromOffset(52, 7),
-Size = UDim2.new(1, -60, 0, 18),
-Parent = row,
-})
-local n = App.lastCounts[l]
-local bits = { n and (App.num(n) .. " placed") or l.type }
-if l.pins then
-table.insert(bits, #l.pins .. " by hand")
-end
-if l.paint then
-table.insert(bits, "painted")
-end
-label(table.concat(bits, " · "), 11, P.dim, SANS, { Position = UDim2.fromOffset(52, 25), Size = UDim2.new(1, -60, 0, 16), Parent = row })
-if not on then
-row.MouseEnter:Connect(function()
-row.BackgroundColor3 = P.hover
-end)
-row.MouseLeave:Connect(function()
-row.BackgroundColor3 = P.raised
-end)
-end
-App.pressable(row, 0.985)
-row.MouseButton1Click:Connect(function()
-if picked ~= l then
+hintOn(
+App.chip(grid, l.inst.Name, function()
+return App.handLayer == l
+end, function()
+if App.handLayer ~= l then
 if App.LAYER_MODES[App.mode] then
 App.setMode(App.mode, l)
 end
-picked = l
 App.handLayer = l
 App.rebuildAll()
 end
-end)
-hintOn(row, "Brush " .. l.inst.Name .. ".")
+end),
+"Brush " .. l.inst.Name .. "."
+)
 end
-App.buildLayerPaint(picked, {
-add = function(spec)
-App.fadeLine(b, nil, 0.14)
-spec.build(b)
-end,
-})
+end
+local n = App.lastCounts[picked]
+local bits = { picked.inst.Name, n and (App.num(n) .. " placed") or picked.type }
+if picked.pins then
+table.insert(bits, #picked.pins .. " by hand")
+end
+if picked.paint then
+table.insert(bits, "painted")
+end
+label(table.concat(bits, "  ·  "), 12, P.dim, SANS, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
+App.buildHandTools(picked, b)
 end
 App.buildBrushTab = function(page)
 local a = App.area
@@ -1268,7 +1241,7 @@ if kind ~= "Path" then
 cs.add({
 id = "objectbrush",
 title = "One object by hand",
-sub = "Stamp or spray copies of it, or paint where it grows more or less",
+sub = "Spray copies of it, or brush where it grows more or less",
 keys = "more less erase reset place spray stamp pins object brush by hand single copy",
 build = buildObjectBrush,
 })
@@ -1526,9 +1499,9 @@ outSwitch(
 "Groups output into 128-stud models that stream in and out together, with low-detail stand-ins far away."
 )
 outSwitch(
-"Live previews as boxes",
+"Big previews as boxes",
 "liveBoxes",
-"With Live on, changes show as a see-through box per copy: quick, even on big areas. Generate places the real models. Off: Live places the real models every time."
+"With Live on, a light area shows the real models as you change it; a big one shows a see-through box per copy, quick to redo, until Generate places the models. Off: Live places the real models every time."
 )
 box({ Size = UDim2.new(1, 0, 0, 4), Parent = b })
 App.ui.perf = para("", { Parent = b })
@@ -1881,7 +1854,7 @@ commit()
 end
 App.status(
 G.live
-and (G.liveBoxes and "Live preview on: changes show as see-through boxes. Generate places the real models." or "Live update on: every change rebuilds as you make it.")
+and (G.liveBoxes and "Live on: changes show as you make them (a big area as see-through boxes until Generate)." or "Live update on: every change rebuilds as you make it.")
 or "Live off: changes wait for Generate."
 )
 end
@@ -2063,7 +2036,10 @@ end
 if App.failure then
 return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
 end
-return "Places the real models now. With Live on, changes show as see-through boxes first; this turns them into the models."
+if App.hasPending() then
+return "You've changed settings, ground or the path since the last Generate. Click to place them."
+end
+return "Places the real models now. With Live on, a big area's changes show as see-through boxes first; this turns them into the models."
 end)
 local live = new("TextButton", {
 Text = "",
@@ -2095,7 +2071,7 @@ App.ui.liveLook = liveLook
 live.MouseButton1Click:Connect(App.toggleLive)
 hintOn(
 live,
-"On: every change shows right away as see-through boxes, a quick preview; Generate places the real models. Off: changes wait for Generate."
+"On: every change shows right away (a big area as see-through boxes until Generate). Off: changes wait for Generate; brushing one object and its buttons always show at once."
 )
 local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
 shuffle.LayoutOrder = 2
@@ -2586,6 +2562,11 @@ Parent = App.widget,
 App.root.InputBegan:Connect(function(input)
 if App.panelKey then
 App.panelKey(input)
+end
+end)
+App.root.InputEnded:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 and App.releaseMouse then
+App.releaseMouse()
 end
 end)
 local head = col({
@@ -3155,10 +3136,13 @@ if changed then
 if not layerPaint then
 App.analysisDirty = true
 end
-if G.live and canGenerate() then
-runGenerate(false, layerPaint or nil, box)
+if layerPaint and box then
+App.applyNow(layerPaint, nil, box)
+elseif G.live and canGenerate() then
+runGenerate(false, nil, box)
 elseif App.area then
 dropErased(erased, wiped, layerPaint)
+App.markPending()
 end
 end
 if not changed then
@@ -3363,9 +3347,6 @@ if App.mode == "Stamp" then
 App.stampDown()
 return
 end
-if App.clickSplinePoint and App.clickSplinePoint() then
-return
-end
 if not App.area then
 newArea({ keepMode = true })
 end
@@ -3416,7 +3397,49 @@ smartFill(hit)
 finishGesture()
 end
 end)
-mouse.Button1Up:Connect(function()
+local upHandlers = {}
+App.onMouseUp = function(fn)
+table.insert(upHandlers, fn)
+end
+local pressed, sawHeld = false, false
+local function releaseMouse()
+if not pressed then
+return
+end
+pressed, sawHeld = false, false
+for _, fn in upHandlers do
+local ok, err = pcall(fn)
+if not ok then
+warn("[Smart Scatter] " .. tostring(err))
+end
+end
+end
+App.releaseMouse = releaseMouse
+mouse.Button1Down:Connect(function()
+pressed, sawHeld = true, false
+end)
+mouse.Button1Up:Connect(releaseMouse)
+track(UIS.InputEnded:Connect(function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 then
+releaseMouse()
+end
+end))
+track(UIS.WindowFocusReleased:Connect(releaseMouse))
+track(App.RunService.Heartbeat:Connect(function()
+if not pressed then
+return
+end
+local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+if not ok then
+return
+end
+if held then
+sawHeld = true
+elseif sawHeld then
+releaseMouse()
+end
+end))
+App.onMouseUp(function()
 if App.mode == "Stamp" then
 App.stampUp()
 return
@@ -3863,9 +3886,9 @@ Runs once, in the order App/init.lua sets; shared state and cross-module functio
 return function(App)
 local beginRec, endRec, Engine, track, G, saveG, num = App.beginRec, App.endRec, App.Engine, App.track, App.G, App.saveG, App.num
 local new, refreshParams = App.new, App.refreshParams
-local rebuildOverlay, saveArea, canGenerate, runGenerate = App.rebuildOverlay, App.saveArea, App.canGenerate, App.runGenerate
+local saveArea, canGenerate, runGenerate = App.saveArea, App.canGenerate, App.runGenerate
 local switchArea, newArea, rawMouse, mouse, shiftHeld = App.switchArea, App.newArea, App.rawMouse, App.mouse, App.shiftHeld
-local gizmoFolder, setLabel, mouseHit = App.gizmoFolder, App.setLabel, App.mouseHit
+local gizmoFolder, setLabel = App.gizmoFolder, App.setLabel
 local sv = {}
 local hoverPt, hoverIns, dragPt, dragRec, dragMoved, selPt
 local welded = {}
@@ -4204,14 +4227,27 @@ return "in"
 end
 return nil
 end
+local STRIDE = 4
 local function pickCurve(skip)
 local best, bd = nil, CURVE_PX
 for _, c in sv.curves or {} do
-for k, p in c.P do
+local P, n = c.P, #c.P
+local near, nd = nil, math.huge
+for k = 1, n, STRIDE do
 if not (skip and skip(c.cv, c.S[k])) then
-local d = screenDist(p + c.U[k] * 0.3)
+local d = screenDist(P[k] + c.U[k] * 0.3)
+if d < nd then
+near, nd = k, d
+end
+end
+end
+if near then
+for k = math.max(1, near - STRIDE), math.min(n, near + STRIDE) do
+if not (skip and skip(c.cv, c.S[k])) then
+local d = screenDist(P[k] + c.U[k] * 0.3)
 if d < bd then
-best, bd = { cv = c.cv, p = p, n = c.U[k], seg = c.S[k] }, d
+best, bd = { cv = c.cv, p = P[k], n = c.U[k], seg = c.S[k] }, d
+end
 end
 end
 end
@@ -4291,16 +4327,46 @@ nl > 0 and string.format(" · %d more loop%s", nl, nl == 1 and "" or "s") or "",
 (sp.width or 0) > 0 and string.format(" · %d-stud strip", sp.width) or ""
 )
 end
+local function pointParams()
+local skip = App.templates()
+local road = App.area and Engine.roadOf(App.area)
+if road then
+table.insert(skip, road)
+end
+return (Engine.rayParams(skip))
+end
 local function commitSpline(rec)
 local sp = App.area.spline
+local stripChanged = false
 if sp and (sp.width or 0) > 0 then
+local before = App.area.rows
 refreshParams()
-Engine.maskFromSpline(App.area, App.probeParams)
-rebuildOverlay(true)
+Engine.maskFromSpline(App.area, pointParams())
+local after = App.area.rows
+for _, pair in { { before, after }, { after, before } } do
+for cz, row in pair[1] do
+local other = pair[2][cz]
+for cx in row do
+if not (other and other[cx]) then
+App.dirtyRows[cz] = true
+stripChanged = true
+break
+end
+end
+end
+end
 end
 saveArea()
 endRec(rec)
+local roadMatters = false
+if sp and Engine.roadWidth(sp) > 0 then
+for _, l in App.area.layers do
+roadMatters = roadMatters or not Engine.isLine(l)
+end
+end
+if stripChanged or roadMatters then
 App.analysisDirty = true
+end
 if G.live and canGenerate() then
 runGenerate(false)
 end
@@ -4308,6 +4374,7 @@ App.drawSpline()
 App.refreshSplineInfo()
 App.checkShape()
 if not (G.live and canGenerate()) then
+App.markPending()
 App.refreshScan()
 App.refreshCounts()
 App.status(select(2, canGenerate()) or "Spline updated. Press Generate.")
@@ -4319,10 +4386,12 @@ fn()
 commitSpline(rec)
 end
 local function pointHit()
-local hit = mouseHit()
+local rp = pointParams()
+local ray = rawMouse.UnitRay
+local hit = Engine.cast(ray.Origin, ray.Direction * 5000, rp)
 local sp = App.area and App.area.spline
 if hit and hit.Normal.Y < 0.55 and not (sp and sp.walls) then
-local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), App.probeParams)
+local down = Engine.cast(hit.Position + hit.Normal * 0.6 + Vector3.new(0, 0.5, 0), Vector3.new(0, -600, 0), rp)
 if down and down.Normal.Y >= 0.55 then
 return down
 end
@@ -4427,7 +4496,7 @@ if math.abs(denom) > 1e-4 then
 local t = (q.p - ray.Origin):Dot(nrm) / denom
 if t > 0 then
 q.p = Vector3.new(q.p.X, (ray.Origin + ray.Direction * t).Y, q.p.Z)
-local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, App.probeParams)
+local below = Engine.cast(q.p + Vector3.yAxis * 2, Vector3.yAxis * -500, pointParams())
 q.raised = not below or q.p.Y - below.Position.Y > 0.5 or nil
 end
 end
@@ -4462,6 +4531,7 @@ requestDraw()
 end
 return
 end
+local wasHandle, wasPt = hoverHandle, hoverPt
 hoverHandle = pickHandle()
 hoverPt = not hoverHandle and pickPoint() or nil
 hoverIns = not hoverHandle and not hoverPt and pickCurve() or nil
@@ -4472,8 +4542,10 @@ sv.ghost.CFrame = CFrame.new(hoverIns.p + hoverIns.n * 0.3)
 sv.ghost.Radius = handleRadius(hoverIns.p) * 0.8
 end
 end
+if hoverHandle ~= wasHandle or ((hoverPt or wasPt) and not samePt(hoverPt, wasPt)) then
 updateHandles()
-local hit = mouseHit()
+end
+local hit = pointHit()
 local text
 if hoverHandle then
 text = "Drag to bend the curve · Shift for height"
@@ -4628,7 +4700,7 @@ if joined then
 App.status(joined)
 end
 end
-mouse.Button1Up:Connect(function()
+App.onMouseUp(function()
 if App.mode == "Spline" and App.shapeTool then
 App.shapeUp()
 return
@@ -4782,9 +4854,10 @@ track(game:GetService("UserInputService").InputBegan:Connect(function(input)
 if input.UserInputType ~= Enum.UserInputType.MouseButton1 or App.mode ~= "Off" or not App.widget.Enabled then
 return
 end
+local before = App.Selection:Get()
 if App.clickSplinePoint(Vector2.new(input.Position.X, input.Position.Y)) then
 task.defer(function()
-App.Selection:Set({})
+App.Selection:Set(before)
 end)
 end
 end))
@@ -4824,9 +4897,6 @@ table.clear(sp.pts)
 sp.branches = {}
 hoverPt = nil
 selectPt(nil)
-if (sp.width or 0) > 0 then
-App.area.rows, App.area.count = {}, 0
-end
 commitSpline(rec)
 end
 App.newSplineFn = function(opts)
@@ -5090,8 +5160,20 @@ return inst, inst and variantOf(inst)
 end
 local function selectedModels()
 local out = {}
+local placedByUs = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+local function ours(inst)
+if inst:GetAttribute("SS_Type") ~= nil then
+return true
+end
+for _, f in placedByUs do
+if f and inst:IsDescendantOf(f) then
+return true
+end
+end
+return false
+end
 local function take(inst)
-if (inst:IsA("Model") or inst:IsA("BasePart")) and variantOf(inst) then
+if (inst:IsA("Model") or inst:IsA("BasePart")) and not ours(inst) and variantOf(inst) then
 table.insert(out, inst)
 end
 end
@@ -5135,6 +5217,7 @@ if models ~= stamp.models then
 stamp.models, stamp.vi, stamp.from = models, 1, from
 local s = from and from.s
 stamp.k = s and (s.scaleMin + s.scaleMax) / 2 or 1
+stamp.base = stamp.k
 end
 if App.mode ~= "Stamp" then
 App.setMode("Stamp")

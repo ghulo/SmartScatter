@@ -9,8 +9,8 @@ return function(App)
 	local Engine, P, SANS = App.Engine, App.P, App.SANS
 	local label, hintOn = App.label, App.hintOn
 
-	-- the object the "One object by hand" card works on (this session only; the first one that can be painted)
-	local picked
+	-- the "One object by hand" card: which object (App.handLayer: the one picked here, or sent here by an object's
+	-- "Brush by hand"; the viewport's tool strip sprays it too), then its tools (Panel/HandTools)
 	local function paintable(l)
 		return not (Engine.isLine(l) and l.s.follow == "Spline")
 	end
@@ -30,66 +30,41 @@ return function(App)
 			)
 			return
 		end
-		if not table.find(list, picked) then
-			picked = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
+		if not table.find(list, App.handLayer) then
+			App.handLayer = App.paintLayer and table.find(list, App.paintLayer) and App.paintLayer or list[1]
 		end
-		App.handLayer = picked -- (the viewport's tool strip stamps and sprays this one too)
-		-- the objects as rows: a small view of the model, its name, how many are placed; the picked one lit
-		for _, l in list do
-			local on = picked == l
-			local row = App.new("TextButton", {
-				Text = "",
-				AutoButtonColor = false,
-				BackgroundColor3 = on and P.accentSoft or P.raised,
-				Size = UDim2.new(1, 0, 0, 48),
-				Parent = b,
-			}, { App.corner(10) })
-			local st = App.stroke(on and P.accentLine or P.line)
-			st.Parent = row
-			local th = App.thumbnail(l.inst, 38)
-			th.Position = UDim2.fromOffset(5, 5)
-			th.Parent = row
-			label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 13, on and P.accent or P.text, App.SANS_B, {
-				Position = UDim2.fromOffset(52, 7),
-				Size = UDim2.new(1, -60, 0, 18),
-				Parent = row,
-			})
-			local n = App.lastCounts[l]
-			local bits = { n and (App.num(n) .. " placed") or l.type }
-			if l.pins then
-				table.insert(bits, #l.pins .. " by hand")
+		local picked = App.handLayer
+		-- the objects as chips, like the Stamp card's; the picked one lit
+		if #list > 1 then
+			local grid = App.chipGrid(b, 3, 28, 96)
+			for _, l in list do
+				hintOn(
+					App.chip(grid, l.inst.Name, function()
+						return App.handLayer == l
+					end, function()
+						if App.handLayer ~= l then
+							if App.LAYER_MODES[App.mode] then -- the brush moves over to the new pick
+								App.setMode(App.mode, l)
+							end
+							App.handLayer = l
+							App.rebuildAll()
+						end
+					end),
+					"Brush " .. l.inst.Name .. "."
+				)
 			end
-			if l.paint then
-				table.insert(bits, "painted")
-			end
-			label(table.concat(bits, " · "), 11, P.dim, SANS, { Position = UDim2.fromOffset(52, 25), Size = UDim2.new(1, -60, 0, 16), Parent = row })
-			if not on then
-				row.MouseEnter:Connect(function()
-					row.BackgroundColor3 = P.hover
-				end)
-				row.MouseLeave:Connect(function()
-					row.BackgroundColor3 = P.raised
-				end)
-			end
-			App.pressable(row, 0.985)
-			row.MouseButton1Click:Connect(function()
-				if picked ~= l then
-					if App.LAYER_MODES[App.mode] then -- the brush moves over to the new pick
-						App.setMode(App.mode, l)
-					end
-					picked = l
-					App.handLayer = l
-					App.rebuildAll()
-				end
-			end)
-			hintOn(row, "Brush " .. l.inst.Name .. ".")
 		end
-		App.buildLayerPaint(picked, { -- its tools straight into this card, under the pick
-			add = function(spec)
-				App.fadeLine(b, nil, 0.14)
-				spec.build(b)
-			end,
-		})
+		-- what's been done to it by hand so far, in one quiet line
+		local n = App.lastCounts[picked]
+		local bits = { picked.inst.Name, n and (App.num(n) .. " placed") or picked.type }
+		if picked.pins then
+			table.insert(bits, #picked.pins .. " by hand")
+		end
+		if picked.paint then
+			table.insert(bits, "painted")
+		end
+		label(table.concat(bits, "  ·  "), 12, P.dim, SANS, { Size = UDim2.new(1, 0, 0, 18), Parent = b })
+		App.buildHandTools(picked, b)
 	end
 
 	App.buildBrushTab = function(page)
@@ -134,7 +109,7 @@ return function(App)
 				cs.add({
 					id = "objectbrush",
 					title = "One object by hand",
-					sub = "Stamp or spray copies of it, or paint where it grows more or less",
+					sub = "Spray copies of it, or brush where it grows more or less",
 					keys = "more less erase reset place spray stamp pins object brush by hand single copy",
 					build = buildObjectBrush,
 				})

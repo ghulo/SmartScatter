@@ -78,9 +78,16 @@ return function(App)
 		return worldPrint() ~= lastPrint
 	end
 
+	-- the area as last saved or loaded (its folder's attributes): what an undo is compared against, so it rebuilds
+	-- only what the undo changed (Core/Lifecycle)
+	local function snapshot()
+		App.savedAttrs = App.area and { folder = App.area.folder, attrs = App.area.folder:GetAttributes() } or nil
+	end
+	App.snapshotArea = snapshot
 	local function saveArea()
 		if App.area then
 			Engine.saveArea(App.area)
+			snapshot()
 		end
 	end
 
@@ -131,10 +138,35 @@ return function(App)
 	-- a job under ~80 ms finishes in the frame it started (feels instant); a longer one works 30 ms per frame,
 	-- so Studio still redraws and the Generate button can stop it
 	local FIRST_SLICE, SLICE = 0.08, 0.03
+	-- a live preview (dragging a slider starts one every frame, each retiring the last) works in short slices from the
+	-- start, so the panel keeps up with the mouse instead of stalling 80 ms a frame
+	local LIVE_SLICE = 0.015
 	local HEAVY_PARTS = 25000 -- more than this is a slowdown on most machines: Live update stops and asks
+	local LIGHT_PARTS = 3000 -- up to this, Live places the real models (quick enough); above it, see-through boxes
 	local heavyAsked = setmetatable({}, { __mode = "k" }) -- [area folder] = true once the pop-up was shown
 	local job -- the running job: { live = bool, from = layer?, cancel = bool }
 	local liveFrom, liveLoop = nil, false
+
+	-- Changes waiting for Generate (Live off): an area whose saved settings, ground or path changed since its last full
+	-- real run. The Generate button says so, so a change that doesn't show yet never looks like it did nothing.
+	local pendingFor = setmetatable({}, { __mode = "k" }) -- [area folder] = true
+	local function markPending()
+		if G.live or not App.area then
+			return
+		end
+		local first = not pendingFor[App.area.folder]
+		pendingFor[App.area.folder] = true
+		if first and App.hint then -- (the button keeps saying it; the toast only the first couple of times)
+			App.hint("pending", "Saved. Changes show when you press Generate (or turn Live on).")
+		end
+		if App.refreshCounts then
+			App.refreshCounts()
+		end
+	end
+	App.markPending = markPending
+	App.hasPending = function()
+		return App.area ~= nil and pendingFor[App.area.folder] == true
+	end
 
 	-- region: the patch a stroke changed (live only). A run that gets cancelled leaves its patch (or, for a full run,
 	-- everything: lostPatch = true) out of date, so the next run covers it too; a completed run clears it.
@@ -164,7 +196,8 @@ return function(App)
 	end
 	App.readGround = readGround
 
-	-- real: this run places the real models (the Generate button). Any other run while Live is on is a preview: a
+	-- real: this run places the real models (the Generate button, a change applied at once). Any other run while Live
+	-- is on places the real models too when that's quick (a patch, a light area); a heavier one is a preview: a
 	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
 	local function runGenerate(recorded, from, region, real)
 		if not canGenerate() then -- the Generate button shows why
@@ -191,14 +224,14 @@ return function(App)
 		App.heavyWarning = nil
 		local area = App.area
 		local t0, slice = os.clock(), os.clock()
-		local budget = FIRST_SLICE
+		local budget = (me.live and not region) and LIVE_SLICE or FIRST_SLICE
 		local phase = "Scanning"
 		local function tick(progress)
 			if me.cancel or App.area ~= area then
 				return false
 			end
 			if os.clock() - slice > budget then
-				budget = SLICE
+				budget = (me.live and not me.region) and LIVE_SLICE or SLICE
 				if App.showProgress then
 					App.showProgress(phase, progress)
 				end
@@ -221,10 +254,23 @@ return function(App)
 			if from and not table.find(area.layers, from) then
 				from = nil
 			end
+			-- Live's preview is the real models when they're quick to place (a patch, or a light area): boxes only
+			-- stand in when the real thing would be slow, so a change shows as it will look whenever it can
+			local copies, parts
+			if preview then
+				if me.region then
+					preview = false
+				else
+					copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+					preview = parts > LIGHT_PARTS
+				end
+			end
 			-- a live preview that would place enough to stall Studio waits for a real Generate instead (a box is
-			-- one part, however many the model has)
-			if me.live or preview then
-				local copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+			-- one part, however many the model has). A patch run places only its patch: never too heavy.
+			if (me.live or preview) and not me.region then
+				if not copies then
+					copies, parts = Engine.estimate(area, App.lastAnalysis, G.density)
+				end
 				if (preview and copies or parts) > HEAVY_PARTS then
 					App.heavyWarning = { copies = copies, parts = parts, area = area }
 					return
@@ -242,6 +288,9 @@ return function(App)
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
 				lostPatch = nil
+				if not preview and from == nil and me.region == nil then -- everything is as saved now
+					pendingFor[area.folder] = nil
+				end
 			end
 		end, function(e)
 			trace = debug.traceback(tostring(e), 2)
@@ -358,6 +407,7 @@ return function(App)
 		saveArea()
 		endRec(rec)
 		if not G.live then
+			markPending()
 			return
 		end
 		local f = mergeFrom(liveFrom, from)
@@ -367,6 +417,28 @@ return function(App)
 		liveFrom = nil
 		task.spawn(function()
 			runGenerate(true, f ~= ALL and f or nil)
+		end)
+	end
+
+	-- A change to one object that you do by hand or by a button on it (New look, Swap, taking back what was done by
+	-- hand): saved as one undo step, then its real copies rebuilt at once, Live on or off, as a stamp is. from: the
+	-- object (it and the objects after it are rebuilt; nil: all of them). region: only that patch (a brush stroke).
+	local function applyNow(from, what, region)
+		if what then
+			local rec = beginRec("Smart Scatter: " .. what)
+			saveArea()
+			endRec(rec)
+		end
+		if not canGenerate() then
+			return
+		end
+		liveFrom = nil -- (this run covers a preview still waiting)
+		task.spawn(function()
+			if region then -- (a patch is a quick run of its own: a newer stroke may take over from it)
+				runGenerate(false, from, region, true)
+			else
+				runGenerate(true, from, nil, true)
+			end
 		end)
 	end
 
@@ -403,6 +475,7 @@ return function(App)
 	local function switchArea(folder)
 		cancelJob()
 		App.area = folder and Engine.loadArea(folder) or nil
+		snapshot()
 		App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil -- its last Generate failed
 		App.expanded = nil
 		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0
@@ -536,6 +609,7 @@ return function(App)
 	App.busy = busy
 	App.requestLive = requestLive
 	App.commit = commit
+	App.applyNow = applyNow
 	App.switchArea = switchArea
 	App.newArea = newArea
 	App.deleteArea = deleteArea

@@ -103,8 +103,7 @@ return function(App)
 			reheat()
 		end
 		function c.changed(rebuild) -- a change the page must be redrawn for (other controls appear or go)
-			c.live()
-			c.done()
+			c.done() -- (one rebuild: commit's, with Live on; a preview first would only be cancelled by it)
 			if rebuild then
 				App.refreshObjects()
 			end
@@ -354,7 +353,7 @@ return function(App)
 									return
 								end
 								App.status(string.format("Swapped %s for %s. Copies stay on the same spots where they fit.", old, pick.Name))
-								commit(l)
+								App.applyNow(l, "Swap model")
 								App.refreshObjects()
 							end,
 						},
@@ -712,32 +711,60 @@ return function(App)
 		})
 	end
 
-	local function buildActions(l, parent, c)
+	-- the object's own actions: the two it's used for most as buttons (a new look; brushing it by hand, on the Brush
+	-- tab); the rest small, by its name in the header (head: that header's right side)
+	local function buildActions(l, parent, head)
+		for i, a in
+			{
+				{
+					"cube",
+					"Select the source model in the Explorer.",
+					function()
+						Selection:Set({ l.inst })
+					end,
+				},
+				{
+					"refresh",
+					"Reset settings: this object's rules back to the smart defaults for its type. A line stays a line.",
+					function()
+						Engine.resetLayer(l)
+						commit(l)
+						App.refreshObjects()
+					end,
+				},
+				{
+					"trash",
+					"Remove this object and what it placed. Ctrl+Z brings it back.",
+					function()
+						removeObject(l)
+					end,
+				},
+			}
+		do
+			local b = App.iconButton(a[1], a[2], a[3], false, 28)
+			b.LayoutOrder = i
+			b.Parent = head
+		end
 		local actions = buttonRow(parent)
 		hintOn(
 			button("New look", "accent", function()
 				l.s.seed = (tonumber(l.s.seed) or 0) + 1
-				c.done()
+				App.applyNow(l, "New look") -- (a button asks to see it: it rebuilds now, Live or not)
+				if App.heatLayer == l then
+					recolorOverlay()
+				end
 			end, { Parent = actions }),
 			"Rerolls just this object: new positions, same settings. The other objects stay where they are."
 		)
-		hintOn(
-			button("Reset settings", nil, function()
-				Engine.resetLayer(l)
-				commit(l)
-				App.refreshObjects()
-			end, { Parent = actions }),
-			"Puts this object's rules back to the smart defaults for its type. A line stays a line."
-		)
-		hintOn(
-			button("Select model", nil, function()
-				Selection:Set({ l.inst })
-			end, { Parent = actions }),
-			"Selects the source model in the Explorer."
-		)
-		button("Remove object", "danger", function()
-			removeObject(l)
-		end, { Parent = actions })
+		if not (Engine.isLine(l) and l.s.follow == "Spline") then -- (objects along a path aren't brushed)
+			hintOn(
+				button("Brush by hand", nil, function()
+					App.handLayer = l
+					App.openCard("Brush", "objectbrush")
+				end, { Parent = actions }),
+				"Spray copies of it, or brush where it grows more or less: the Brush tab, with this object picked."
+			)
+		end
 	end
 
 	local function layerRules(l, parent, c)
@@ -746,8 +773,7 @@ return function(App)
 		-- same), so the settings show that instead of a "Roads" choice that isn't what happens
 		local spl = App.area and App.area.spline
 		if Engine.isLine(l) and spl and #spl.pts >= 2 and (App.area.count or 0) == 0 and s.follow ~= "Spline" then
-			s.follow = "Spline"
-			App.saveArea()
+			s.follow = "Spline" -- (shown as it works; saved with the next change, inside its undo step, not by opening the page)
 		end
 		local line = Engine.isLine(l)
 		local onSpline = line and s.follow == "Spline" -- stands on the curve: ground filters and slope don't apply
@@ -761,9 +787,7 @@ return function(App)
 		if not line then
 			buildSpread(cs, c)
 		end
-		if not onSpline then
-			App.buildLayerPaint(l, cs, true) -- (Panel/HandTools)
-		end
+		-- (brushing it by hand is on the Brush tab: the page's "Brush by hand" goes there)
 		if not line then
 			buildGroups(l, cs, c)
 		end
@@ -872,11 +896,18 @@ return function(App)
 		local th = thumbnail(l.inst, 40)
 		th.Position = UDim2.fromOffset(0, 2)
 		th.Parent = head
-		label(l.inst.Name, 16, P.text, SANS_B, { Position = UDim2.fromOffset(52, 2), Size = UDim2.new(1, -52, 0, 22), Parent = head })
-		local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -52, 0, 16), Parent = head })
+		label(l.inst.Name, 16, P.text, SANS_B, { Position = UDim2.fromOffset(52, 2), Size = UDim2.new(1, -150, 0, 22), Parent = head })
+		local sub = label("", 12, P.dim, SANS, { Position = UDim2.fromOffset(52, 24), Size = UDim2.new(1, -150, 0, 16), Parent = head })
 		rowRefs[l] = { sub = sub }
+		local tools = box({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(0, 28),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Parent = head,
+		}, { hlist(6) })
 		local c = controls(l)
-		buildActions(l, parent, c)
+		buildActions(l, parent, tools)
 		if not Engine.isLine(l) then
 			switchRow(
 				"Show where it grows",
@@ -1319,11 +1350,8 @@ return function(App)
 		if n > 0 then
 			button(string.format("Bring back %d removed", n), "ghost", function()
 				App.area.removed = {}
-				commit()
+				App.applyNow(nil, "Bring back removed")
 				App.refreshObjects()
-				if not G.live then
-					App.status("Press Generate to bring them back.")
-				end
 			end, { Parent = fix })
 		end
 	end
@@ -1359,6 +1387,16 @@ return function(App)
 		end
 		local boxes = App.ui.live or {}
 		if #boxes > 0 then
+			-- the page keeps its place: emptied for a moment, it would otherwise jump back to the top
+			local sc = App.scroll
+			local at = sc and sc.Parent and sc.CanvasPosition
+			if at then
+				task.defer(function()
+					if sc.Parent then
+						sc.CanvasPosition = at
+					end
+				end)
+			end
 			table.clear(rowRefs)
 			for _, lb in boxes do
 				-- thumbnails are reused: take the ones in these rows out before the rows go (only these: others on
@@ -1406,8 +1444,8 @@ return function(App)
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
 			local ok = canGenerate()
 			local failed = ok and App.failure ~= nil
-			-- always one short word; what's missing, or why it failed, is in its tooltip
-			App.ui.genBtn.Text = failed and "Try again" or "Generate"
+			-- always short; what's missing, why it failed, or what's waiting is in its tooltip
+			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Generate  ·  changes waiting" or "Generate"
 			tween(App.ui.genBtn, FAST, {
 				BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 				TextColor3 = ok and P.onAccent or P.faint,

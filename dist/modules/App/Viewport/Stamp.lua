@@ -41,8 +41,20 @@ return function(App)
 	-- the models in the Explorer's selection (a folder counts as its models); none that the plugin placed itself
 	local function selectedModels()
 		local out = {}
+		local placedByUs = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) } -- (areas, roads)
+		local function ours(inst)
+			if inst:GetAttribute("SS_Type") ~= nil then -- a copy an area placed (it carries the area's tags and marks)
+				return true
+			end
+			for _, f in placedByUs do
+				if f and inst:IsDescendantOf(f) then
+					return true
+				end
+			end
+			return false
+		end
 		local function take(inst)
-			if (inst:IsA("Model") or inst:IsA("BasePart")) and variantOf(inst) then
+			if (inst:IsA("Model") or inst:IsA("BasePart")) and not ours(inst) and variantOf(inst) then
 				table.insert(out, inst)
 			end
 		end
@@ -89,6 +101,7 @@ return function(App)
 			stamp.models, stamp.vi, stamp.from = models, 1, from
 			local s = from and from.s
 			stamp.k = s and (s.scaleMin + s.scaleMax) / 2 or 1
+			stamp.base = stamp.k -- (a random one sizes round these models' size, not the last ones')
 		end
 		if App.mode ~= "Stamp" then
 			App.setMode("Stamp")
