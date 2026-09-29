@@ -812,7 +812,7 @@ return function(App)
 			App.status(joined)
 		end
 	end
-	mouse.Button1Up:Connect(function()
+	App.onMouseUp(function() -- (however the button came up: Viewport/Paint)
 		if App.mode == "Spline" and App.shapeTool then
 			App.shapeUp()
 			return

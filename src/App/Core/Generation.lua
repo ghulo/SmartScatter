@@ -78,9 +78,16 @@ return function(App)
 		return worldPrint() ~= lastPrint
 	end
 
+	-- the area as last saved or loaded (its folder's attributes): what an undo is compared against, so it rebuilds
+	-- only what the undo changed (Core/Lifecycle)
+	local function snapshot()
+		App.savedAttrs = App.area and { folder = App.area.folder, attrs = App.area.folder:GetAttributes() } or nil
+	end
+	App.snapshotArea = snapshot
 	local function saveArea()
 		if App.area then
 			Engine.saveArea(App.area)
+			snapshot()
 		end
 	end
 
@@ -465,6 +472,7 @@ return function(App)
 	local function switchArea(folder)
 		cancelJob()
 		App.area = folder and Engine.loadArea(folder) or nil
+		snapshot()
 		App.failure = App.area and App.area.folder:GetAttribute("SS_Failed") or nil -- its last Generate failed
 		App.expanded = nil
 		App.lastAnalysis, App.analysisDirty, App.lastCounts, App.lastTotal, App.lastParts = nil, true, {}, 0, 0

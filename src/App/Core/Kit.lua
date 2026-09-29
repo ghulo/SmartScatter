@@ -5,6 +5,7 @@
 
 return function(App)
 	local TextService = game:GetService("TextService")
+	local UIS = game:GetService("UserInputService")
 	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
@@ -695,9 +696,17 @@ return function(App)
 			look()
 			fromX(input.Position.X)
 			local conn
+			local sawHeld = false -- (the button found up ends the drag: let go outside the panel, no end event comes)
 			conn = RunService.Heartbeat:Connect(function()
 				if not dragging then
 					conn:Disconnect()
+					return
+				end
+				local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+				if ok and held then
+					sawHeld = true
+				elseif ok and sawHeld then
+					stop()
 					return
 				end
 				fromX(App.widget:GetRelativeMousePosition().X)
@@ -1355,7 +1364,6 @@ return function(App)
 		TYPED[d] = n
 	end
 	local function captureKey(over, done)
-		local UIS = game:GetService("UserInputService")
 		local tb = new("TextBox", {
 			Text = "",
 			TextTransparency = 1,

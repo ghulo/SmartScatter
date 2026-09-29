@@ -841,6 +841,11 @@ return function(App)
 				App.panelKey(input)
 			end
 		end)
+		App.root.InputEnded:Connect(function(input) -- a stroke or drag let go over the panel ends there
+			if input.UserInputType == Enum.UserInputType.MouseButton1 and App.releaseMouse then
+				App.releaseMouse()
+			end
+		end)
 		-- fixed top: title, area picker, tabs and search; only the page below scrolls (it's see-through over the blobs)
 		local head = col({
 			BackgroundTransparency = App.blobsOn() and 1 or 0,

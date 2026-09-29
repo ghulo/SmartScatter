@@ -801,7 +801,57 @@ return function(App)
 		end
 	end)
 
-	mouse.Button1Up:Connect(function()
+	-- Letting go of the mouse. The plugin mouse only says so when the button comes up over the viewport; let go over
+	-- the panel, another window or outside Studio and it never does, and a stroke, a drag or a stamp would stay held
+	-- (and keep painting as the mouse moves). So a press that began in the viewport ends on whichever comes first:
+	-- the plugin mouse, the button coming up anywhere Studio sees it, the button found up on a frame, or Studio
+	-- losing focus. Every tool's handler (App.onMouseUp) runs once per press, and does nothing if it had nothing held.
+	local upHandlers = {}
+	App.onMouseUp = function(fn)
+		table.insert(upHandlers, fn)
+	end
+	local pressed, sawHeld = false, false -- a viewport press is open · the button was seen held during it
+	local function releaseMouse()
+		if not pressed then
+			return
+		end
+		pressed, sawHeld = false, false
+		for _, fn in upHandlers do
+			local ok, err = pcall(fn)
+			if not ok then
+				warn("[Smart Scatter] " .. tostring(err))
+			end
+		end
+	end
+	App.releaseMouse = releaseMouse -- (the panel's root calls it too: a button let go over the panel)
+	mouse.Button1Down:Connect(function()
+		pressed, sawHeld = true, false
+	end)
+	mouse.Button1Up:Connect(releaseMouse)
+	track(UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			releaseMouse()
+		end
+	end))
+	track(UIS.WindowFocusReleased:Connect(releaseMouse))
+	-- the last word, once a frame: the button found up. Only trusted once it has been seen held in this press
+	-- (where Studio can't tell, it never says held, and nothing is ended early).
+	track(App.RunService.Heartbeat:Connect(function()
+		if not pressed then
+			return
+		end
+		local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+		if not ok then
+			return
+		end
+		if held then
+			sawHeld = true
+		elseif sawHeld then
+			releaseMouse()
+		end
+	end))
+
+	App.onMouseUp(function()
 		if App.mode == "Stamp" then
 			App.stampUp()
 			return

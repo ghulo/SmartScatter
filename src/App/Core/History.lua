@@ -76,6 +76,7 @@ return function(App)
 		end
 		App.historyJumping = true
 		local steps, back = 0, target < H.pos
+		local names = {} -- the steps it passed, for the one rebuild at its end
 		for _ = 1, 400 do -- (a bound, whatever happens)
 			if H.pos == target then
 				break
@@ -127,11 +128,12 @@ return function(App)
 					H.pos += 1
 				end
 			end
+			names[name] = true
 			steps += 1
 		end
 		App.historyJumping = false
 		if steps > 0 and App.afterHistory then
-			task.defer(App.afterHistory) -- one rebuild for the whole jump
+			task.defer(App.afterHistory, names) -- one rebuild for the whole jump
 		end
 		changed()
 		return steps
