@@ -326,6 +326,58 @@ return function(App)
 		stop = function()
 			App.clearStamp()
 		end,
+		-- the viewport's header: the model, and its turn, size and model as steps
+		header = function()
+			local models = stamp.models
+			local cur = models[stamp.vi] or models[1]
+			local function changed()
+				if App.refreshStamp then
+					App.refreshStamp()
+				end
+			end
+			local items = {
+				{
+					step = "Turn",
+					value = string.format("%d°", math.floor(math.deg(stamp.yaw) + 0.5) % 360),
+					dec = function()
+						App.setStamp(math.deg(stamp.yaw) - 15)
+						changed()
+					end,
+					inc = function()
+						App.setStamp(math.deg(stamp.yaw) + 15)
+						changed()
+					end,
+				},
+				{
+					step = "Size",
+					value = string.format("%.2f×", stamp.k),
+					dec = function()
+						App.setStamp(nil, math.max(stamp.k / 1.1, 0.05))
+						changed()
+					end,
+					inc = function()
+						App.setStamp(nil, math.min(stamp.k * 1.1, 20))
+						changed()
+					end,
+				},
+			}
+			if #models > 1 then
+				table.insert(items, {
+					step = "Model",
+					value = cur.Name,
+					dec = function()
+						App.setStamp(nil, nil, (stamp.vi - 2) % #models + 1)
+						changed()
+					end,
+					inc = function()
+						App.setStamp(nil, nil, stamp.vi % #models + 1)
+						changed()
+					end,
+				})
+			end
+			table.insert(items, { button = "Random", click = App.rollStamp })
+			return "Stamp · " .. (cur and cur.Name or ""), items, string.format("%.3f|%.3f|%s|%d", stamp.yaw, stamp.k, tostring(stamp.vi), #models)
+		end,
 		noArea = true,
 	})
 

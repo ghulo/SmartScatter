@@ -340,7 +340,12 @@ return function(App)
 			end)
 		end
 	end
-	App.afterHistory = afterHistory -- (a jump along the history timeline runs it once, at the end)
+	App.afterHistory = function(steps) -- (a jump along the history timeline runs it once, at the end)
+		afterHistory(steps)
+		if App.reapplyHidden then -- (copies an undo brought back in a hidden zone are hidden too)
+			App.reapplyHidden()
+		end
+	end
 	local function onHistory(name)
 		local echoes = App.historyEchoes
 		if echoes and echoes.rebuild > 0 then -- one step of a jump along the timeline: it rebuilds once, at its end
@@ -350,7 +355,7 @@ return function(App)
 		if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
 			return
 		end
-		task.defer(afterHistory, name)
+		task.defer(App.afterHistory, name)
 	end
 	track(ChangeHistoryService.OnUndo:Connect(onHistory))
 	track(ChangeHistoryService.OnRedo:Connect(onHistory))

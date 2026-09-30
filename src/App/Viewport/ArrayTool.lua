@@ -118,7 +118,19 @@ return function(App)
 		press = nil
 		clearLine()
 	end
-	App.registerMode("Array", { move = move, down = down, up = up, stop = stop, noArea = true })
+	App.registerMode("Array", {
+		move = move,
+		down = down,
+		up = up,
+		stop = stop,
+		header = function()
+			local src = source()
+			return "Array" .. (src and (" · " .. src.Name) or ""),
+				{ { text = src and "Press and drag along where the copies go" or "Select a model in the Explorer first" } },
+				src and src.Name or ""
+		end,
+		noArea = true,
+	})
 	App.registerTool({
 		id = "array",
 		group = "Stamp",

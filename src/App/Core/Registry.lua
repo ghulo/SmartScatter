@@ -5,7 +5,9 @@
 	  kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
 	        { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
 	          menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
-	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
+	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order),
+	          hide = true when what it placed can be hidden (the row's eye), lock = { get = fn(thing) -> bool,
+	          toggle = fn(thing) } for a padlock on its row }
 	  tab   a page of the properties for some kinds of thing:
 	        { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
 	          build = fn(page) }

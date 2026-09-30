@@ -1,6 +1,131 @@
 -- GENERATED part 3 of the flattened release by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
+-- #module App/Viewport/Grid
+MODULES["App/Viewport/Grid"] = (function()
+--[[
+Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
+ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
+toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
+lines over flat ground are one line, not a line per cell, and it's redrawn only when the brush reaches another
+cell. Settings › Viewport can turn it off.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, P, new = App.G, App.P, App.new
+local MAJOR = 4
+local LIFT = 0.07
+local last
+local function pool()
+local gz = App.gz
+gz.grid = gz.grid or { lines = {}, used = 0 }
+return gz.grid
+end
+local function line(a, b, transparency, major)
+local g = pool()
+g.used += 1
+local l = g.lines[g.used]
+if not l then
+l = new("LineHandleAdornment", {
+Adornee = workspace.Terrain,
+AlwaysOnTop = false,
+ZIndex = 0,
+Parent = App.gizmoFolder(),
+})
+g.lines[g.used] = l
+end
+l.CFrame = CFrame.lookAt(a, b)
+l.Length = (b - a).Magnitude
+l.Thickness = major and 2 or 1
+l.Color3 = major and Color3.new(1, 1, 1):Lerp(P.accent, 0.25) or Color3.fromRGB(225, 225, 225)
+l.Transparency = transparency
+l.Visible = true
+end
+App.clearGrid = function()
+local g = App.gz and App.gz.grid
+if g then
+for _, l in g.lines do
+l.Visible = false
+end
+g.used = 0
+end
+last = nil
+end
+App.drawGrid = function(p)
+if not (App.gz and App.gz.grid) then
+last = nil
+end
+local a = App.area
+if not (p and a and G.grid ~= false) then
+App.clearGrid()
+return
+end
+local c = a.cell
+local R = math.clamp(G.radius * 2.2, 32, 96)
+local hx, hz = math.floor(p.X / c), math.floor(p.Z / c)
+local key = hx .. "," .. hz .. "," .. R
+if key == last then
+return
+end
+last = key
+local g = pool()
+for i = 1, g.used do
+g.lines[i].Visible = false
+end
+g.used = 0
+local n = math.ceil(R / c)
+local heights = {}
+local function y(ix, iz)
+local k = ix * 100003 + iz
+local v = heights[k]
+if not v then
+v = App.probe(ix, iz, p.Y).y + LIFT
+heights[k] = v
+end
+return v
+end
+local function fade(x, z)
+return math.sqrt((x - p.X) ^ 2 + (z - p.Z) ^ 2) / R
+end
+for pass = 1, 2 do
+for k = -n, n + 1 do
+local fixed = (pass == 1 and hz or hx) + k
+local major = fixed % MAJOR == 0
+local runStart, runY, runT
+local function flush(i)
+if runStart then
+local x0, x1 = runStart * c, i * c
+local fx = fixed * c
+local A = pass == 1 and Vector3.new(x0, runY, fx) or Vector3.new(fx, runY, x0)
+local B = pass == 1 and Vector3.new(x1, runY, fx) or Vector3.new(fx, runY, x1)
+line(A, B, runT, major)
+runStart = nil
+end
+end
+for i = (pass == 1 and hx or hz) - n, (pass == 1 and hx or hz) + n do
+local ix, iz = pass == 1 and i or fixed, pass == 1 and fixed or i
+local mx, mz = (pass == 1 and (i + 0.5) * c or fixed * c), (pass == 1 and fixed * c or (i + 0.5) * c)
+local d = fade(mx, mz)
+if d > 1 then
+flush(i)
+else
+local h = y(ix, iz)
+local t = math.clamp((major and 0.35 or 0.6) + (major and 0.65 or 0.4) * d ^ 1.6, 0, 1)
+local tq = math.floor(t * 5 + 0.5) / 5
+if runStart and (math.abs(h - runY) > 0.35 or tq ~= runT) then
+flush(i)
+end
+if not runStart then
+runStart, runY, runT = i, h, tq
+end
+end
+end
+flush((pass == 1 and hx or hz) + n + 1)
+end
+end
+end
+end
+end)()
 -- #module App/Viewport/Spline
 MODULES["App/Viewport/Spline"] = (function()
 --[[
@@ -1559,6 +1684,57 @@ up = App.stampUp,
 stop = function()
 App.clearStamp()
 end,
+header = function()
+local models = stamp.models
+local cur = models[stamp.vi] or models[1]
+local function changed()
+if App.refreshStamp then
+App.refreshStamp()
+end
+end
+local items = {
+{
+step = "Turn",
+value = string.format("%d°", math.floor(math.deg(stamp.yaw) + 0.5) % 360),
+dec = function()
+App.setStamp(math.deg(stamp.yaw) - 15)
+changed()
+end,
+inc = function()
+App.setStamp(math.deg(stamp.yaw) + 15)
+changed()
+end,
+},
+{
+step = "Size",
+value = string.format("%.2f×", stamp.k),
+dec = function()
+App.setStamp(nil, math.max(stamp.k / 1.1, 0.05))
+changed()
+end,
+inc = function()
+App.setStamp(nil, math.min(stamp.k * 1.1, 20))
+changed()
+end,
+},
+}
+if #models > 1 then
+table.insert(items, {
+step = "Model",
+value = cur.Name,
+dec = function()
+App.setStamp(nil, nil, (stamp.vi - 2) % #models + 1)
+changed()
+end,
+inc = function()
+App.setStamp(nil, nil, stamp.vi % #models + 1)
+changed()
+end,
+})
+end
+table.insert(items, { button = "Random", click = App.rollStamp })
+return "Stamp · " .. (cur and cur.Name or ""), items, string.format("%.3f|%.3f|%s|%d", stamp.yaw, stamp.k, tostring(stamp.vi), #models)
+end,
 noArea = true,
 })
 App.stampKey = function(name)
@@ -1676,6 +1852,8 @@ a click selects it (Core/Selection), so the panel shows it:
   a placed copy     its zone, with its object active
   a path            the path (its curve, or a point of it, within a few pixels on screen)
   painted ground    the zone painted there (a keep-clear zone if no zone is)
+Shift + click picks more copies of the same zone (or takes one back out), and a drag over the ground boxes them;
+what's done then is done to each. The viewport's header shows what's picked, with the same changes as buttons.
 A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
 sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
 picked one, has the rest (another model,
@@ -1768,7 +1946,7 @@ area = cur
 end
 cur = cur.Parent
 end
-if area then
+if area and not (App.isHidden and App.isHidden(area)) then
 return App.thingOf(area), key, key and copy or nil
 end
 end
@@ -1805,10 +1983,12 @@ return clear
 end
 return nil
 end
-local picked, moving = nil, false
-local function light(name, copy, fill)
+local picks, moving, press = {}, false, nil
+local MAX_PICKS = 300
+local DRAG_PX = 6
+local function lightHover(copy)
 App.gizmoFolder()
-local h = App.gz[name]
+local h = App.gz.copyHover
 if not (h and h.Parent) then
 if not copy then
 return
@@ -1816,37 +1996,64 @@ end
 h = Instance.new("Highlight")
 h.DepthMode = Enum.HighlightDepthMode.Occluded
 h.OutlineTransparency = 0
+h.FillTransparency = 1
 h.Parent = App.gz.folder
-App.gz[name] = h
+App.gz.copyHover = h
 end
-h.FillColor, h.OutlineColor = P.accent, P.accent
-h.FillTransparency = fill
+h.OutlineColor = P.accent
 h.Adornee = copy
 end
-local function pickedCopy()
-if not picked then
-return nil
+local function copyOf(e)
+if e.copy and e.copy.Parent then
+return e.copy
 end
-if picked.copy and picked.copy.Parent then
-return picked.copy
-end
-picked.copy = nil
+e.copy = nil
 local a = App.area
-if not (a and a.folder == picked.folder) then
+if not (a and a.folder == e.folder) then
 return nil
 end
 for _, f in a.folder:GetChildren() do
-if f:GetAttribute("SS_Key") == picked.key then
+if f:GetAttribute("SS_Key") == e.key then
 for _, d in f:GetDescendants() do
 local x, z = d:GetAttribute("SS_X"), d:GetAttribute("SS_Z")
-if x and z and d:GetAttribute("SS_Type") and math.abs(x - picked.x) < 0.05 and math.abs(z - picked.z) < 0.05 then
-picked.copy = d
+if x and z and d:GetAttribute("SS_Type") and math.abs(x - e.x) < 0.05 and math.abs(z - e.z) < 0.05 then
+e.copy = d
 return d
 end
 end
 end
 end
 return nil
+end
+local function pickedCopy()
+local e = picks[#picks]
+return e and copyOf(e) or nil
+end
+local function outline()
+App.gizmoFolder()
+local pool = App.gz.copyBoxes or {}
+App.gz.copyBoxes = pool
+local n = 0
+for _, e in picks do
+local c = copyOf(e)
+if c then
+n += 1
+local sb = pool[n]
+if not sb then
+sb = Instance.new("SelectionBox")
+sb.LineThickness = 0.04
+sb.SurfaceTransparency = 0.88
+sb.Parent = App.gz.folder
+pool[n] = sb
+end
+sb.Color3, sb.SurfaceColor3 = P.accent, P.accent
+sb.Adornee = c
+end
+end
+for i = n + 1, #pool do
+pool[i].Adornee = nil
+end
+return n
 end
 local function describe(copy)
 local pose = App.area and Engine.copyPose(App.area, copy)
@@ -1856,59 +2063,78 @@ end
 return string.format("%s · %d° · %.2f×", copy.Name, math.floor(math.deg(pose.yaw) + 0.5) % 360, pose.k)
 end
 local function showPicked()
+outline()
 local copy = pickedCopy()
-light("copySel", copy, 0.8)
 if copy then
 App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
-App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  Shift + right-click for more"))
+App.setLabel(
+moving and "Click where it should stand"
+or #picks > 1 and string.format("%d copies  ·  Shift + right-click for more", #picks)
+or (describe(copy) .. "  ·  Shift + right-click for more")
+)
 end
 end
 local function unpick()
-picked, moving = nil, false
-light("copySel", nil, 0.8)
-light("copyHover", nil, 1)
+picks, moving, press = {}, false, nil
+outline()
+lightHover(nil)
 if App.closeViewMenu then
 App.closeViewMenu()
 end
+if App.viewRect then
+App.viewRect(nil)
+end
 end
 local function follow()
-local mine = picked
+local mine = picks
 task.spawn(function()
 for _ = 1, 60 do
 task.wait(0.05)
-if picked ~= mine or App.mode ~= "Select" then
+if picks ~= mine or App.mode ~= "Select" then
 return
 end
-if pickedCopy() then
+local all = true
+for _, e in picks do
+all = all and copyOf(e) ~= nil
+end
+if all then
+break
+end
+end
+if picks == mine and App.mode == "Select" then
 showPicked()
-return
-end
 end
 end)
 end
-local function edit(what, change)
+local function ready()
 local a = App.area
-if not (picked and a and a.folder == picked.folder) then
-return false
+if #picks == 0 or not a or a.folder ~= picks[1].folder then
+return nil
 end
 if a.locked then
 App.status("This area is locked. Unlock it to change its copies.")
-return false
+return nil
 end
 if not App.canGenerate() then
 App.status("The area can't be rebuilt right now: the Generate button says why.")
+return nil
+end
+return a
+end
+local function edit(what, change)
+local a = ready()
+if not a then
 return false
 end
-local copy = pickedCopy()
+local box, done
+for _, e in picks do
+local copy = copyOf(e)
 local pose = copy and Engine.copyPose(a, copy)
-if not pose and not copy and picked.pin and picked.l.pins and table.find(picked.l.pins, picked.pin) then
-local q = picked.pin
-pose = { l = picked.l, vi = q[6], x = q[1], z = q[2], yaw = q[4], k = q[5], pin = q }
+if not pose and not copy and e.pin and e.l.pins and table.find(e.l.pins, e.pin) then
+local q = e.pin
+pose = { l = e.l, vi = q[6], x = q[1], z = q[2], yaw = q[4], k = q[5], pin = q }
 end
-if not pose then
-App.status(copy and "This copy can't be changed by itself (a piece of a line, or a preview box)." or "That copy is gone.")
-return false
-end
+if pose then
 local l = pose.l
 local fromX, fromZ = pose.x, pose.z
 local c = change(pose)
@@ -1918,35 +2144,52 @@ pin = Engine.pinCopy(a, copy, c)
 else
 pin = Engine.changePin(l, pose.pin, c)
 end
-if not pin then
-return false
-end
+if pin then
 local v = l.variants[pin[6]] or l.variants[1]
 local r = v.m.radius * pin[5] * v.size * 2 + 6
-local box = { math.min(fromX, pin[1]) - r, math.min(fromZ, pin[2]) - r, math.max(fromX, pin[1]) + r, math.max(fromZ, pin[2]) + r }
-picked.copy, picked.x, picked.z, picked.l, picked.pin = nil, pin[1], pin[2], l, pin
-light("copySel", nil, 0.8)
-App.applyNow(l, what, box, true)
+local x0, z0 = math.min(fromX, pin[1]) - r, math.min(fromZ, pin[2]) - r
+local x1, z1 = math.max(fromX, pin[1]) + r, math.max(fromZ, pin[2]) + r
+box = box and { math.min(box[1], x0), math.min(box[2], z0), math.max(box[3], x1), math.max(box[4], z1) } or { x0, z0, x1, z1 }
+e.copy, e.x, e.z, e.l, e.pin = nil, pin[1], pin[2], l, pin
+done = true
+end
+end
+end
+if not done then
+App.status(
+#picks == 1 and "This copy can't be changed by itself (a piece of a line, or a preview box)."
+or "These copies can't be changed by themselves."
+)
+return false
+end
+outline()
+App.applyNow(nil, what, box, true)
 follow()
 return true
 end
+local function several(one, many)
+return #picks > 1 and many or one
+end
 local function turn(dir)
-return edit("Turn a copy", function(pose)
+return edit(several("Turn a copy", "Turn copies"), function(pose)
 return { yaw = (math.floor(pose.yaw / STEP + 0.5) + dir) * STEP }
 end)
 end
 local function size(dir)
-return edit("Size a copy", function(pose)
+return edit(several("Size a copy", "Size copies"), function(pose)
 return { k = math.clamp(pose.k * 1.1 ^ dir, 0.05, 20) }
 end)
 end
-local function nextModel()
-return edit("Change a copy's model", function(pose)
-return { vi = pose.vi % #pose.l.variants + 1 }
+local function nextModel(dir)
+return edit(several("Change a copy's model", "Change copies' models"), function(pose)
+return { vi = (pose.vi - 1 + (dir or 1)) % #pose.l.variants + 1 }
 end)
 end
 local function moveTo(pos)
 local a = App.area
+if #picks ~= 1 then
+return false
+end
 if not (a and Engine.hasCell(a, math.floor(pos.X / a.cell), math.floor(pos.Z / a.cell))) then
 App.status("Click on this zone's painted ground to move it there.")
 return false
@@ -1956,15 +2199,22 @@ return { x = pos.X, z = pos.Z }
 end)
 end
 local function remove()
-local a, copy = App.area, pickedCopy()
-if not (a and copy) or a.locked then
+local a = App.area
+if #picks == 0 or not a or a.folder ~= picks[1].folder or a.locked then
 return false
 end
-local rec = App.beginRec("Smart Scatter: Remove copy")
-local h = Engine.removeCopy(a, copy)
+local rec = App.beginRec("Smart Scatter: " .. several("Remove copy", "Remove copies"))
+local n = 0
+for _, e in picks do
+local copy = copyOf(e)
+local h = copy and Engine.removeCopy(a, copy)
+if h then
+n += 1
 for _, l in a.layers do
 if l._h == h and App.lastCounts[l] then
 App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
+end
+end
 end
 end
 App.saveArea()
@@ -1972,25 +2222,69 @@ App.endRec(rec)
 unpick()
 App.setLabel("")
 App.refreshCounts()
-App.status("Removed. Ctrl+Z brings it back.")
-return true
+App.status(n == 1 and "Removed. Ctrl+Z brings it back." or string.format("Removed %d. Ctrl+Z brings them back.", n))
+return n > 0
+end
+local function canGoBack()
+local a, n = App.area, 0
+for _, e in picks do
+local copy = copyOf(e)
+if a and copy and Engine.canUnpinCopy(a, copy) then
+n += 1
+end
+end
+return n
 end
 local function backToRules()
-local a, copy = App.area, pickedCopy()
-if not (a and copy) or a.locked or not App.canGenerate() then
+local a = ready()
+if not a then
 return false
 end
-local pose = Engine.copyPose(a, copy)
-if not (pose and Engine.unpinCopy(a, copy)) then
+local first
+for _, e in picks do
+local copy = copyOf(e)
+local pose = copy and Engine.copyPose(a, copy)
+if pose and Engine.unpinCopy(a, copy) then
+local i = table.find(a.layers, pose.l) or 1
+first = math.min(first or i, i)
+e.copy, e.pin = nil, nil
+end
+end
+if not first then
 return false
 end
-picked.copy, picked.pin = nil, nil
-light("copySel", nil, 0.8)
-App.applyNow(pose.l, "Give a copy back to its rules")
+outline()
+App.applyNow(a.layers[first], "Give copies back to their rules")
 follow()
 return true
 end
-local function pick(thing, key, copy)
+local function entry(thing, key, copy)
+return { folder = thing.folder, key = key, copy = copy, x = copy:GetAttribute("SS_X") or 0, z = copy:GetAttribute("SS_Z") or 0 }
+end
+local function indexOf(copy)
+for i, e in picks do
+if copyOf(e) == copy then
+return i
+end
+end
+return nil
+end
+local function pick(thing, key, copy, add)
+if add and #picks > 0 and picks[1].folder == thing.folder and App.mode == "Select" then
+local i = indexOf(copy)
+if i then
+table.remove(picks, i)
+elseif #picks < MAX_PICKS then
+table.insert(picks, entry(thing, key, copy))
+end
+picks = table.clone(picks)
+moving = false
+showPicked()
+if #picks == 0 then
+App.setLabel("")
+end
+return nil
+end
 local object
 App.select(thing)
 for _, l in App.area and App.area.layers or {} do
@@ -2002,17 +2296,80 @@ App.select(thing, object)
 if App.mode ~= "Select" then
 return object
 end
-picked = { folder = thing.folder, key = key, copy = copy, x = copy:GetAttribute("SS_X") or 0, z = copy:GetAttribute("SS_Z") or 0 }
+picks = { entry(thing, key, copy) }
 moving = false
-light("copyHover", nil, 1)
+lightHover(nil)
 showPicked()
 return object
+end
+local function boxPick(a, b, add)
+local out = workspace:FindFirstChild(Engine.OUT)
+local cam = workspace.CurrentCamera
+if not (out and cam) then
+return 0
+end
+local x0, x1, y0, y1 = math.min(a.X, b.X), math.max(a.X, b.X), math.min(a.Y, b.Y), math.max(a.Y, b.Y)
+local keep = add and #picks > 0 and picks[1].folder or nil
+local found = {}
+for _, area in out:GetChildren() do
+if area:GetAttribute("SS_Area") and (not keep or area == keep) and not (App.isHidden and App.isHidden(area)) then
+for _, f in area:GetChildren() do
+local key = f:GetAttribute("SS_Key")
+if key and not f:GetAttribute("SS_Ghost") then
+for _, d in f:GetDescendants() do
+if d:GetAttribute("SS_Type") and d:GetAttribute("SS_X") then
+local v = cam:WorldToViewportPoint(d:GetPivot().Position)
+if v.Z > 0 and v.X >= x0 and v.X <= x1 and v.Y >= y0 and v.Y <= y1 then
+found[area] = found[area] or {}
+table.insert(found[area], { key, d })
+end
+end
+end
+end
+end
+end
+end
+local chosen = keep or (App.area and found[App.area.folder] and App.area.folder) or nil
+if not chosen then
+for area, list in found do
+if not chosen or #list > #found[chosen] then
+chosen = area
+end
+end
+end
+local list = chosen and found[chosen]
+if not list then
+return 0
+end
+local thing = App.thingOf(chosen)
+if not keep then
+if not App.sameThing(App.selected, thing) then
+App.select(thing)
+end
+if App.mode ~= "Select" then
+return 0
+end
+picks = {}
+end
+local next = table.clone(picks)
+for _, pair in list do
+if #next >= MAX_PICKS then
+break
+end
+if not indexOf(pair[2]) then
+table.insert(next, entry(thing, pair[1], pair[2]))
+end
+end
+picks = next
+moving = false
+showPicked()
+return #picks
 end
 local function menu()
 local a, copy = App.area, pickedCopy()
 local pose = a and copy and Engine.copyPose(a, copy)
 local items = {}
-if pose then
+if pose or #picks > 1 then
 table.insert(items, {
 "Turn 15°",
 function()
@@ -2037,9 +2394,15 @@ function()
 size(-1)
 end,
 })
-if #pose.l.variants > 1 then
-table.insert(items, { "Another of its models", nextModel })
+if #picks == 1 and pose and #pose.l.variants > 1 then
+table.insert(items, {
+"Another of its models",
+function()
+nextModel(1)
+end,
+})
 end
+if #picks == 1 then
 table.insert(items, {
 "Move it…",
 function()
@@ -2048,11 +2411,13 @@ showPicked()
 App.status("Click this zone's painted ground where it should stand. Esc leaves it where it is.")
 end,
 })
+end
 table.insert(items, "-")
-if Engine.canUnpinCopy(a, copy) then
-table.insert(items, { "Back to its rules", backToRules, P.dim })
+if canGoBack() > 0 then
+table.insert(items, { several("Back to its rules", "Back to their rules"), backToRules, P.dim })
 end
 end
+if #picks == 1 then
 table.insert(items, {
 "Its object's settings",
 function()
@@ -2060,11 +2425,87 @@ App.openTab("object")
 end,
 P.dim,
 })
+end
 table.insert(items, "-")
-table.insert(items, { "Remove", remove, P.danger })
+table.insert(items, { several("Remove", string.format("Remove %d", #picks)), remove, P.danger })
 return items
 end
+local function header()
+local a, copy = App.area, pickedCopy()
+if #picks == 0 or not copy then
+return "Select", { { text = "Click a zone, a path or a copy · Shift + click or drag a box for more copies" } }, "none"
+end
+local one = #picks == 1
+local pose = one and a and Engine.copyPose(a, copy) or nil
+local items = {
+{
+step = "Turn",
+value = pose and string.format("%d°", math.floor(math.deg(pose.yaw) + 0.5) % 360) or "15°",
+dec = function()
+turn(-1)
+end,
+inc = function()
+turn(1)
+end,
+},
+{
+step = "Size",
+value = pose and string.format("%.2f×", pose.k) or "10%",
+dec = function()
+size(-1)
+end,
+inc = function()
+size(1)
+end,
+},
+}
+if pose and #pose.l.variants > 1 then
+table.insert(items, {
+step = "Model",
+value = pose.l.variants[pose.vi].inst.Name,
+dec = function()
+nextModel(-1)
+end,
+inc = function()
+nextModel(1)
+end,
+})
+end
+if one then
+table.insert(items, {
+button = "Move",
+on = moving,
+click = function()
+moving = not moving
+showPicked()
+end,
+})
+end
+local back = canGoBack()
+if back > 0 then
+table.insert(items, { button = several("Back to its rules", "Back to their rules"), click = backToRules })
+end
+table.insert(items, { button = several("Remove", string.format("Remove %d", #picks)), click = remove, danger = true })
+local title = one and copy.Name or string.format("%d copies", #picks)
+local key = string.format(
+"%d|%s|%s|%d|%s",
+#picks,
+tostring(moving),
+pose and string.format("%.3f|%.3f|%d", pose.yaw, pose.k, pose.vi) or "",
+back,
+title
+)
+return title, items, key
+end
 App.selectMove = function()
+if press and (Vector2.new(rawMouse.X, rawMouse.Y) - press.px).Magnitude > DRAG_PX then
+press.dragging = true
+end
+if press and press.dragging then
+App.viewRect(press.px, Vector2.new(rawMouse.X, rawMouse.Y))
+App.setLabel("")
+return
+end
 local thing, key, copy = App.pickAt()
 local g = App.mouseHit()
 App.gizmoFolder()
@@ -2073,10 +2514,10 @@ if App.gz[k] then
 App.gz[k].Visible = false
 end
 end
-local mine = pickedCopy()
-light("copySel", mine, 0.8)
-light("copyHover", not moving and copy ~= mine and copy or nil, 1)
-if moving or (mine and (copy == mine or not thing)) then
+outline()
+local mine = copy ~= nil and indexOf(copy) ~= nil
+lightHover(not moving and not mine and copy or nil)
+if moving or (#picks > 0 and (mine or not thing)) then
 showPicked()
 elseif thing and g then
 App.gz.anchor.CFrame = CFrame.new(g.Position)
@@ -2084,7 +2525,7 @@ local what = thing.folder and thing.folder.Name or "?"
 if key then
 what ..= " · " .. (string.match(key, "([^%.]+)$") or key)
 end
-App.setLabel("Click to select " .. what)
+App.setLabel((copy and #picks > 0 and App.shiftHeld()) and "Click to add it" or ("Click to select " .. what))
 else
 App.setLabel("")
 end
@@ -2097,28 +2538,52 @@ moving = false
 end
 return
 end
+local add = App.shiftHeld()
 local thing, key, copy = App.pickAt()
-if not thing then
-unpick()
+if not copy then
+press = { px = Vector2.new(rawMouse.X, rawMouse.Y), add = add, thing = thing }
 return
 end
-if copy and copy == pickedCopy() then
-App.viewMenu(menu(), string.upper(copy.Name))
+if not add and indexOf(copy) then
+App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
 return
 end
-local object
-if copy then
-object = pick(thing, key, copy)
-else
-unpick()
-App.select(thing)
-end
+local object = pick(thing, key, copy, add)
+if #picks > 1 then
+App.status(string.format("%d copies picked. Shift + wheel turns them, Alt + wheel sizes them; the bar at the top has the rest.", #picks))
+elseif #picks == 1 then
 App.status(
 "Selected "
 .. (thing.folder and thing.folder.Name or thing.kind)
 .. (object and (" · " .. object.inst.Name) or "")
-.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, Shift + right-click (or a second click) has more." or ".")
+.. ". Shift + wheel turns this copy, Alt + wheel sizes it; Shift + click adds more."
 )
+end
+end
+App.selectUp = function()
+local pr = press
+press = nil
+if not pr then
+return
+end
+App.viewRect(nil)
+if pr.dragging then
+local n = boxPick(pr.px, Vector2.new(rawMouse.X, rawMouse.Y), pr.add)
+App.status(
+n > 0 and string.format("%d cop%s picked. The bar at the top turns, sizes and removes them.", n, n == 1 and "y" or "ies")
+or "No copies in that box."
+)
+return
+end
+if pr.add and #picks > 0 then
+return
+end
+unpick()
+App.setLabel("")
+if pr.thing then
+App.select(pr.thing)
+App.status("Selected " .. (pr.thing.folder and pr.thing.folder.Name or pr.thing.kind) .. ".")
+end
 end
 App.onRightClick(function()
 if App.mode ~= "Select" or moving or not App.shiftHeld() then
@@ -2128,15 +2593,15 @@ local thing, key, copy = App.pickAt()
 if not copy then
 return
 end
-if copy ~= pickedCopy() then
+if not indexOf(copy) then
 pick(thing, key, copy)
 end
-if picked then
-App.viewMenu(menu(), string.upper(copy.Name))
+if #picks > 0 then
+App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
 end
 end)
 local function wheel(dir)
-if App.mode ~= "Select" or not picked then
+if App.mode ~= "Select" or #picks == 0 then
 return
 end
 local does = App.wheelDoes()
@@ -2157,9 +2622,10 @@ App.track(rawMouse.WheelBackward:Connect(function()
 wheel(-1)
 end))
 App.selectKey = function(name)
-if name == "cancel" and (moving or picked) then
-if moving then
-moving = false
+if name == "cancel" and (moving or press or #picks > 0) then
+if moving or press then
+moving, press = false, nil
+App.viewRect(nil)
 showPicked()
 else
 unpick()
@@ -2167,7 +2633,7 @@ App.setLabel("")
 end
 return true
 end
-if not picked then
+if #picks == 0 then
 return false
 end
 if name == "turn" then
@@ -2175,7 +2641,7 @@ turn(App.shiftHeld() and -1 or 1)
 elseif name == "grow" or name == "shrink" then
 size(name == "grow" and 1 or -1)
 elseif name == "model" then
-nextModel()
+nextModel(1)
 elseif name == "delete" then
 remove()
 else
@@ -2183,21 +2649,55 @@ return false
 end
 return true
 end
+App.openQuick = function()
+local items, title = {}, nil
+if App.mode == "Select" and #picks > 0 then
+for _, it in menu() do
+if type(it) == "table" then
+table.insert(items, it)
+end
+end
+title = #picks == 1 and "COPY" or string.format("%d COPIES", #picks)
+else
+for _, g in App.toolGroups() do
+local t = g.tools[1]
+if t and t.id ~= "search" then
+table.insert(items, { (string.match(t.name, "^([^:(]+)") or t.name):gsub("%s+$", ""), t.click, t.on() and P.accent or nil })
+end
+end
+title = "TOOLS"
+end
+if not App.viewPie(items, title) and App.openPalette then
+App.openPalette()
+end
+end
 App.pickedCopy = pickedCopy
+App.pickedCopies = function()
+local t = {}
+for _, e in picks do
+local c = copyOf(e)
+if c then
+table.insert(t, c)
+end
+end
+return t
+end
 App.pickCopy = pick
+App.boxPick = boxPick
 App.copyMenu = menu
+App.copyHeader = header
 App.copyEdit = { turn = turn, size = size, model = nextModel, move = moveTo, remove = remove, back = backToRules }
 App.onSelect(function(thing)
-if picked and not (thing and thing.folder == picked.folder) then
+if #picks > 0 and not (thing and thing.folder == picks[1].folder) then
 unpick()
 end
 end)
-App.registerMode("Select", { move = App.selectMove, down = App.selectDown, stop = unpick, noArea = true })
+App.registerMode("Select", { move = App.selectMove, down = App.selectDown, up = App.selectUp, stop = unpick, header = header, noArea = true })
 App.registerTool({
 id = "select",
 group = "Select",
 icon = "cursor",
-name = "Select: click a zone, a path or a placed copy",
+name = "Select: click a zone, a path or a placed copy; Shift + click or drag a box for more copies",
 on = function()
 return App.mode == "Select"
 end,
@@ -2319,7 +2819,19 @@ local function stop()
 press = nil
 clearLine()
 end
-App.registerMode("Array", { move = move, down = down, up = up, stop = stop, noArea = true })
+App.registerMode("Array", {
+move = move,
+down = down,
+up = up,
+stop = stop,
+header = function()
+local src = source()
+return "Array" .. (src and (" · " .. src.Name) or ""),
+{ { text = src and "Press and drag along where the copies go" or "Select a model in the Explorer first" } },
+src and src.Name or ""
+end,
+noArea = true,
+})
 App.registerTool({
 id = "array",
 group = "Stamp",
@@ -2607,15 +3119,14 @@ G.radius = math.clamp(math.floor(G.radius * (up and 1.2 or 1 / 1.2) + 0.5), 4, 2
 saveG()
 App.refreshSliders()
 end
-local function stampChanged()
-if App.refreshStamp then
-App.refreshStamp()
-end
-end
 local function options()
 local m = App.mode
 if m == "Off" then
 return nil
+end
+local handler = App.modeHandlers[m]
+if handler and handler.header then
+return handler.header()
 end
 local items = {}
 local title
@@ -2661,50 +3172,6 @@ end,
 else
 table.insert(items, { text = App.TOOL_HINT and App.TOOL_HINT[G.tool] or "" })
 end
-elseif m == "Stamp" then
-local st = App.stamp
-local models = st.models
-local cur = models[st.vi] or models[1]
-title = "Stamp · " .. (cur and cur.Name or "")
-table.insert(items, {
-step = "Turn",
-value = string.format("%d°", math.floor(math.deg(st.yaw) + 0.5) % 360),
-dec = function()
-App.setStamp(math.deg(st.yaw) - 15)
-stampChanged()
-end,
-inc = function()
-App.setStamp(math.deg(st.yaw) + 15)
-stampChanged()
-end,
-})
-table.insert(items, {
-step = "Size",
-value = string.format("%.2f×", st.k),
-dec = function()
-App.setStamp(nil, math.max(st.k / 1.1, 0.05))
-stampChanged()
-end,
-inc = function()
-App.setStamp(nil, math.min(st.k * 1.1, 20))
-stampChanged()
-end,
-})
-if #models > 1 then
-table.insert(items, {
-step = "Model",
-value = cur.Name,
-dec = function()
-App.setStamp(nil, nil, (st.vi - 2) % #models + 1)
-stampChanged()
-end,
-inc = function()
-App.setStamp(nil, nil, st.vi % #models + 1)
-stampChanged()
-end,
-})
-end
-table.insert(items, { button = "Random", click = App.rollStamp })
 elseif App.LAYER_MODES[m] and App.paintLayer then
 title = App.LAYER_LABEL[m] .. " · " .. App.paintLayer.inst.Name
 table.insert(items, brushSize)
@@ -2722,12 +3189,6 @@ end
 if App.hasPath() then
 table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 end
-elseif m == "Array" then
-title = "Array"
-table.insert(items, { text = "Press and drag along where the copies go" })
-elseif m == "Select" then
-title = "Select"
-table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })
 elseif m == "Remove" then
 title = "Remove copies"
 table.insert(items, { text = "Click a copy to take it out" })
@@ -2748,12 +3209,12 @@ if not title then
 return
 end
 label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
-local function small(text, click, on)
+local function small(text, click, on, danger)
 local b = new("TextButton", {
 Text = text,
 Font = SANS,
 TextSize = 12,
-TextColor3 = on and P.onAccent or P.text,
+TextColor3 = on and P.onAccent or danger and P.danger or P.text,
 AutoButtonColor = false,
 BackgroundColor3 = on and P.accent or P.raised,
 Size = UDim2.fromOffset(0, 24),
@@ -2786,7 +3247,7 @@ Parent = bar,
 })
 small("+", it.inc).Size = UDim2.fromOffset(22, 24)
 else
-small(it.button, it.click, it.on)
+small(it.button, it.click, it.on, it.danger)
 end
 end
 end
@@ -2855,7 +3316,7 @@ l and l.inst.Name or "",
 a and #a.layers or 0,
 sel and sel.kind or ""
 )
-local st = App.stamp or {}
+local handler = App.modeHandlers[App.mode]
 local b = table.concat({
 App.mode,
 G.tool,
@@ -2865,7 +3326,7 @@ G.fillReach,
 tostring(App.paintLayer and App.paintLayer.inst.Name),
 tostring(App.shapeTool),
 tostring(App.hasPath and App.hasPath()),
-string.format("%.3f|%.3f|%s|%d", st.yaw or 0, st.k or 0, tostring(st.vi), st.models and #st.models or 0),
+handler and handler.header and tostring(select(3, handler.header())) or "",
 }, "|")
 return s, b
 end
@@ -2991,6 +3452,90 @@ math.max(4, math.min(at.Y + 4, screen.Y - list.AbsoluteSize.Y - 8))
 end
 list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
 keepOn()
+end
+local RING, PIE_W, PIE_H = 96, 118, 28
+App.viewPie = function(items, title)
+App.closeViewMenu()
+if not App.toolbarAvailable() then
+return false
+end
+local list = {}
+for _, it in items do
+if type(it) == "table" and #list < 8 then
+table.insert(list, it)
+end
+end
+if #list == 0 then
+return false
+end
+local screen = gui.AbsoluteSize
+local at = Vector2.new(
+math.clamp(App.rawMouse.X, RING + PIE_W / 2 + 6, math.max(RING + PIE_W / 2 + 6, screen.X - RING - PIE_W / 2 - 6)),
+math.clamp(App.rawMouse.Y, RING + PIE_H, math.max(RING + PIE_H, screen.Y - RING - PIE_H))
+)
+local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
+menu = catcher
+catcher.MouseButton1Click:Connect(App.closeViewMenu)
+catcher.MouseButton2Click:Connect(App.closeViewMenu)
+if title then
+local mid = label(title, 11, P.dim, SANS_B, {
+AnchorPoint = Vector2.new(0.5, 0.5),
+Position = UDim2.fromOffset(at.X, at.Y),
+Size = UDim2.fromOffset(0, 22),
+AutomaticSize = Enum.AutomaticSize.X,
+BackgroundTransparency = SEE,
+BackgroundColor3 = P.card,
+TextXAlignment = Enum.TextXAlignment.Center,
+ZIndex = 21,
+Parent = catcher,
+})
+corner(11).Parent = mid
+pad(9, 9, 0, 0).Parent = mid
+end
+for i, it in list do
+local ang = -math.pi / 2 + (i - 1) * 2 * math.pi / #list
+local b = new("TextButton", {
+Text = it[1],
+Font = SANS,
+TextSize = 12,
+TextColor3 = it[3] or P.text,
+TextTruncate = Enum.TextTruncate.AtEnd,
+BackgroundColor3 = P.card,
+BackgroundTransparency = SEE,
+AutoButtonColor = false,
+AnchorPoint = Vector2.new(0.5, 0.5),
+Position = UDim2.fromOffset(at.X + math.cos(ang) * RING * 1.25, at.Y + math.sin(ang) * RING * 0.8),
+Size = UDim2.fromOffset(PIE_W, PIE_H),
+ZIndex = 22,
+Parent = catcher,
+}, { corner(7), stroke(P.line), pad(6, 6, 0, 0) })
+b.MouseEnter:Connect(function()
+b.BackgroundColor3, b.BackgroundTransparency = P.hover, 0
+end)
+b.MouseLeave:Connect(function()
+b.BackgroundColor3, b.BackgroundTransparency = P.card, SEE
+end)
+b.MouseButton1Click:Connect(function()
+App.closeViewMenu()
+it[2]()
+end)
+end
+return true
+end
+local rect
+App.viewRect = function(a, b)
+if not (a and b and gui and gui.Parent) then
+if rect then
+rect.Visible = false
+end
+return
+end
+if not (rect and rect.Parent) then
+rect = box({ BackgroundTransparency = 0.85, BackgroundColor3 = P.accent, ZIndex = 15, Parent = gui }, { stroke(P.accent) })
+end
+rect.Visible = true
+rect.Position = UDim2.fromOffset(math.min(a.X, b.X), math.min(a.Y, b.Y))
+rect.Size = UDim2.fromOffset(math.abs(a.X - b.X), math.abs(a.Y - b.Y))
 end
 App.toolbarAvailable = function()
 if App.ctx.preview then
@@ -4696,7 +5241,12 @@ end
 end)
 end
 end
-App.afterHistory = afterHistory
+App.afterHistory = function(steps)
+afterHistory(steps)
+if App.reapplyHidden then
+App.reapplyHidden()
+end
+end
 local function onHistory(name)
 local echoes = App.historyEchoes
 if echoes and echoes.rebuild > 0 then
@@ -4706,7 +5256,7 @@ end
 if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
 return
 end
-task.defer(afterHistory, name)
+task.defer(App.afterHistory, name)
 end
 track(ChangeHistoryService.OnUndo:Connect(onHistory))
 track(ChangeHistoryService.OnRedo:Connect(onHistory))

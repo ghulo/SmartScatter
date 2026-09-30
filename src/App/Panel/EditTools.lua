@@ -91,6 +91,7 @@ return function(App)
 		end
 	end
 
+	local last -- the last helper done that can still be adjusted (below)
 	-- one step: `what` done to the selection, as one undo step; fn(list) does it and returns what to say
 	local function step(what, fn, min)
 		local list = items()
@@ -109,6 +110,7 @@ return function(App)
 			App.status(what .. " didn't work: " .. tostring(said), "error")
 			return
 		end
+		last = nil -- (what came before can't be adjusted past this)
 		App.status(said or string.format("%s: %d done. Ctrl+Z undoes it.", what, #list))
 	end
 
@@ -135,8 +137,18 @@ return function(App)
 		end
 		return best, normal, Vector3.new(c.X, best, c.Z)
 	end
-	App.dropToGround = function()
-		step("Drop to ground", function(list)
+	--------------------------------------------------------------------------------
+	-- The helpers that can be adjusted afterwards: each is run(list, p) -> what to say, with its settings in p. The
+	-- last one done is kept (what it was done to, and how those stood before), so its settings can still be changed:
+	-- they're put back as they stood and it's done again (like Blender's Adjust Last Operation).
+	--------------------------------------------------------------------------------
+	local RUN = {}
+	RUN.drop = {
+		min = 1,
+		name = function()
+			return "Drop to ground"
+		end,
+		run = function(list, p)
 			local skip = App.templates()
 			for _, inst in list do
 				table.insert(skip, inst)
@@ -148,7 +160,7 @@ return function(App)
 				local y, normal, base = groundUnder(inst, b, rp)
 				if y then
 					moveBy(inst, Vector3.new(0, y - b.min.Y, 0))
-					if G.editLean and normal.Y > 0.2 then -- tilted so its up is the ground's
+					if p.lean and normal.Y > 0.2 then -- tilted so its up is the ground's
 						local r = CFrame.new(base) * Engine.rotateUp(normal) * CFrame.new(-base)
 						inst:PivotTo(r * inst:GetPivot())
 					end
@@ -161,51 +173,154 @@ return function(App)
 				#list - missed,
 				missed > 0 and string.format(" (%d had no ground under them)", missed) or ""
 			)
-		end)
-	end
-
-	App.alignSelection = function(axis, where)
-		step("Align " .. axis .. " " .. string.lower(where), function(list)
+		end,
+	}
+	RUN.align = {
+		min = 2,
+		name = function(p)
+			return "Align " .. p.axis .. " " .. string.lower(p.where)
+		end,
+		run = function(list, p)
 			local boxes = {}
 			for i, inst in list do
 				boxes[i] = boxOf(inst)
 			end
-			for i, d in Engine.alignMoves(boxes, axis, where) do
+			for i, d in Engine.alignMoves(boxes, p.axis, p.where) do
 				moveBy(list[i], d)
 			end
-			return string.format("Lined up %d on %s (%s).", #list, axis, string.lower(where == "Center" and "centre" or where))
-		end, 2)
-	end
-
-	App.distributeSelection = function(axis, by)
-		step("Distribute " .. axis, function(list)
+			return string.format("Lined up %d on %s (%s).", #list, p.axis, string.lower(p.where == "Center" and "centre" or p.where))
+		end,
+	}
+	RUN.distribute = {
+		min = 3,
+		name = function(p)
+			return "Distribute " .. p.axis
+		end,
+		run = function(list, p)
 			local boxes = {}
 			for i, inst in list do
 				boxes[i] = boxOf(inst)
 			end
-			for i, d in Engine.distributeMoves(boxes, axis, by) do
+			for i, d in Engine.distributeMoves(boxes, p.axis, p.by) do
 				moveBy(list[i], d)
 			end
-			return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, axis)
-		end, 3)
-	end
-
-	local seed = 1
-	App.randomizeSelection = function()
-		seed += 1
-		step("Randomize", function(list)
-			local r = Engine.randomTurns(#list, G.editTurn, G.editSize, seed + os.clock() * 1000)
+			return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, p.axis)
+		end,
+	}
+	RUN.random = {
+		min = 1,
+		name = function()
+			return "Randomize"
+		end,
+		run = function(list, p)
+			local r = Engine.randomTurns(#list, p.turn, p.size, p.seed)
 			for i, inst in list do
 				local b = boxOf(inst)
 				local base = Vector3.new((b.min.X + b.max.X) / 2, b.min.Y, (b.min.Z + b.max.Z) / 2)
 				turnAbout(inst, base, r[i].yaw)
 				scaleBy(inst, r[i].scale)
-				if G.editKeep then -- its underside back where it was
+				if p.keep then -- its underside back where it was
 					moveBy(inst, Vector3.new(0, b.min.Y - boxOf(inst).min.Y, 0))
 				end
 			end
 			return string.format("Gave %d a random turn and size. Press again for another.", #list)
+		end,
+	}
+
+	-- how each stands now (to put it back before the helper is done again with other settings)
+	local function poses(list)
+		local t = {}
+		for i, inst in list do
+			t[i] = { cf = inst:GetPivot(), scale = inst:IsA("Model") and inst:GetScale() or nil, size = inst:IsA("BasePart") and inst.Size or nil }
+		end
+		return t
+	end
+	local function restore(list, before)
+		for i, inst in list do
+			local was = before[i]
+			if was.scale then
+				inst:ScaleTo(was.scale)
+			elseif was.size then
+				inst.Size = was.size
+			end
+			inst:PivotTo(was.cf)
+		end
+	end
+	-- the last adjustable helper done: { kind, p, list, before }, while everything it was done to is still there
+	local function lastAction()
+		if not last then
+			return nil
+		end
+		for _, inst in last.list do
+			if not inst.Parent then
+				last = nil
+				return nil
+			end
+		end
+		return last
+	end
+	App.lastEdit = lastAction
+	-- does helper `kind` with settings p: to the selection, or (again: the last one, adjusted) to what it was done to,
+	-- put back first as it stood. One undo step either way.
+	local function perform(kind, p, again)
+		local spec = RUN[kind]
+		local list = again and again.list or items()
+		if #list < spec.min then
+			App.status(
+				spec.min > 1 and string.format("Select at least %d models (in the Explorer or the viewport) first.", spec.min)
+					or "Select the models to work on (in the Explorer or the viewport) first."
+			)
+			return false
+		end
+		local what = spec.name(p)
+		local rec = beginRec("Smart Scatter: " .. what .. (again and " (adjusted)" or ""))
+		local before = again and again.before or poses(list)
+		local ok, said = pcall(function()
+			if again then
+				restore(list, before)
+			end
+			return spec.run(list, p)
 		end)
+		endRec(rec, not ok)
+		if not ok then
+			warn("[Smart Scatter] " .. tostring(said))
+			App.status(what .. " didn't work: " .. tostring(said), "error")
+			return false
+		end
+		last = { kind = kind, p = p, list = list, before = before }
+		App.status(said)
+		local open = App.currentTab and App.currentTab()
+		if open and open.id == "edit" and not App.settingsOpen then -- (its Adjust card shows this one now)
+			task.defer(App.rebuildAll)
+		end
+		return true
+	end
+	-- the last helper again, with some of its settings changed
+	App.adjustLastEdit = function(changes)
+		local l = lastAction()
+		if not l then
+			return false
+		end
+		local p = table.clone(l.p)
+		for k, v in changes do
+			p[k] = v
+		end
+		return perform(l.kind, p, l)
+	end
+
+	local seed = 1
+	App.dropToGround = function()
+		return perform("drop", { lean = G.editLean })
+	end
+	App.alignSelection = function(axis, where)
+		return perform("align", { axis = axis, where = where })
+	end
+	App.distributeSelection = function(axis, by)
+		return perform("distribute", { axis = axis, by = by })
+	end
+	App.randomizeSelection = function()
+		seed += 1
+		return perform("random", { turn = G.editTurn, size = G.editSize, keep = G.editKeep, seed = seed + os.clock() * 1000 })
 	end
 
 	local replacement -- the model Replace puts in (picked from the selection)
@@ -259,6 +374,113 @@ return function(App)
 		kinds = "all",
 		build = function(page)
 			local cs = App.cards(page, "edit")
+			local l = lastAction()
+			if l then
+				cs.add({
+					id = "editlast",
+					title = "Adjust: " .. RUN[l.kind].name(l.p),
+					icon = "refresh",
+					sub = string.format("Change how it was done to those %d", #l.list),
+					keys = "adjust last again redo tweak",
+					build = function(b)
+						local p = l.p
+						local function set(key)
+							return function(v)
+								if p[key] ~= v then
+									App.adjustLastEdit({ [key] = v })
+								end
+							end
+						end
+						if l.kind == "align" or l.kind == "distribute" then
+							segmented(AXES, function()
+								return p.axis
+							end, function(v)
+								set("axis")(v)
+							end).Parent = b
+						end
+						if l.kind == "align" then
+							local names = { Min = "Lowest", Center = "Middle", Max = "Highest" }
+							local back = { Lowest = "Min", Middle = "Center", Highest = "Max" }
+							segmented({ "Lowest", "Middle", "Highest" }, function()
+								return names[p.where]
+							end, function(v)
+								set("where")(back[v])
+							end).Parent =
+								b
+						elseif l.kind == "distribute" then
+							segmented({ "Centers", "Gaps" }, function()
+								return p.by
+							end, function(v)
+								set("by")(v)
+							end).Parent =
+								b
+						elseif l.kind == "random" then
+							local turn, size = p.turn, p.size
+							slider(
+								"Turn",
+								0,
+								180,
+								function()
+									return turn
+								end,
+								function(v)
+									turn = v
+								end,
+								"±%d°",
+								5,
+								nil,
+								function()
+									set("turn")(turn)
+								end,
+								"How far each one may turn, either way.",
+								180
+							).Parent =
+								b
+							slider(
+								"Size",
+								0,
+								0.9,
+								function()
+									return size
+								end,
+								function(v)
+									size = v
+								end,
+								"±%.0f%%",
+								0.05,
+								nil,
+								function()
+									set("size")(size)
+								end,
+								"How much bigger or smaller each one may get.",
+								0.15
+							).Parent =
+								b
+							switchRow("Keep on the ground", function()
+								return p.keep
+							end, function(v)
+								set("keep")(v)
+							end, nil, "Their undersides stay where they were as they grow or shrink.").Parent =
+								b
+							hintOn(
+								button("Another roll", nil, function()
+									seed += 1
+									App.adjustLastEdit({ seed = seed + os.clock() * 1000 })
+								end, { Parent = buttonRow(b) }),
+								"The same models, another random turn and size, from how they stood before."
+							)
+						elseif l.kind == "drop" then
+							switchRow("Lean with the slope", function()
+								return p.lean
+							end, function(v)
+								set("lean")(v)
+							end, nil, "On: each one tilts to stand square on the ground under it. Off: they stay upright.").Parent =
+								b
+						end
+						App.explain(b, "They're put back as they stood, then it's done again your way. Each change is one Ctrl+Z step.")
+					end,
+				})
+			end
 			cs.add({
 				id = "editsel",
 				title = "The selection",

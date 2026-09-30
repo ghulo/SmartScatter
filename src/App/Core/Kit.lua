@@ -1056,6 +1056,18 @@ return function(App)
 			bar(0.34, 0.3, 0.8, 0.3)
 			bar(0.34, 0.5, 0.62, 0.5)
 			bar(0.34, 0.7, 0.72, 0.7)
+		elseif name == "eyeOff" then -- hidden: the eye, struck out
+			rect(0.5, 0.5, 0.76, 0.44, false, 0.22)
+			bar(0.2, 0.82, 0.8, 0.18)
+		elseif name == "lock" then -- locked: a body and its closed shackle
+			rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+			rect(0.5, 0.34, 0.34, 0.36, false, 0.17)
+			dot(0.5, 0.64, 0.06)
+		elseif name == "unlock" then -- not locked: the shackle swung open
+			rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+			bar(0.33, 0.42, 0.33, 0.24)
+			bar(0.33, 0.24, 0.6, 0.18)
+			dot(0.5, 0.64, 0.06)
 		elseif name == "cursor" then -- selecting: a pointer, its tip at the top left
 			path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 			path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })

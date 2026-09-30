@@ -293,6 +293,7 @@ return function(App)
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
 				lostPatch, lostPins = nil, false
+				App.reapplyHidden(area.folder)
 				if not preview and from == nil and me.region == nil then -- everything is as saved now
 					pendingFor[area.folder] = nil
 				end
@@ -536,6 +537,36 @@ return function(App)
 		endRec(rec)
 		switchArea(Engine.listAreas()[1])
 		App.status("Area deleted. Ctrl+Z brings it back.")
+	end
+
+	--------------------------------------------------------------------------------
+	-- Hidden things (the outliner's eye): what a zone, a path or an array placed, not drawn. For this session and for
+	-- you only: nothing in the place changes (a part's LocalTransparencyModifier is neither saved nor sent to anyone
+	-- else), so nothing needs undoing. Copies placed while it's hidden are hidden as they arrive.
+	--------------------------------------------------------------------------------
+	local hidden = setmetatable({}, { __mode = "k" }) -- [a thing's folder] = true
+	local function applyHidden(folder)
+		local t = hidden[folder] and 1 or 0
+		for _, d in folder:GetDescendants() do
+			if d:IsA("BasePart") or d:IsA("Decal") then
+				d.LocalTransparencyModifier = t
+			end
+		end
+	end
+	App.isHidden = function(folder)
+		return hidden[folder] == true
+	end
+	App.setHidden = function(folder, on)
+		hidden[folder] = on and true or nil
+		applyHidden(folder)
+	end
+	-- after something placed copies again (a generate, an undo, an array rebuilt): the hidden ones' new copies too
+	App.reapplyHidden = function(only)
+		for folder in hidden do
+			if folder.Parent and (only == nil or only == folder) then
+				applyHidden(folder)
+			end
+		end
 	end
 
 	--------------------------------------------------------------------------------

@@ -100,18 +100,18 @@ return function(App)
 		saveG()
 		App.refreshSliders()
 	end
-	local function stampChanged()
-		if App.refreshStamp then
-			App.refreshStamp()
-		end
-	end
-
-	-- what the bar shows for the tool in use: a title, then items
-	-- { text } · { step = label, value, dec, inc } · { button = text, click, on? }
+	-- What the bar shows for the tool in use: a title, then items
+	-- { text } · { step = label, value, dec, inc } · { button = text, click, on?, danger? }
+	-- A mode of its own (App.registerMode) brings its header: header() -> title, items, key (key: a text that changes
+	-- when the bar should be drawn again). The painting tools' headers are here.
 	local function options()
 		local m = App.mode
 		if m == "Off" then
 			return nil
+		end
+		local handler = App.modeHandlers[m]
+		if handler and handler.header then
+			return handler.header()
 		end
 		local items = {}
 		local title
@@ -157,50 +157,6 @@ return function(App)
 			else
 				table.insert(items, { text = App.TOOL_HINT and App.TOOL_HINT[G.tool] or "" })
 			end
-		elseif m == "Stamp" then
-			local st = App.stamp
-			local models = st.models
-			local cur = models[st.vi] or models[1]
-			title = "Stamp · " .. (cur and cur.Name or "")
-			table.insert(items, {
-				step = "Turn",
-				value = string.format("%d°", math.floor(math.deg(st.yaw) + 0.5) % 360),
-				dec = function()
-					App.setStamp(math.deg(st.yaw) - 15)
-					stampChanged()
-				end,
-				inc = function()
-					App.setStamp(math.deg(st.yaw) + 15)
-					stampChanged()
-				end,
-			})
-			table.insert(items, {
-				step = "Size",
-				value = string.format("%.2f×", st.k),
-				dec = function()
-					App.setStamp(nil, math.max(st.k / 1.1, 0.05))
-					stampChanged()
-				end,
-				inc = function()
-					App.setStamp(nil, math.min(st.k * 1.1, 20))
-					stampChanged()
-				end,
-			})
-			if #models > 1 then
-				table.insert(items, {
-					step = "Model",
-					value = cur.Name,
-					dec = function()
-						App.setStamp(nil, nil, (st.vi - 2) % #models + 1)
-						stampChanged()
-					end,
-					inc = function()
-						App.setStamp(nil, nil, st.vi % #models + 1)
-						stampChanged()
-					end,
-				})
-			end
-			table.insert(items, { button = "Random", click = App.rollStamp })
 		elseif App.LAYER_MODES[m] and App.paintLayer then
 			title = App.LAYER_LABEL[m] .. " · " .. App.paintLayer.inst.Name
 			table.insert(items, brushSize)
@@ -218,12 +174,6 @@ return function(App)
 			if App.hasPath() then
 				table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 			end
-		elseif m == "Array" then
-			title = "Array"
-			table.insert(items, { text = "Press and drag along where the copies go" })
-		elseif m == "Select" then
-			title = "Select"
-			table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })
 		elseif m == "Remove" then
 			title = "Remove copies"
 			table.insert(items, { text = "Click a copy to take it out" })
@@ -245,12 +195,12 @@ return function(App)
 			return
 		end
 		label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
-		local function small(text, click, on)
+		local function small(text, click, on, danger)
 			local b = new("TextButton", {
 				Text = text,
 				Font = SANS,
 				TextSize = 12,
-				TextColor3 = on and P.onAccent or P.text,
+				TextColor3 = on and P.onAccent or danger and P.danger or P.text,
 				AutoButtonColor = false,
 				BackgroundColor3 = on and P.accent or P.raised,
 				Size = UDim2.fromOffset(0, 24),
@@ -283,7 +233,7 @@ return function(App)
 				})
 				small("+", it.inc).Size = UDim2.fromOffset(22, 24)
 			else
-				small(it.button, it.click, it.on)
+				small(it.button, it.click, it.on, it.danger)
 			end
 		end
 	end
@@ -355,7 +305,7 @@ return function(App)
 			a and #a.layers or 0,
 			sel and sel.kind or ""
 		)
-		local st = App.stamp or {}
+		local handler = App.modeHandlers[App.mode]
 		local b = table.concat({
 			App.mode,
 			G.tool,
@@ -365,7 +315,7 @@ return function(App)
 			tostring(App.paintLayer and App.paintLayer.inst.Name),
 			tostring(App.shapeTool),
 			tostring(App.hasPath and App.hasPath()),
-			string.format("%.3f|%.3f|%s|%d", st.yaw or 0, st.k or 0, tostring(st.vi), st.models and #st.models or 0),
+			handler and handler.header and tostring(select(3, handler.header())) or "",
 		}, "|")
 		return s, b
 	end
@@ -500,6 +450,96 @@ return function(App)
 		end
 		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
 		keepOn()
+	end
+
+	-- The quick menu: up to eight actions in a ring round the mouse (Blender's pie menus), items { { text, run,
+	-- color? } }, a word in the middle if given. A click on one runs it; any other click closes it. false where the
+	-- viewport can't show it.
+	local RING, PIE_W, PIE_H = 96, 118, 28
+	App.viewPie = function(items, title)
+		App.closeViewMenu()
+		if not App.toolbarAvailable() then
+			return false
+		end
+		local list = {}
+		for _, it in items do
+			if type(it) == "table" and #list < 8 then
+				table.insert(list, it)
+			end
+		end
+		if #list == 0 then
+			return false
+		end
+		local screen = gui.AbsoluteSize
+		local at = Vector2.new(
+			math.clamp(App.rawMouse.X, RING + PIE_W / 2 + 6, math.max(RING + PIE_W / 2 + 6, screen.X - RING - PIE_W / 2 - 6)),
+			math.clamp(App.rawMouse.Y, RING + PIE_H, math.max(RING + PIE_H, screen.Y - RING - PIE_H))
+		)
+		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
+		menu = catcher
+		catcher.MouseButton1Click:Connect(App.closeViewMenu)
+		catcher.MouseButton2Click:Connect(App.closeViewMenu)
+		if title then
+			local mid = label(title, 11, P.dim, SANS_B, {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(at.X, at.Y),
+				Size = UDim2.fromOffset(0, 22),
+				AutomaticSize = Enum.AutomaticSize.X,
+				BackgroundTransparency = SEE,
+				BackgroundColor3 = P.card,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				ZIndex = 21,
+				Parent = catcher,
+			})
+			corner(11).Parent = mid
+			pad(9, 9, 0, 0).Parent = mid
+		end
+		for i, it in list do
+			local ang = -math.pi / 2 + (i - 1) * 2 * math.pi / #list -- (the first at the top, then clockwise)
+			local b = new("TextButton", {
+				Text = it[1],
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = it[3] or P.text,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				BackgroundColor3 = P.card,
+				BackgroundTransparency = SEE,
+				AutoButtonColor = false,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(at.X + math.cos(ang) * RING * 1.25, at.Y + math.sin(ang) * RING * 0.8),
+				Size = UDim2.fromOffset(PIE_W, PIE_H),
+				ZIndex = 22,
+				Parent = catcher,
+			}, { corner(7), stroke(P.line), pad(6, 6, 0, 0) })
+			b.MouseEnter:Connect(function()
+				b.BackgroundColor3, b.BackgroundTransparency = P.hover, 0
+			end)
+			b.MouseLeave:Connect(function()
+				b.BackgroundColor3, b.BackgroundTransparency = P.card, SEE
+			end)
+			b.MouseButton1Click:Connect(function()
+				App.closeViewMenu()
+				it[2]()
+			end)
+		end
+		return true
+	end
+
+	-- a drag's rectangle in the viewport, from a to b (screen points); nil takes it away
+	local rect
+	App.viewRect = function(a, b)
+		if not (a and b and gui and gui.Parent) then
+			if rect then
+				rect.Visible = false
+			end
+			return
+		end
+		if not (rect and rect.Parent) then
+			rect = box({ BackgroundTransparency = 0.85, BackgroundColor3 = P.accent, ZIndex = 15, Parent = gui }, { stroke(P.accent) })
+		end
+		rect.Visible = true
+		rect.Position = UDim2.fromOffset(math.min(a.X, b.X), math.min(a.Y, b.Y))
+		rect.Size = UDim2.fromOffset(math.abs(a.X - b.X), math.abs(a.Y - b.Y))
 	end
 
 	-- false when Studio won't show the strip (no CoreGui here): the panel then shows App.buildToolRow

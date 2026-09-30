@@ -1,6 +1,6 @@
 {
- "version": "9.93",
- "build": 157,
+ "version": "9.94",
+ "build": 158,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -12,7 +12,7 @@
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
-   "sum": 762344667
+   "sum": 661818282
   },
   "App/Core/History": {
    "path": "modules/App/Core/History.lua",
@@ -20,15 +20,15 @@
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
-   "sum": 597916674
+   "sum": 642987562
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
-   "sum": 920380965
+   "sum": 517629893
   },
   "App/Core/Registry": {
    "path": "modules/App/Core/Registry.lua",
-   "sum": 746012399
+   "sum": 652844713
   },
   "App/Core/Selection": {
    "path": "modules/App/Core/Selection.lua",
@@ -36,7 +36,7 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 901229736
+   "sum": 356306602
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
@@ -44,7 +44,7 @@
   },
   "App/Panel/ArrayTools": {
    "path": "modules/App/Panel/ArrayTools.lua",
-   "sum": 556004096
+   "sum": 163883376
   },
   "App/Panel/Backdrop": {
    "path": "modules/App/Panel/Backdrop.lua",
@@ -52,7 +52,7 @@
   },
   "App/Panel/EditTools": {
    "path": "modules/App/Panel/EditTools.lua",
-   "sum": 796178946
+   "sum": 398985007
   },
   "App/Panel/HandTools": {
    "path": "modules/App/Panel/HandTools.lua",
@@ -60,7 +60,7 @@
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
-   "sum": 198942658
+   "sum": 526105827
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
@@ -72,7 +72,7 @@
   },
   "App/Panel/Outliner": {
    "path": "modules/App/Panel/Outliner.lua",
-   "sum": 179977414
+   "sum": 720427114
   },
   "App/Panel/Palette": {
    "path": "modules/App/Panel/Palette.lua",
@@ -84,7 +84,7 @@
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 474706635
+   "sum": 815860604
   },
   "App/Panel/StampTools": {
    "path": "modules/App/Panel/StampTools.lua",
@@ -104,7 +104,7 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 779965926
+   "sum": 254169738
   },
   "App/Panel/Tabs/Stamp": {
    "path": "modules/App/Panel/Tabs/Stamp.lua",
@@ -124,7 +124,7 @@
   },
   "App/Viewport/ArrayTool": {
    "path": "modules/App/Viewport/ArrayTool.lua",
-   "sum": 272003339
+   "sum": 516367382
   },
   "App/Viewport/Focus": {
    "path": "modules/App/Viewport/Focus.lua",
@@ -140,11 +140,11 @@
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 708844695
+   "sum": 477651176
   },
   "App/Viewport/Select": {
    "path": "modules/App/Viewport/Select.lua",
-   "sum": 982829683
+   "sum": 93256113
   },
   "App/Viewport/Shapes": {
    "path": "modules/App/Viewport/Shapes.lua",
@@ -156,11 +156,11 @@
   },
   "App/Viewport/Stamp": {
    "path": "modules/App/Viewport/Stamp.lua",
-   "sum": 431389578
+   "sum": 298230816
   },
   "App/Viewport/Toolbar": {
    "path": "modules/App/Viewport/Toolbar.lua",
-   "sum": 972796307
+   "sum": 325004247
   },
   "Engine": {
    "path": "modules/Engine.lua",

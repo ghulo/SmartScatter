@@ -1935,6 +1935,9 @@ end
 holder.Parent = m
 holder.Archivable = true
 built[m] = m:GetAttribute(ATTR)
+if App.reapplyHidden then
+App.reapplyHidden(m)
+end
 return placed, v ~= nil
 end
 App.buildArray = build
@@ -2089,6 +2092,7 @@ local src = thing.folder:FindFirstChild("Source")
 return src and src:IsA("ObjectValue") and src.Value or nil
 end,
 reorder = true,
+hide = true,
 menu = function(thing)
 return {
 {
@@ -2402,6 +2406,7 @@ else
 inst.Size *= f
 end
 end
+local last
 local function step(what, fn, min)
 local list = items()
 if #list < (min or 1) then
@@ -2419,6 +2424,7 @@ warn("[Smart Scatter] " .. tostring(said))
 App.status(what .. " didn't work: " .. tostring(said), "error")
 return
 end
+last = nil
 App.status(said or string.format("%s: %d done. Ctrl+Z undoes it.", what, #list))
 end
 local function groundUnder(inst, b, rp)
@@ -2439,8 +2445,13 @@ end
 end
 return best, normal, Vector3.new(c.X, best, c.Z)
 end
-App.dropToGround = function()
-step("Drop to ground", function(list)
+local RUN = {}
+RUN.drop = {
+min = 1,
+name = function()
+return "Drop to ground"
+end,
+run = function(list, p)
 local skip = App.templates()
 for _, inst in list do
 table.insert(skip, inst)
@@ -2452,7 +2463,7 @@ local b = boxOf(inst)
 local y, normal, base = groundUnder(inst, b, rp)
 if y then
 moveBy(inst, Vector3.new(0, y - b.min.Y, 0))
-if G.editLean and normal.Y > 0.2 then
+if p.lean and normal.Y > 0.2 then
 local r = CFrame.new(base) * Engine.rotateUp(normal) * CFrame.new(-base)
 inst:PivotTo(r * inst:GetPivot())
 end
@@ -2465,48 +2476,147 @@ return string.format(
 #list - missed,
 missed > 0 and string.format(" (%d had no ground under them)", missed) or ""
 )
-end)
-end
-App.alignSelection = function(axis, where)
-step("Align " .. axis .. " " .. string.lower(where), function(list)
+end,
+}
+RUN.align = {
+min = 2,
+name = function(p)
+return "Align " .. p.axis .. " " .. string.lower(p.where)
+end,
+run = function(list, p)
 local boxes = {}
 for i, inst in list do
 boxes[i] = boxOf(inst)
 end
-for i, d in Engine.alignMoves(boxes, axis, where) do
+for i, d in Engine.alignMoves(boxes, p.axis, p.where) do
 moveBy(list[i], d)
 end
-return string.format("Lined up %d on %s (%s).", #list, axis, string.lower(where == "Center" and "centre" or where))
-end, 2)
-end
-App.distributeSelection = function(axis, by)
-step("Distribute " .. axis, function(list)
+return string.format("Lined up %d on %s (%s).", #list, p.axis, string.lower(p.where == "Center" and "centre" or p.where))
+end,
+}
+RUN.distribute = {
+min = 3,
+name = function(p)
+return "Distribute " .. p.axis
+end,
+run = function(list, p)
 local boxes = {}
 for i, inst in list do
 boxes[i] = boxOf(inst)
 end
-for i, d in Engine.distributeMoves(boxes, axis, by) do
+for i, d in Engine.distributeMoves(boxes, p.axis, p.by) do
 moveBy(list[i], d)
 end
-return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, axis)
-end, 3)
-end
-local seed = 1
-App.randomizeSelection = function()
-seed += 1
-step("Randomize", function(list)
-local r = Engine.randomTurns(#list, G.editTurn, G.editSize, seed + os.clock() * 1000)
+return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, p.axis)
+end,
+}
+RUN.random = {
+min = 1,
+name = function()
+return "Randomize"
+end,
+run = function(list, p)
+local r = Engine.randomTurns(#list, p.turn, p.size, p.seed)
 for i, inst in list do
 local b = boxOf(inst)
 local base = Vector3.new((b.min.X + b.max.X) / 2, b.min.Y, (b.min.Z + b.max.Z) / 2)
 turnAbout(inst, base, r[i].yaw)
 scaleBy(inst, r[i].scale)
-if G.editKeep then
+if p.keep then
 moveBy(inst, Vector3.new(0, b.min.Y - boxOf(inst).min.Y, 0))
 end
 end
 return string.format("Gave %d a random turn and size. Press again for another.", #list)
+end,
+}
+local function poses(list)
+local t = {}
+for i, inst in list do
+t[i] = { cf = inst:GetPivot(), scale = inst:IsA("Model") and inst:GetScale() or nil, size = inst:IsA("BasePart") and inst.Size or nil }
+end
+return t
+end
+local function restore(list, before)
+for i, inst in list do
+local was = before[i]
+if was.scale then
+inst:ScaleTo(was.scale)
+elseif was.size then
+inst.Size = was.size
+end
+inst:PivotTo(was.cf)
+end
+end
+local function lastAction()
+if not last then
+return nil
+end
+for _, inst in last.list do
+if not inst.Parent then
+last = nil
+return nil
+end
+end
+return last
+end
+App.lastEdit = lastAction
+local function perform(kind, p, again)
+local spec = RUN[kind]
+local list = again and again.list or items()
+if #list < spec.min then
+App.status(
+spec.min > 1 and string.format("Select at least %d models (in the Explorer or the viewport) first.", spec.min)
+or "Select the models to work on (in the Explorer or the viewport) first."
+)
+return false
+end
+local what = spec.name(p)
+local rec = beginRec("Smart Scatter: " .. what .. (again and " (adjusted)" or ""))
+local before = again and again.before or poses(list)
+local ok, said = pcall(function()
+if again then
+restore(list, before)
+end
+return spec.run(list, p)
 end)
+endRec(rec, not ok)
+if not ok then
+warn("[Smart Scatter] " .. tostring(said))
+App.status(what .. " didn't work: " .. tostring(said), "error")
+return false
+end
+last = { kind = kind, p = p, list = list, before = before }
+App.status(said)
+local open = App.currentTab and App.currentTab()
+if open and open.id == "edit" and not App.settingsOpen then
+task.defer(App.rebuildAll)
+end
+return true
+end
+App.adjustLastEdit = function(changes)
+local l = lastAction()
+if not l then
+return false
+end
+local p = table.clone(l.p)
+for k, v in changes do
+p[k] = v
+end
+return perform(l.kind, p, l)
+end
+local seed = 1
+App.dropToGround = function()
+return perform("drop", { lean = G.editLean })
+end
+App.alignSelection = function(axis, where)
+return perform("align", { axis = axis, where = where })
+end
+App.distributeSelection = function(axis, by)
+return perform("distribute", { axis = axis, by = by })
+end
+App.randomizeSelection = function()
+seed += 1
+return perform("random", { turn = G.editTurn, size = G.editSize, keep = G.editKeep, seed = seed + os.clock() * 1000 })
 end
 local replacement
 App.pickReplacement = function()
@@ -2554,6 +2664,113 @@ order = 85,
 kinds = "all",
 build = function(page)
 local cs = App.cards(page, "edit")
+local l = lastAction()
+if l then
+cs.add({
+id = "editlast",
+title = "Adjust: " .. RUN[l.kind].name(l.p),
+icon = "refresh",
+sub = string.format("Change how it was done to those %d", #l.list),
+keys = "adjust last again redo tweak",
+build = function(b)
+local p = l.p
+local function set(key)
+return function(v)
+if p[key] ~= v then
+App.adjustLastEdit({ [key] = v })
+end
+end
+end
+if l.kind == "align" or l.kind == "distribute" then
+segmented(AXES, function()
+return p.axis
+end, function(v)
+set("axis")(v)
+end).Parent = b
+end
+if l.kind == "align" then
+local names = { Min = "Lowest", Center = "Middle", Max = "Highest" }
+local back = { Lowest = "Min", Middle = "Center", Highest = "Max" }
+segmented({ "Lowest", "Middle", "Highest" }, function()
+return names[p.where]
+end, function(v)
+set("where")(back[v])
+end).Parent =
+b
+elseif l.kind == "distribute" then
+segmented({ "Centers", "Gaps" }, function()
+return p.by
+end, function(v)
+set("by")(v)
+end).Parent =
+b
+elseif l.kind == "random" then
+local turn, size = p.turn, p.size
+slider(
+"Turn",
+0,
+180,
+function()
+return turn
+end,
+function(v)
+turn = v
+end,
+"±%d°",
+5,
+nil,
+function()
+set("turn")(turn)
+end,
+"How far each one may turn, either way.",
+180
+).Parent =
+b
+slider(
+"Size",
+0,
+0.9,
+function()
+return size
+end,
+function(v)
+size = v
+end,
+"±%.0f%%",
+0.05,
+nil,
+function()
+set("size")(size)
+end,
+"How much bigger or smaller each one may get.",
+0.15
+).Parent =
+b
+switchRow("Keep on the ground", function()
+return p.keep
+end, function(v)
+set("keep")(v)
+end, nil, "Their undersides stay where they were as they grow or shrink.").Parent =
+b
+hintOn(
+button("Another roll", nil, function()
+seed += 1
+App.adjustLastEdit({ seed = seed + os.clock() * 1000 })
+end, { Parent = buttonRow(b) }),
+"The same models, another random turn and size, from how they stood before."
+)
+elseif l.kind == "drop" then
+switchRow("Lean with the slope", function()
+return p.lean
+end, function(v)
+set("lean")(v)
+end, nil, "On: each one tilts to stand square on the ground under it. Off: they stay upright.").Parent =
+b
+end
+App.explain(b, "They're put back as they stood, then it's done again your way. Each change is one Ctrl+Z step.")
+end,
+})
+end
 cs.add({
 id = "editsel",
 title = "The selection",
@@ -3130,6 +3347,20 @@ saveG()
 task.defer(App.rebuildAll)
 end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
 b
+switchRow(
+"Compact panel",
+function()
+return G.compact == true
+end,
+function(v)
+G.compact = v
+saveG()
+task.defer(App.rebuildAll)
+end,
+nil,
+"Leaves out the search box over the outliner and keeps the outliner shorter, so the page below has more room. Space still searches every action."
+).Parent =
+b
 label("Text size", 13, P.text, SANS, { Parent = b })
 App.segmented({ "Small", "Normal", "Large" }, function()
 return App.TEXT_SIZES[G.textScale] or "Normal"
@@ -3567,7 +3798,8 @@ features registered: zones, paths, keep-clear zones, stamps). Click one to selec
 opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
 to rename it; the … at the end of a row, or a right-click on the row, has what can be done to it. Rows drag up and
 down: zones, paths and arrays into any order, a zone's objects into the order they're placed in (the first takes
-its room first). The whole list folds away, and scrolls past a few rows.
+its room first). The eye on a row hides what it placed (for you, this session); the padlock locks it. With many
+things a filter box narrows the list as you type. The whole list folds away, and scrolls past a few rows.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
@@ -3575,6 +3807,8 @@ local G, saveG, P, SANS, SANS_M, SANS_B = App.G, App.saveG, App.P, App.SANS, App
 local new, box, col, label, vlist, corner, pad = App.new, App.box, App.col, App.label, App.vlist, App.corner, App.pad
 local ROW, CHILD, MAX_H = 28, 24, 190
 local THUMB = 18
+local FILTER_FROM = 8
+local filter = ""
 local renaming
 App.startRename = function(thing)
 renaming = thing
@@ -3716,14 +3950,61 @@ Parent = right,
 if sel then
 App.ui.outlinerCount = count
 end
-if thing.folder and thing.folder:GetAttribute("SS_Locked") then
-local lock = label("locked", 11, P.faint, SANS, {
-Size = UDim2.fromOffset(0, 22),
-AutomaticSize = Enum.AutomaticSize.X,
-LayoutOrder = 2,
+local quiet = {}
+local function toggle(iconName, on, hint, order, click)
+local t = new("TextButton", {
+Text = "",
+AutoButtonColor = false,
+BackgroundTransparency = 1,
+Size = UDim2.fromOffset(20, 22),
+LayoutOrder = order,
+Visible = on or sel,
 Parent = right,
 })
-lock.TextXAlignment = Enum.TextXAlignment.Right
+local ic = App.icon(iconName, 12, on and P.accent or P.faint)
+ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+ic.Parent = t
+t.MouseEnter:Connect(function()
+App.setIconColor(ic, P.text)
+end)
+t.MouseLeave:Connect(function()
+App.setIconColor(ic, on and P.accent or P.faint)
+end)
+t.MouseButton1Click:Connect(click)
+App.hintOn(t, hint)
+if not on and not sel then
+table.insert(quiet, t)
+end
+return t
+end
+if spec.hide and thing.folder then
+local off = App.isHidden(thing.folder)
+toggle(
+off and "eyeOff" or "eye",
+off,
+off and "Hidden: what it placed isn't drawn (for you, until Studio closes). Click to show it." or "Hide what it placed.",
+2,
+function()
+App.setHidden(thing.folder, not off)
+App.rebuildAll()
+App.status(
+off and (name .. " is shown again.")
+or (name .. " is hidden: its copies aren't drawn. Only for you and this session; nothing in the place changed.")
+)
+end
+)
+end
+if spec.lock then
+local locked = spec.lock.get(thing)
+toggle(
+locked and "lock" or "unlock",
+locked,
+locked and "Locked: nothing here regenerates or repaints. Click to unlock." or "Lock it: nothing here changes until it's unlocked.",
+2,
+function()
+spec.lock.toggle(thing)
+end
+)
 end
 if spec.menu then
 local more = App.iconButton("down", "Rename, lock, bake, delete… (or right-click the row)", nil, false, 22)
@@ -3744,9 +4025,15 @@ if not sel then
 b.MouseEnter:Connect(function()
 b.BackgroundTransparency = 0
 b.BackgroundColor3 = P.hover
+for _, t in quiet do
+t.Visible = true
+end
 end)
 b.MouseLeave:Connect(function()
 b.BackgroundTransparency = 1
+for _, t in quiet do
+t.Visible = false
+end
 end)
 end
 local lastClick = 0
@@ -3772,6 +4059,7 @@ local function objectRows(list, order)
 local drag = App.reorderList(function(from, to)
 App.moveObject(App.area.layers[from], to)
 end)
+local made = {}
 for i, l in App.area.layers do
 local on = l == App.active
 local b = new("TextButton", {
@@ -3837,7 +4125,9 @@ b.MouseButton2Click:Connect(function()
 App.popupMenu(nil, App.objectMenu(l))
 end)
 drag.add(b, i)
+table.insert(made, b)
 end
+return made
 end
 App.buildOutliner = function(parent)
 local wrap = col({ Parent = parent }, { vlist(4) })
@@ -3879,7 +4169,16 @@ VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 Parent = wrap,
 })
 local list = col({ Parent = scroll }, { vlist(1) })
+local maxH = G.compact and math.floor(MAX_H * 0.6) or MAX_H
 local order, any, selRow = 0, false, nil
+local rows = {}
+local total = 0
+for _, spec in App.thingKinds() do
+total += #spec.list()
+end
+if total < FILTER_FROM then
+filter = ""
+end
 for _, spec in App.thingKinds() do
 local things = thingsOf(spec)
 local drag = spec.reorder and App.reorderList(function(from, to)
@@ -3889,10 +4188,12 @@ for index, thing in things do
 order += 100
 any = true
 local row = thingRow(list, spec, thing, order, index, #things, drag)
+local entry = { row = row, name = string.lower(thing.folder and thing.folder.Name or spec.title), kids = {} }
+table.insert(rows, entry)
 if App.sameThing(thing, App.selected) then
 selRow = row
 if App.area and (thing.kind == "Zone" or thing.kind == "Path") and #App.area.layers > 0 then
-objectRows(list, order)
+entry.kids = objectRows(list, order)
 end
 end
 end
@@ -3901,9 +4202,42 @@ if not any then
 local t = App.para("Nothing yet. + makes a zone, a path or a keep-clear zone.", { Parent = list })
 t.TextColor3 = P.faint
 end
+local function applyFilter()
+local want = string.lower(filter)
+for _, e in rows do
+local show = want == "" or string.find(e.name, want, 1, true) ~= nil
+e.row.Visible = show
+for _, k in e.kids do
+k.Visible = show
+end
+end
+end
+if total >= FILTER_FROM then
+local tb = new("TextBox", {
+Text = filter,
+PlaceholderText = "Filter by name",
+PlaceholderColor3 = P.faint,
+Font = SANS,
+TextSize = 12,
+TextColor3 = P.text,
+BackgroundColor3 = P.field,
+ClearTextOnFocus = false,
+TextXAlignment = Enum.TextXAlignment.Left,
+Size = UDim2.new(1, 0, 0, 24),
+LayoutOrder = -1,
+Parent = wrap,
+}, { corner(6), pad(8, 8, 0, 0) })
+scroll.LayoutOrder = 1
+tb:GetPropertyChangedSignal("Text"):Connect(function()
+filter = tb.Text
+applyFilter()
+end)
+App.ui.outlinerFilter = tb
+applyFilter()
+end
 local function fit()
 local h = list.AbsoluteSize.Y
-scroll.Size = UDim2.new(1, 0, 0, math.min(h, MAX_H))
+scroll.Size = UDim2.new(1, 0, 0, math.min(h, maxH))
 end
 list:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 fit()
@@ -3911,8 +4245,8 @@ if selRow then
 task.defer(function()
 if selRow.Parent then
 local top = selRow.AbsolutePosition.Y - list.AbsolutePosition.Y
-if top + ROW > MAX_H then
-scroll.CanvasPosition = Vector2.new(0, top - MAX_H / 2)
+if top + ROW > maxH then
+scroll.CanvasPosition = Vector2.new(0, top - maxH / 2)
 end
 end
 end)
@@ -4686,6 +5020,7 @@ local SHELL = {
 "gearBtn",
 "outliner",
 "outlinerCount",
+"outlinerFilter",
 "tabs",
 "tabRow",
 "search",
@@ -4828,8 +5163,10 @@ App.scroll.MouseLeave:Connect(function()
 tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
 end)
 buildTitle(head)
+if App.settingsOpen or not G.compact then
 box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
 buildSearch(head)
+end
 if not App.settingsOpen then
 box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
 App.buildOutliner(head)
@@ -5729,8 +6066,18 @@ end
 end
 local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
 local lastKeyAt = {}
-local ANY_TIME =
-{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+local ANY_TIME = {
+palette = true,
+quick = true,
+overlay = true,
+shuffle = true,
+erase = true,
+tool1 = true,
+tool2 = true,
+tool3 = true,
+tool4 = true,
+tool5 = true,
+}
 local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
 local function onKey(name)
 if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
@@ -5743,6 +6090,12 @@ lastKeyAt[name] = os.clock()
 if name == "palette" then
 if App.widget.Enabled and App.openPalette then
 App.openPalette()
+end
+return
+end
+if name == "quick" then
+if App.widget.Enabled and App.openQuick then
+App.openQuick()
 end
 return
 end
@@ -5910,7 +6263,7 @@ Fill = "Click the ground to fill everything connected of that surface.",
 Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} deletes a point, {close} to finish.",
 Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, Shift + right-click (or a second click) has more.",
+Select = "Click a zone's ground, a path or a placed copy; Shift + click or drag a box for more copies. Shift + wheel turns them, Alt + wheel sizes them, {quick} or the bar at the top has the rest.",
 Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
@@ -6078,131 +6431,6 @@ App.gizmoFolder = gizmoFolder
 App.removeGizmo = removeGizmo
 App.setLabel = setLabel
 App.mouseHit = mouseHit
-end
-end)()
--- #module App/Viewport/Grid
-MODULES["App/Viewport/Grid"] = (function()
---[[
-Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
-ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
-toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
-lines over flat ground are one line, not a line per cell, and it's redrawn only when the brush reaches another
-cell. Settings › Viewport can turn it off.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local G, P, new = App.G, App.P, App.new
-local MAJOR = 4
-local LIFT = 0.07
-local last
-local function pool()
-local gz = App.gz
-gz.grid = gz.grid or { lines = {}, used = 0 }
-return gz.grid
-end
-local function line(a, b, transparency, major)
-local g = pool()
-g.used += 1
-local l = g.lines[g.used]
-if not l then
-l = new("LineHandleAdornment", {
-Adornee = workspace.Terrain,
-AlwaysOnTop = false,
-ZIndex = 0,
-Parent = App.gizmoFolder(),
-})
-g.lines[g.used] = l
-end
-l.CFrame = CFrame.lookAt(a, b)
-l.Length = (b - a).Magnitude
-l.Thickness = major and 2 or 1
-l.Color3 = major and Color3.new(1, 1, 1):Lerp(P.accent, 0.25) or Color3.fromRGB(225, 225, 225)
-l.Transparency = transparency
-l.Visible = true
-end
-App.clearGrid = function()
-local g = App.gz and App.gz.grid
-if g then
-for _, l in g.lines do
-l.Visible = false
-end
-g.used = 0
-end
-last = nil
-end
-App.drawGrid = function(p)
-if not (App.gz and App.gz.grid) then
-last = nil
-end
-local a = App.area
-if not (p and a and G.grid ~= false) then
-App.clearGrid()
-return
-end
-local c = a.cell
-local R = math.clamp(G.radius * 2.2, 32, 96)
-local hx, hz = math.floor(p.X / c), math.floor(p.Z / c)
-local key = hx .. "," .. hz .. "," .. R
-if key == last then
-return
-end
-last = key
-local g = pool()
-for i = 1, g.used do
-g.lines[i].Visible = false
-end
-g.used = 0
-local n = math.ceil(R / c)
-local heights = {}
-local function y(ix, iz)
-local k = ix * 100003 + iz
-local v = heights[k]
-if not v then
-v = App.probe(ix, iz, p.Y).y + LIFT
-heights[k] = v
-end
-return v
-end
-local function fade(x, z)
-return math.sqrt((x - p.X) ^ 2 + (z - p.Z) ^ 2) / R
-end
-for pass = 1, 2 do
-for k = -n, n + 1 do
-local fixed = (pass == 1 and hz or hx) + k
-local major = fixed % MAJOR == 0
-local runStart, runY, runT
-local function flush(i)
-if runStart then
-local x0, x1 = runStart * c, i * c
-local fx = fixed * c
-local A = pass == 1 and Vector3.new(x0, runY, fx) or Vector3.new(fx, runY, x0)
-local B = pass == 1 and Vector3.new(x1, runY, fx) or Vector3.new(fx, runY, x1)
-line(A, B, runT, major)
-runStart = nil
-end
-end
-for i = (pass == 1 and hx or hz) - n, (pass == 1 and hx or hz) + n do
-local ix, iz = pass == 1 and i or fixed, pass == 1 and fixed or i
-local mx, mz = (pass == 1 and (i + 0.5) * c or fixed * c), (pass == 1 and fixed * c or (i + 0.5) * c)
-local d = fade(mx, mz)
-if d > 1 then
-flush(i)
-else
-local h = y(ix, iz)
-local t = math.clamp((major and 0.35 or 0.6) + (major and 0.65 or 0.4) * d ^ 1.6, 0, 1)
-local tq = math.floor(t * 5 + 0.5) / 5
-if runStart and (math.abs(h - runY) > 0.35 or tq ~= runT) then
-flush(i)
-end
-if not runStart then
-runStart, runY, runT = i, h, tq
-end
-end
-end
-flush((pass == 1 and hx or hz) + n + 1)
-end
-end
-end
 end
 end)()
 

@@ -4,7 +4,8 @@
 	opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
 	to rename it; the … at the end of a row, or a right-click on the row, has what can be done to it. Rows drag up and
 	down: zones, paths and arrays into any order, a zone's objects into the order they're placed in (the first takes
-	its room first). The whole list folds away, and scrolls past a few rows.
+	its room first). The eye on a row hides what it placed (for you, this session); the padlock locks it. With many
+	things a filter box narrows the list as you type. The whole list folds away, and scrolls past a few rows.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -13,6 +14,8 @@ return function(App)
 	local new, box, col, label, vlist, corner, pad = App.new, App.box, App.col, App.label, App.vlist, App.corner, App.pad
 	local ROW, CHILD, MAX_H = 28, 24, 190 -- row heights, and how tall the list gets before it scrolls
 	local THUMB = 18 -- a row's picture of its model
+	local FILTER_FROM = 8 -- how many things before the filter box shows
+	local filter = "" -- what's typed in it (kept while the panel is rebuilt)
 
 	local renaming -- the thing whose name is being edited, if any
 	App.startRename = function(thing)
@@ -163,14 +166,62 @@ return function(App)
 		if sel then
 			App.ui.outlinerCount = count -- (refreshCounts keeps it current)
 		end
-		if thing.folder and thing.folder:GetAttribute("SS_Locked") then
-			local lock = label("locked", 11, P.faint, SANS, {
-				Size = UDim2.fromOffset(0, 22),
-				AutomaticSize = Enum.AutomaticSize.X,
-				LayoutOrder = 2,
+		-- a small icon that is a switch: quiet when off (and only shown under the mouse or on the selected row), lit when on
+		local quiet = {}
+		local function toggle(iconName, on, hint, order, click)
+			local t = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundTransparency = 1,
+				Size = UDim2.fromOffset(20, 22),
+				LayoutOrder = order,
+				Visible = on or sel,
 				Parent = right,
 			})
-			lock.TextXAlignment = Enum.TextXAlignment.Right
+			local ic = App.icon(iconName, 12, on and P.accent or P.faint)
+			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+			ic.Parent = t
+			t.MouseEnter:Connect(function()
+				App.setIconColor(ic, P.text)
+			end)
+			t.MouseLeave:Connect(function()
+				App.setIconColor(ic, on and P.accent or P.faint)
+			end)
+			t.MouseButton1Click:Connect(click)
+			App.hintOn(t, hint)
+			if not on and not sel then
+				table.insert(quiet, t)
+			end
+			return t
+		end
+		if spec.hide and thing.folder then
+			local off = App.isHidden(thing.folder)
+			toggle(
+				off and "eyeOff" or "eye",
+				off,
+				off and "Hidden: what it placed isn't drawn (for you, until Studio closes). Click to show it." or "Hide what it placed.",
+				2,
+				function()
+					App.setHidden(thing.folder, not off)
+					App.rebuildAll()
+					App.status(
+						off and (name .. " is shown again.")
+							or (name .. " is hidden: its copies aren't drawn. Only for you and this session; nothing in the place changed.")
+					)
+				end
+			)
+		end
+		if spec.lock then
+			local locked = spec.lock.get(thing)
+			toggle(
+				locked and "lock" or "unlock",
+				locked,
+				locked and "Locked: nothing here regenerates or repaints. Click to unlock." or "Lock it: nothing here changes until it's unlocked.",
+				2,
+				function()
+					spec.lock.toggle(thing)
+				end
+			)
 		end
 		if spec.menu then
 			local more = App.iconButton("down", "Rename, lock, bake, delete… (or right-click the row)", nil, false, 22)
@@ -191,9 +242,15 @@ return function(App)
 			b.MouseEnter:Connect(function()
 				b.BackgroundTransparency = 0
 				b.BackgroundColor3 = P.hover
+				for _, t in quiet do
+					t.Visible = true
+				end
 			end)
 			b.MouseLeave:Connect(function()
 				b.BackgroundTransparency = 1
+				for _, t in quiet do
+					t.Visible = false
+				end
 			end)
 		end
 		local lastClick = 0
@@ -221,6 +278,7 @@ return function(App)
 		local drag = App.reorderList(function(from, to)
 			App.moveObject(App.area.layers[from], to)
 		end)
+		local made = {}
 		for i, l in App.area.layers do
 			local on = l == App.active
 			local b = new("TextButton", {
@@ -286,7 +344,9 @@ return function(App)
 				App.popupMenu(nil, App.objectMenu(l))
 			end)
 			drag.add(b, i)
+			table.insert(made, b)
 		end
+		return made
 	end
 
 	App.buildOutliner = function(parent)
@@ -330,7 +390,16 @@ return function(App)
 			Parent = wrap,
 		})
 		local list = col({ Parent = scroll }, { vlist(1) })
+		local maxH = G.compact and math.floor(MAX_H * 0.6) or MAX_H -- (the compact panel gives the page more room)
 		local order, any, selRow = 0, false, nil
+		local rows = {} -- { row, name (lower case), kids = its object rows }: what the filter shows and hides
+		local total = 0
+		for _, spec in App.thingKinds() do
+			total += #spec.list()
+		end
+		if total < FILTER_FROM then
+			filter = ""
+		end
 		for _, spec in App.thingKinds() do
 			local things = thingsOf(spec)
 			local drag = spec.reorder and App.reorderList(function(from, to)
@@ -340,10 +409,12 @@ return function(App)
 				order += 100
 				any = true
 				local row = thingRow(list, spec, thing, order, index, #things, drag)
+				local entry = { row = row, name = string.lower(thing.folder and thing.folder.Name or spec.title), kids = {} }
+				table.insert(rows, entry)
 				if App.sameThing(thing, App.selected) then
 					selRow = row
 					if App.area and (thing.kind == "Zone" or thing.kind == "Path") and #App.area.layers > 0 then
-						objectRows(list, order)
+						entry.kids = objectRows(list, order)
 					end
 				end
 			end
@@ -352,10 +423,44 @@ return function(App)
 			local t = App.para("Nothing yet. + makes a zone, a path or a keep-clear zone.", { Parent = list })
 			t.TextColor3 = P.faint
 		end
+		-- the filter: rows whose name has what's typed stay (shown and hidden in place: the box keeps its focus)
+		local function applyFilter()
+			local want = string.lower(filter)
+			for _, e in rows do
+				local show = want == "" or string.find(e.name, want, 1, true) ~= nil
+				e.row.Visible = show
+				for _, k in e.kids do
+					k.Visible = show
+				end
+			end
+		end
+		if total >= FILTER_FROM then
+			local tb = new("TextBox", {
+				Text = filter,
+				PlaceholderText = "Filter by name",
+				PlaceholderColor3 = P.faint,
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = P.text,
+				BackgroundColor3 = P.field,
+				ClearTextOnFocus = false,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, 0, 0, 24),
+				LayoutOrder = -1,
+				Parent = wrap,
+			}, { corner(6), pad(8, 8, 0, 0) })
+			scroll.LayoutOrder = 1
+			tb:GetPropertyChangedSignal("Text"):Connect(function()
+				filter = tb.Text
+				applyFilter()
+			end)
+			App.ui.outlinerFilter = tb
+			applyFilter()
+		end
 		-- as tall as its rows, up to MAX_H; then it scrolls, with the selected row in view
 		local function fit()
 			local h = list.AbsoluteSize.Y
-			scroll.Size = UDim2.new(1, 0, 0, math.min(h, MAX_H))
+			scroll.Size = UDim2.new(1, 0, 0, math.min(h, maxH))
 		end
 		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()
@@ -363,8 +468,8 @@ return function(App)
 			task.defer(function()
 				if selRow.Parent then
 					local top = selRow.AbsolutePosition.Y - list.AbsolutePosition.Y
-					if top + ROW > MAX_H then
-						scroll.CanvasPosition = Vector2.new(0, top - MAX_H / 2)
+					if top + ROW > maxH then
+						scroll.CanvasPosition = Vector2.new(0, top - maxH / 2)
 					end
 				end
 			end)

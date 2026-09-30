@@ -149,6 +149,9 @@ return function(App)
 		holder.Parent = m
 		holder.Archivable = true
 		built[m] = m:GetAttribute(ATTR)
+		if App.reapplyHidden then -- (a hidden array's new copies are hidden too)
+			App.reapplyHidden(m)
+		end
 		return placed, v ~= nil
 	end
 	App.buildArray = build
@@ -327,6 +330,7 @@ return function(App)
 			return src and src:IsA("ObjectValue") and src.Value or nil
 		end,
 		reorder = true,
+		hide = true,
 		menu = function(thing)
 			return {
 				{

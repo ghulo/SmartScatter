@@ -589,6 +589,7 @@ return function(App)
 		"gearBtn",
 		"outliner",
 		"outlinerCount",
+		"outlinerFilter",
 		"tabs",
 		"tabRow",
 		"search",
@@ -743,8 +744,10 @@ return function(App)
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
 		end)
 		buildTitle(head)
-		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
-		buildSearch(head)
+		if App.settingsOpen or not G.compact then -- (compact: no search box over the outliner; Space still searches)
+			box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
+			buildSearch(head)
+		end
 		if not App.settingsOpen then
 			box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
 			App.buildOutliner(head)

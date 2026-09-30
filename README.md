@@ -8,20 +8,24 @@ round bends, and everything updates live as you tweak it.
 
 - **One screen, like Blender** — an outliner of everything you made (zones, paths, keep-clear zones, stamps), tabs
   for what's selected (Objects, Object, Zone, Curve, Road, World), and every tool in the viewport's tool strip.
-  Right-click a row for what can be done to it; drag rows to reorder them (a zone's objects are placed in that order)
+  Right-click a row for what can be done to it; drag rows to reorder them (a zone's objects are placed in that order);
+  the eye hides what a zone placed, the padlock locks it, and with many things a filter box narrows the list.
+  The viewport's header shows the tool in use (or the picked copies) with its settings as buttons, and Z opens a quick
+  menu round the mouse
 - **Zones** — paint with brush, lasso, box, polygon or smart fill, or fill the tops of selected parts; or make one
   from the models selected in the Explorer and start painting at once
 - **Paths** — draw a curve for roads, fences, walls, tiled paths or rows of lamps; branches and junctions join cleanly
 - **Rules per object** — size, spacing, clumping, piles, slopes, surfaces, height bands, distance from roads/water/buildings
 - **Stamp** — put any model down exactly, anywhere, no area needed: the real model shows under the mouse; drag to
   turn it, keys to size it or pick the model; stamps are plain models in Workspace › Stamps
-- **One copy at a time** — with Select, click any placed copy: Shift + wheel turns it, Alt + wheel sizes it, and a
-  Shift + right-click (or a second click) moves it, swaps its model, removes it or gives it back to the rules. Nothing round it moves, and
-  generating again keeps it as you left it
+- **Copies by hand** — with Select, click any placed copy, Shift + click more, or drag a box over them: Shift +
+  wheel turns them, Alt + wheel sizes them, and the header, Shift + right-click or a second click has the rest (move,
+  another model, remove, back to the rules). Nothing round them moves, and generating again keeps them as you left them
 - **Arrays** — any model repeated in a line, a grid, a circle or along a path, like Blender's Array modifier: turn per
   copy, random turn, size and nudge, dropped onto the ground; stays editable (and follows Studio's Move tool), or bake it
 - **Edit helpers** — for any models selected in Studio: drop them onto the ground (not onto each other), align them on
-  X/Y/Z, space them evenly by centres or gaps, randomize their turn and size, or replace them with another model
+  X/Y/Z, space them evenly by centres or gaps, randomize their turn and size, or replace them with another model.
+  The last one done stays adjustable: change its settings and it's done again from how things stood
 - **Keep-clear zones** — ground no area may place anything on (spawns, doorways)
 - **Map scan** — finds every repeated model in a finished map and groups the copies into kinds by shape (renamed,
   turned and resized copies still match); a snapshot keeps the originals so they can be put back in one click
@@ -81,7 +85,8 @@ tools/                    tree.py (the module tree + flattening), check.sh, offl
                           a board far away, dump.lua + render.py draw its layout as a PNG (and flag cut-off text),
                           shots.lua dumps several states, run_suite.lua runs tests/suite.lua against src/,
                           loader_run.lua runs Loader.lua against a stand-in update site (server.py) and checks its
-                          online updates end to end
+                          online updates end to end, panel_checks.lua checks what needs the whole panel on a zone of
+                          its own (picking and changing copies, the outliner's toggles, adjusting the last edit)
 ```
 
 In Studio the plugin is the same tree: the Loader Script with the `App` and `Engine` ModuleScripts (folders inside).
@@ -121,8 +126,12 @@ tool strip (and the panel's tool row where the strip can't show) and the search 
   `App.NO_AREA_MODES` if it needs no area.
 - **A thing it makes** (an outliner row): `App.registerKind({ kind, icon, title, order, list, count?, menu?, thumb?,
   reorder? })`. `menu` is also its right-click menu; `thumb(thing)` gives the model its row pictures; `reorder = true`
-  lets its rows be dragged into any order (kept on each thing's folder). A list of your own that reorders:
-  `App.reorderList(onMove)`, then `add(row, index)` per row.
+  lets its rows be dragged into any order (kept on each thing's folder); `hide = true` gives its row the eye,
+  `lock = { get, toggle }` the padlock. A list of your own that reorders: `App.reorderList(onMove)`, then
+  `add(row, index)` per row.
+- **Its mode's header** (the bar at the top of the viewport): `App.registerMode(mode, { …, header = fn() -> title,
+  items, key })`, items `{ text }`, `{ step, value, dec, inc }` or `{ button, click, on?, danger? }`; `key` is a text
+  that changes when the bar should be drawn again.
 - **Its settings** (a property tab): `App.registerTab({ id, icon, title, order, kinds, when?, build })`; `build(page)`
   adds cards with `App.cards(page, id).add({ id, title, sub, keys, more?, build })`.
 - **What it acts on**: `App.selected` (the thing) and `App.active` (its object), `App.onSelect(fn)` to follow them,

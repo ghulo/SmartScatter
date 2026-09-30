@@ -231,6 +231,15 @@ return function(App)
 	local function placed(thing) -- (known for the area being worked on; the others would each need loading)
 		return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 	end
+	-- the padlock on an area's row (the lock is the area's own: it's selected first, as its menu does)
+	local areaLock = {
+		get = function(thing)
+			return thing.folder:GetAttribute("SS_Locked") == true
+		end,
+		toggle = function(thing)
+			on(thing, App.toggleLock)()
+		end,
+	}
 	App.registerKind({
 		kind = "Zone",
 		icon = "area",
@@ -240,6 +249,8 @@ return function(App)
 		count = placed,
 		menu = areaMenu,
 		reorder = true,
+		hide = true,
+		lock = areaLock,
 	})
 	App.registerKind({
 		kind = "Path",
@@ -250,6 +261,8 @@ return function(App)
 		count = placed,
 		menu = areaMenu,
 		reorder = true,
+		hide = true,
+		lock = areaLock,
 	})
 	App.registerKind({
 		kind = "Clear",
@@ -259,6 +272,7 @@ return function(App)
 		list = areasOf("Clear"),
 		menu = areaMenu,
 		reorder = true,
+		lock = areaLock,
 	})
 
 	App.markSelected = function(cls)

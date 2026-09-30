@@ -898,8 +898,18 @@ return function(App)
 	local lastKeyAt = {}
 	-- keys that also work with no tool on (while the panel is open): the search menu, the overlay, shuffling, and
 	-- picking a painting tool or erasing, which starts painting with it
-	local ANY_TIME =
-		{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+	local ANY_TIME = {
+		palette = true,
+		quick = true,
+		overlay = true,
+		shuffle = true,
+		erase = true,
+		tool1 = true,
+		tool2 = true,
+		tool3 = true,
+		tool4 = true,
+		tool5 = true,
+	}
 	local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true } -- (no new area from a key)
 	local function onKey(name)
 		if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
@@ -914,6 +924,12 @@ return function(App)
 		if name == "palette" then -- the search menu opens anywhere in the viewport while the panel is open, tool or not
 			if App.widget.Enabled and App.openPalette then
 				App.openPalette()
+			end
+			return
+		end
+		if name == "quick" then -- the quick menu, round the mouse: the tools, or what can be done to the picked copies
+			if App.widget.Enabled and App.openQuick then
+				App.openQuick()
 			end
 			return
 		end
@@ -1093,7 +1109,7 @@ return function(App)
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} deletes a point, {close} to finish.",
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-		Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, Shift + right-click (or a second click) has more.",
+		Select = "Click a zone's ground, a path or a placed copy; Shift + click or drag a box for more copies. Shift + wheel turns them, Alt + wheel sizes them, {quick} or the bar at the top has the rest.",
 		Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",

@@ -31,6 +31,20 @@ return function(App)
 			task.defer(App.rebuildAll) -- (after this click: the whole panel is rebuilt)
 		end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
 			b
+		switchRow(
+			"Compact panel",
+			function()
+				return G.compact == true
+			end,
+			function(v)
+				G.compact = v
+				saveG()
+				task.defer(App.rebuildAll)
+			end,
+			nil,
+			"Leaves out the search box over the outliner and keeps the outliner shorter, so the page below has more room. Space still searches every action."
+		).Parent =
+			b
 		label("Text size", 13, P.text, SANS, { Parent = b })
 		App.segmented({ "Small", "Normal", "Large" }, function()
 			return App.TEXT_SIZES[G.textScale] or "Normal"

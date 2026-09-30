@@ -68,6 +68,7 @@ local G = {
 radius = 24,
 density = 1,
 textScale = 1.2,
+compact = false,
 live = false,
 liveAsked = false,
 overlay = true,
@@ -148,6 +149,7 @@ local KEYMAP = {
 { id = "model", group = "Stamp", label = "Next model", key = "V" },
 { id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
 { id = "palette", group = "Anywhere while working", label = "Search every action (the viewport's menu)", key = "Space" },
+{ id = "quick", group = "Anywhere while working", label = "Quick menu at the mouse (tools, or the picked copies)", key = "Z" },
 { id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 }
 local KEY_TEXT = {
@@ -1430,6 +1432,18 @@ bar(0.2, 0.14, 0.2, 0.86)
 bar(0.34, 0.3, 0.8, 0.3)
 bar(0.34, 0.5, 0.62, 0.5)
 bar(0.34, 0.7, 0.72, 0.7)
+elseif name == "eyeOff" then
+rect(0.5, 0.5, 0.76, 0.44, false, 0.22)
+bar(0.2, 0.82, 0.8, 0.18)
+elseif name == "lock" then
+rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+rect(0.5, 0.34, 0.34, 0.36, false, 0.17)
+dot(0.5, 0.64, 0.06)
+elseif name == "unlock" then
+rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+bar(0.33, 0.42, 0.33, 0.24)
+bar(0.33, 0.24, 0.6, 0.18)
+dot(0.5, 0.64, 0.06)
 elseif name == "cursor" then
 path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
@@ -3030,6 +3044,7 @@ if counts then
 App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 me.done = true
 lostPatch, lostPins = nil, false
+App.reapplyHidden(area.folder)
 if not preview and from == nil and me.region == nil then
 pendingFor[area.folder] = nil
 end
@@ -3247,6 +3262,29 @@ App.area.folder.Parent = nil
 endRec(rec)
 switchArea(Engine.listAreas()[1])
 App.status("Area deleted. Ctrl+Z brings it back.")
+end
+local hidden = setmetatable({}, { __mode = "k" })
+local function applyHidden(folder)
+local t = hidden[folder] and 1 or 0
+for _, d in folder:GetDescendants() do
+if d:IsA("BasePart") or d:IsA("Decal") then
+d.LocalTransparencyModifier = t
+end
+end
+end
+App.isHidden = function(folder)
+return hidden[folder] == true
+end
+App.setHidden = function(folder, on)
+hidden[folder] = on and true or nil
+applyHidden(folder)
+end
+App.reapplyHidden = function(only)
+for folder in hidden do
+if folder.Parent and (only == nil or only == folder) then
+applyHidden(folder)
+end
+end
 end
 local thumbCache = {}
 local function eachThumb(fn)
@@ -3471,7 +3509,9 @@ those knows the features by name. Adding a tool is one module that registers wha
   kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
         { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
           menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
-          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
+          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order),
+          hide = true when what it placed can be hidden (the row's eye), lock = { get = fn(thing) -> bool,
+          toggle = fn(thing) } for a padlock on its row }
   tab   a page of the properties for some kinds of thing:
         { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
           build = fn(page) }
@@ -3924,6 +3964,14 @@ end
 local function placed(thing)
 return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 end
+local areaLock = {
+get = function(thing)
+return thing.folder:GetAttribute("SS_Locked") == true
+end,
+toggle = function(thing)
+on(thing, App.toggleLock)()
+end,
+}
 App.registerKind({
 kind = "Zone",
 icon = "area",
@@ -3933,6 +3981,8 @@ list = areasOf("Zone"),
 count = placed,
 menu = areaMenu,
 reorder = true,
+hide = true,
+lock = areaLock,
 })
 App.registerKind({
 kind = "Path",
@@ -3943,6 +3993,8 @@ list = areasOf("Path"),
 count = placed,
 menu = areaMenu,
 reorder = true,
+hide = true,
+lock = areaLock,
 })
 App.registerKind({
 kind = "Clear",
@@ -3952,6 +4004,7 @@ order = 30,
 list = areasOf("Clear"),
 menu = areaMenu,
 reorder = true,
+lock = areaLock,
 })
 App.markSelected = function(cls)
 local sel = Selection:Get()

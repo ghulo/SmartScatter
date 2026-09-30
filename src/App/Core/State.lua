@@ -73,6 +73,7 @@ return function(App)
 		radius = 24,
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
+		compact = false, -- the compact panel: no search box, a shorter outliner (Settings › Look)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
@@ -165,6 +166,8 @@ return function(App)
 		{ id = "model", group = "Stamp", label = "Next model", key = "V" },
 		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
 		{ id = "palette", group = "Anywhere while working", label = "Search every action (the viewport's menu)", key = "Space" },
+		-- (not Q, E or the other camera keys; Z alone is free: Studio's undo is Ctrl+Z)
+		{ id = "quick", group = "Anywhere while working", label = "Quick menu at the mouse (tools, or the picked copies)", key = "Z" },
 		{ id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 	}
 	-- how a key is written on a chip

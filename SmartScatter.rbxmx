@@ -25,8 +25,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 157
-local BUNDLED_VERSION = "9.93"
+local BUNDLED_BUILD = 158
+local BUNDLED_VERSION = "9.94"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1159,6 +1159,7 @@ return function(App)
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
 				lostPatch, lostPins = nil, false
+				App.reapplyHidden(area.folder)
 				if not preview and from == nil and me.region == nil then -- everything is as saved now
 					pendingFor[area.folder] = nil
 				end
@@ -1402,6 +1403,36 @@ return function(App)
 		endRec(rec)
 		switchArea(Engine.listAreas()[1])
 		App.status("Area deleted. Ctrl+Z brings it back.")
+	end
+
+	--------------------------------------------------------------------------------
+	-- Hidden things (the outliner's eye): what a zone, a path or an array placed, not drawn. For this session and for
+	-- you only: nothing in the place changes (a part's LocalTransparencyModifier is neither saved nor sent to anyone
+	-- else), so nothing needs undoing. Copies placed while it's hidden are hidden as they arrive.
+	--------------------------------------------------------------------------------
+	local hidden = setmetatable({}, { __mode = "k" }) -- [a thing's folder] = true
+	local function applyHidden(folder)
+		local t = hidden[folder] and 1 or 0
+		for _, d in folder:GetDescendants() do
+			if d:IsA("BasePart") or d:IsA("Decal") then
+				d.LocalTransparencyModifier = t
+			end
+		end
+	end
+	App.isHidden = function(folder)
+		return hidden[folder] == true
+	end
+	App.setHidden = function(folder, on)
+		hidden[folder] = on and true or nil
+		applyHidden(folder)
+	end
+	-- after something placed copies again (a generate, an undo, an array rebuilt): the hidden ones' new copies too
+	App.reapplyHidden = function(only)
+		for folder in hidden do
+			if folder.Parent and (only == nil or only == folder) then
+				applyHidden(folder)
+			end
+		end
 	end
 
 	--------------------------------------------------------------------------------
@@ -2691,6 +2722,18 @@ return function(App)
 			bar(0.34, 0.3, 0.8, 0.3)
 			bar(0.34, 0.5, 0.62, 0.5)
 			bar(0.34, 0.7, 0.72, 0.7)
+		elseif name == "eyeOff" then -- hidden: the eye, struck out
+			rect(0.5, 0.5, 0.76, 0.44, false, 0.22)
+			bar(0.2, 0.82, 0.8, 0.18)
+		elseif name == "lock" then -- locked: a body and its closed shackle
+			rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+			rect(0.5, 0.34, 0.34, 0.36, false, 0.17)
+			dot(0.5, 0.64, 0.06)
+		elseif name == "unlock" then -- not locked: the shackle swung open
+			rect(0.5, 0.64, 0.6, 0.44, false, 0.1)
+			bar(0.33, 0.42, 0.33, 0.24)
+			bar(0.33, 0.24, 0.6, 0.18)
+			dot(0.5, 0.64, 0.06)
 		elseif name == "cursor" then -- selecting: a pointer, its tip at the top left
 			path({ 0.26, 0.16, 0.26, 0.8, 0.44, 0.62, 0.58, 0.88 })
 			path({ 0.26, 0.16, 0.72, 0.58, 0.46, 0.6 })
@@ -3847,7 +3890,12 @@ return function(App)
 			end)
 		end
 	end
-	App.afterHistory = afterHistory -- (a jump along the history timeline runs it once, at the end)
+	App.afterHistory = function(steps) -- (a jump along the history timeline runs it once, at the end)
+		afterHistory(steps)
+		if App.reapplyHidden then -- (copies an undo brought back in a hidden zone are hidden too)
+			App.reapplyHidden()
+		end
+	end
 	local function onHistory(name)
 		local echoes = App.historyEchoes
 		if echoes and echoes.rebuild > 0 then -- one step of a jump along the timeline: it rebuilds once, at its end
@@ -3857,7 +3905,7 @@ return function(App)
 		if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
 			return
 		end
-		task.defer(afterHistory, name)
+		task.defer(App.afterHistory, name)
 	end
 	track(ChangeHistoryService.OnUndo:Connect(onHistory))
 	track(ChangeHistoryService.OnRedo:Connect(onHistory))
@@ -3942,7 +3990,9 @@ end
 	  kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
 	        { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
 	          menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
-	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
+	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order),
+	          hide = true when what it placed can be hidden (the row's eye), lock = { get = fn(thing) -> bool,
+	          toggle = fn(thing) } for a padlock on its row }
 	  tab   a page of the properties for some kinds of thing:
 	        { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
 	          build = fn(page) }
@@ -4293,6 +4343,7 @@ return function(App)
 		radius = 24,
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
+		compact = false, -- the compact panel: no search box, a shorter outliner (Settings › Look)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
@@ -4385,6 +4436,8 @@ return function(App)
 		{ id = "model", group = "Stamp", label = "Next model", key = "V" },
 		{ id = "shuffle", group = "Anywhere while working", label = "Shuffle the layout (stamp: a random one)", key = "R" },
 		{ id = "palette", group = "Anywhere while working", label = "Search every action (the viewport's menu)", key = "Space" },
+		-- (not Q, E or the other camera keys; Z alone is free: Studio's undo is Ctrl+Z)
+		{ id = "quick", group = "Anywhere while working", label = "Quick menu at the mouse (tools, or the picked copies)", key = "Z" },
 		{ id = "overlay", group = "Anywhere while working", label = "Hide / show the overlay", key = "H" },
 	}
 	-- how a key is written on a chip
@@ -5612,6 +5665,9 @@ return function(App)
 		holder.Parent = m
 		holder.Archivable = true
 		built[m] = m:GetAttribute(ATTR)
+		if App.reapplyHidden then -- (a hidden array's new copies are hidden too)
+			App.reapplyHidden(m)
+		end
 		return placed, v ~= nil
 	end
 	App.buildArray = build
@@ -5790,6 +5846,7 @@ return function(App)
 			return src and src:IsA("ObjectValue") and src.Value or nil
 		end,
 		reorder = true,
+		hide = true,
 		menu = function(thing)
 			return {
 				{
@@ -6304,6 +6361,7 @@ return function(App)
 		end
 	end
 
+	local last -- the last helper done that can still be adjusted (below)
 	-- one step: `what` done to the selection, as one undo step; fn(list) does it and returns what to say
 	local function step(what, fn, min)
 		local list = items()
@@ -6322,6 +6380,7 @@ return function(App)
 			App.status(what .. " didn't work: " .. tostring(said), "error")
 			return
 		end
+		last = nil -- (what came before can't be adjusted past this)
 		App.status(said or string.format("%s: %d done. Ctrl+Z undoes it.", what, #list))
 	end
 
@@ -6348,8 +6407,18 @@ return function(App)
 		end
 		return best, normal, Vector3.new(c.X, best, c.Z)
 	end
-	App.dropToGround = function()
-		step("Drop to ground", function(list)
+	--------------------------------------------------------------------------------
+	-- The helpers that can be adjusted afterwards: each is run(list, p) -> what to say, with its settings in p. The
+	-- last one done is kept (what it was done to, and how those stood before), so its settings can still be changed:
+	-- they're put back as they stood and it's done again (like Blender's Adjust Last Operation).
+	--------------------------------------------------------------------------------
+	local RUN = {}
+	RUN.drop = {
+		min = 1,
+		name = function()
+			return "Drop to ground"
+		end,
+		run = function(list, p)
 			local skip = App.templates()
 			for _, inst in list do
 				table.insert(skip, inst)
@@ -6361,7 +6430,7 @@ return function(App)
 				local y, normal, base = groundUnder(inst, b, rp)
 				if y then
 					moveBy(inst, Vector3.new(0, y - b.min.Y, 0))
-					if G.editLean and normal.Y > 0.2 then -- tilted so its up is the ground's
+					if p.lean and normal.Y > 0.2 then -- tilted so its up is the ground's
 						local r = CFrame.new(base) * Engine.rotateUp(normal) * CFrame.new(-base)
 						inst:PivotTo(r * inst:GetPivot())
 					end
@@ -6374,51 +6443,154 @@ return function(App)
 				#list - missed,
 				missed > 0 and string.format(" (%d had no ground under them)", missed) or ""
 			)
-		end)
-	end
-
-	App.alignSelection = function(axis, where)
-		step("Align " .. axis .. " " .. string.lower(where), function(list)
+		end,
+	}
+	RUN.align = {
+		min = 2,
+		name = function(p)
+			return "Align " .. p.axis .. " " .. string.lower(p.where)
+		end,
+		run = function(list, p)
 			local boxes = {}
 			for i, inst in list do
 				boxes[i] = boxOf(inst)
 			end
-			for i, d in Engine.alignMoves(boxes, axis, where) do
+			for i, d in Engine.alignMoves(boxes, p.axis, p.where) do
 				moveBy(list[i], d)
 			end
-			return string.format("Lined up %d on %s (%s).", #list, axis, string.lower(where == "Center" and "centre" or where))
-		end, 2)
-	end
-
-	App.distributeSelection = function(axis, by)
-		step("Distribute " .. axis, function(list)
+			return string.format("Lined up %d on %s (%s).", #list, p.axis, string.lower(p.where == "Center" and "centre" or p.where))
+		end,
+	}
+	RUN.distribute = {
+		min = 3,
+		name = function(p)
+			return "Distribute " .. p.axis
+		end,
+		run = function(list, p)
 			local boxes = {}
 			for i, inst in list do
 				boxes[i] = boxOf(inst)
 			end
-			for i, d in Engine.distributeMoves(boxes, axis, by) do
+			for i, d in Engine.distributeMoves(boxes, p.axis, p.by) do
 				moveBy(list[i], d)
 			end
-			return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, axis)
-		end, 3)
-	end
-
-	local seed = 1
-	App.randomizeSelection = function()
-		seed += 1
-		step("Randomize", function(list)
-			local r = Engine.randomTurns(#list, G.editTurn, G.editSize, seed + os.clock() * 1000)
+			return string.format("Spaced %d evenly on %s, the outer two staying put.", #list, p.axis)
+		end,
+	}
+	RUN.random = {
+		min = 1,
+		name = function()
+			return "Randomize"
+		end,
+		run = function(list, p)
+			local r = Engine.randomTurns(#list, p.turn, p.size, p.seed)
 			for i, inst in list do
 				local b = boxOf(inst)
 				local base = Vector3.new((b.min.X + b.max.X) / 2, b.min.Y, (b.min.Z + b.max.Z) / 2)
 				turnAbout(inst, base, r[i].yaw)
 				scaleBy(inst, r[i].scale)
-				if G.editKeep then -- its underside back where it was
+				if p.keep then -- its underside back where it was
 					moveBy(inst, Vector3.new(0, b.min.Y - boxOf(inst).min.Y, 0))
 				end
 			end
 			return string.format("Gave %d a random turn and size. Press again for another.", #list)
+		end,
+	}
+
+	-- how each stands now (to put it back before the helper is done again with other settings)
+	local function poses(list)
+		local t = {}
+		for i, inst in list do
+			t[i] = { cf = inst:GetPivot(), scale = inst:IsA("Model") and inst:GetScale() or nil, size = inst:IsA("BasePart") and inst.Size or nil }
+		end
+		return t
+	end
+	local function restore(list, before)
+		for i, inst in list do
+			local was = before[i]
+			if was.scale then
+				inst:ScaleTo(was.scale)
+			elseif was.size then
+				inst.Size = was.size
+			end
+			inst:PivotTo(was.cf)
+		end
+	end
+	-- the last adjustable helper done: { kind, p, list, before }, while everything it was done to is still there
+	local function lastAction()
+		if not last then
+			return nil
+		end
+		for _, inst in last.list do
+			if not inst.Parent then
+				last = nil
+				return nil
+			end
+		end
+		return last
+	end
+	App.lastEdit = lastAction
+	-- does helper `kind` with settings p: to the selection, or (again: the last one, adjusted) to what it was done to,
+	-- put back first as it stood. One undo step either way.
+	local function perform(kind, p, again)
+		local spec = RUN[kind]
+		local list = again and again.list or items()
+		if #list < spec.min then
+			App.status(
+				spec.min > 1 and string.format("Select at least %d models (in the Explorer or the viewport) first.", spec.min)
+					or "Select the models to work on (in the Explorer or the viewport) first."
+			)
+			return false
+		end
+		local what = spec.name(p)
+		local rec = beginRec("Smart Scatter: " .. what .. (again and " (adjusted)" or ""))
+		local before = again and again.before or poses(list)
+		local ok, said = pcall(function()
+			if again then
+				restore(list, before)
+			end
+			return spec.run(list, p)
 		end)
+		endRec(rec, not ok)
+		if not ok then
+			warn("[Smart Scatter] " .. tostring(said))
+			App.status(what .. " didn't work: " .. tostring(said), "error")
+			return false
+		end
+		last = { kind = kind, p = p, list = list, before = before }
+		App.status(said)
+		local open = App.currentTab and App.currentTab()
+		if open and open.id == "edit" and not App.settingsOpen then -- (its Adjust card shows this one now)
+			task.defer(App.rebuildAll)
+		end
+		return true
+	end
+	-- the last helper again, with some of its settings changed
+	App.adjustLastEdit = function(changes)
+		local l = lastAction()
+		if not l then
+			return false
+		end
+		local p = table.clone(l.p)
+		for k, v in changes do
+			p[k] = v
+		end
+		return perform(l.kind, p, l)
+	end
+
+	local seed = 1
+	App.dropToGround = function()
+		return perform("drop", { lean = G.editLean })
+	end
+	App.alignSelection = function(axis, where)
+		return perform("align", { axis = axis, where = where })
+	end
+	App.distributeSelection = function(axis, by)
+		return perform("distribute", { axis = axis, by = by })
+	end
+	App.randomizeSelection = function()
+		seed += 1
+		return perform("random", { turn = G.editTurn, size = G.editSize, keep = G.editKeep, seed = seed + os.clock() * 1000 })
 	end
 
 	local replacement -- the model Replace puts in (picked from the selection)
@@ -6472,6 +6644,113 @@ return function(App)
 		kinds = "all",
 		build = function(page)
 			local cs = App.cards(page, "edit")
+			local l = lastAction()
+			if l then
+				cs.add({
+					id = "editlast",
+					title = "Adjust: " .. RUN[l.kind].name(l.p),
+					icon = "refresh",
+					sub = string.format("Change how it was done to those %d", #l.list),
+					keys = "adjust last again redo tweak",
+					build = function(b)
+						local p = l.p
+						local function set(key)
+							return function(v)
+								if p[key] ~= v then
+									App.adjustLastEdit({ [key] = v })
+								end
+							end
+						end
+						if l.kind == "align" or l.kind == "distribute" then
+							segmented(AXES, function()
+								return p.axis
+							end, function(v)
+								set("axis")(v)
+							end).Parent = b
+						end
+						if l.kind == "align" then
+							local names = { Min = "Lowest", Center = "Middle", Max = "Highest" }
+							local back = { Lowest = "Min", Middle = "Center", Highest = "Max" }
+							segmented({ "Lowest", "Middle", "Highest" }, function()
+								return names[p.where]
+							end, function(v)
+								set("where")(back[v])
+							end).Parent =
+								b
+						elseif l.kind == "distribute" then
+							segmented({ "Centers", "Gaps" }, function()
+								return p.by
+							end, function(v)
+								set("by")(v)
+							end).Parent =
+								b
+						elseif l.kind == "random" then
+							local turn, size = p.turn, p.size
+							slider(
+								"Turn",
+								0,
+								180,
+								function()
+									return turn
+								end,
+								function(v)
+									turn = v
+								end,
+								"±%d°",
+								5,
+								nil,
+								function()
+									set("turn")(turn)
+								end,
+								"How far each one may turn, either way.",
+								180
+							).Parent =
+								b
+							slider(
+								"Size",
+								0,
+								0.9,
+								function()
+									return size
+								end,
+								function(v)
+									size = v
+								end,
+								"±%.0f%%",
+								0.05,
+								nil,
+								function()
+									set("size")(size)
+								end,
+								"How much bigger or smaller each one may get.",
+								0.15
+							).Parent =
+								b
+							switchRow("Keep on the ground", function()
+								return p.keep
+							end, function(v)
+								set("keep")(v)
+							end, nil, "Their undersides stay where they were as they grow or shrink.").Parent =
+								b
+							hintOn(
+								button("Another roll", nil, function()
+									seed += 1
+									App.adjustLastEdit({ seed = seed + os.clock() * 1000 })
+								end, { Parent = buttonRow(b) }),
+								"The same models, another random turn and size, from how they stood before."
+							)
+						elseif l.kind == "drop" then
+							switchRow("Lean with the slope", function()
+								return p.lean
+							end, function(v)
+								set("lean")(v)
+							end, nil, "On: each one tilts to stand square on the ground under it. Off: they stay upright.").Parent =
+								b
+						end
+						App.explain(b, "They're put back as they stood, then it's done again your way. Each change is one Ctrl+Z step.")
+					end,
+				})
+			end
 			cs.add({
 				id = "editsel",
 				title = "The selection",
@@ -7009,6 +7288,15 @@ return function(App)
 	local function placed(thing) -- (known for the area being worked on; the others would each need loading)
 		return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 	end
+	-- the padlock on an area's row (the lock is the area's own: it's selected first, as its menu does)
+	local areaLock = {
+		get = function(thing)
+			return thing.folder:GetAttribute("SS_Locked") == true
+		end,
+		toggle = function(thing)
+			on(thing, App.toggleLock)()
+		end,
+	}
 	App.registerKind({
 		kind = "Zone",
 		icon = "area",
@@ -7018,6 +7306,8 @@ return function(App)
 		count = placed,
 		menu = areaMenu,
 		reorder = true,
+		hide = true,
+		lock = areaLock,
 	})
 	App.registerKind({
 		kind = "Path",
@@ -7028,6 +7318,8 @@ return function(App)
 		count = placed,
 		menu = areaMenu,
 		reorder = true,
+		hide = true,
+		lock = areaLock,
 	})
 	App.registerKind({
 		kind = "Clear",
@@ -7037,6 +7329,7 @@ return function(App)
 		list = areasOf("Clear"),
 		menu = areaMenu,
 		reorder = true,
+		lock = areaLock,
 	})
 
 	App.markSelected = function(cls)
@@ -9932,7 +10225,8 @@ end
 	opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
 	to rename it; the … at the end of a row, or a right-click on the row, has what can be done to it. Rows drag up and
 	down: zones, paths and arrays into any order, a zone's objects into the order they're placed in (the first takes
-	its room first). The whole list folds away, and scrolls past a few rows.
+	its room first). The eye on a row hides what it placed (for you, this session); the padlock locks it. With many
+	things a filter box narrows the list as you type. The whole list folds away, and scrolls past a few rows.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -9941,6 +10235,8 @@ return function(App)
 	local new, box, col, label, vlist, corner, pad = App.new, App.box, App.col, App.label, App.vlist, App.corner, App.pad
 	local ROW, CHILD, MAX_H = 28, 24, 190 -- row heights, and how tall the list gets before it scrolls
 	local THUMB = 18 -- a row's picture of its model
+	local FILTER_FROM = 8 -- how many things before the filter box shows
+	local filter = "" -- what's typed in it (kept while the panel is rebuilt)
 
 	local renaming -- the thing whose name is being edited, if any
 	App.startRename = function(thing)
@@ -10091,14 +10387,62 @@ return function(App)
 		if sel then
 			App.ui.outlinerCount = count -- (refreshCounts keeps it current)
 		end
-		if thing.folder and thing.folder:GetAttribute("SS_Locked") then
-			local lock = label("locked", 11, P.faint, SANS, {
-				Size = UDim2.fromOffset(0, 22),
-				AutomaticSize = Enum.AutomaticSize.X,
-				LayoutOrder = 2,
+		-- a small icon that is a switch: quiet when off (and only shown under the mouse or on the selected row), lit when on
+		local quiet = {}
+		local function toggle(iconName, on, hint, order, click)
+			local t = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundTransparency = 1,
+				Size = UDim2.fromOffset(20, 22),
+				LayoutOrder = order,
+				Visible = on or sel,
 				Parent = right,
 			})
-			lock.TextXAlignment = Enum.TextXAlignment.Right
+			local ic = App.icon(iconName, 12, on and P.accent or P.faint)
+			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+			ic.Parent = t
+			t.MouseEnter:Connect(function()
+				App.setIconColor(ic, P.text)
+			end)
+			t.MouseLeave:Connect(function()
+				App.setIconColor(ic, on and P.accent or P.faint)
+			end)
+			t.MouseButton1Click:Connect(click)
+			App.hintOn(t, hint)
+			if not on and not sel then
+				table.insert(quiet, t)
+			end
+			return t
+		end
+		if spec.hide and thing.folder then
+			local off = App.isHidden(thing.folder)
+			toggle(
+				off and "eyeOff" or "eye",
+				off,
+				off and "Hidden: what it placed isn't drawn (for you, until Studio closes). Click to show it." or "Hide what it placed.",
+				2,
+				function()
+					App.setHidden(thing.folder, not off)
+					App.rebuildAll()
+					App.status(
+						off and (name .. " is shown again.")
+							or (name .. " is hidden: its copies aren't drawn. Only for you and this session; nothing in the place changed.")
+					)
+				end
+			)
+		end
+		if spec.lock then
+			local locked = spec.lock.get(thing)
+			toggle(
+				locked and "lock" or "unlock",
+				locked,
+				locked and "Locked: nothing here regenerates or repaints. Click to unlock." or "Lock it: nothing here changes until it's unlocked.",
+				2,
+				function()
+					spec.lock.toggle(thing)
+				end
+			)
 		end
 		if spec.menu then
 			local more = App.iconButton("down", "Rename, lock, bake, delete… (or right-click the row)", nil, false, 22)
@@ -10119,9 +10463,15 @@ return function(App)
 			b.MouseEnter:Connect(function()
 				b.BackgroundTransparency = 0
 				b.BackgroundColor3 = P.hover
+				for _, t in quiet do
+					t.Visible = true
+				end
 			end)
 			b.MouseLeave:Connect(function()
 				b.BackgroundTransparency = 1
+				for _, t in quiet do
+					t.Visible = false
+				end
 			end)
 		end
 		local lastClick = 0
@@ -10149,6 +10499,7 @@ return function(App)
 		local drag = App.reorderList(function(from, to)
 			App.moveObject(App.area.layers[from], to)
 		end)
+		local made = {}
 		for i, l in App.area.layers do
 			local on = l == App.active
 			local b = new("TextButton", {
@@ -10214,7 +10565,9 @@ return function(App)
 				App.popupMenu(nil, App.objectMenu(l))
 			end)
 			drag.add(b, i)
+			table.insert(made, b)
 		end
+		return made
 	end
 
 	App.buildOutliner = function(parent)
@@ -10258,7 +10611,16 @@ return function(App)
 			Parent = wrap,
 		})
 		local list = col({ Parent = scroll }, { vlist(1) })
+		local maxH = G.compact and math.floor(MAX_H * 0.6) or MAX_H -- (the compact panel gives the page more room)
 		local order, any, selRow = 0, false, nil
+		local rows = {} -- { row, name (lower case), kids = its object rows }: what the filter shows and hides
+		local total = 0
+		for _, spec in App.thingKinds() do
+			total += #spec.list()
+		end
+		if total < FILTER_FROM then
+			filter = ""
+		end
 		for _, spec in App.thingKinds() do
 			local things = thingsOf(spec)
 			local drag = spec.reorder and App.reorderList(function(from, to)
@@ -10268,10 +10630,12 @@ return function(App)
 				order += 100
 				any = true
 				local row = thingRow(list, spec, thing, order, index, #things, drag)
+				local entry = { row = row, name = string.lower(thing.folder and thing.folder.Name or spec.title), kids = {} }
+				table.insert(rows, entry)
 				if App.sameThing(thing, App.selected) then
 					selRow = row
 					if App.area and (thing.kind == "Zone" or thing.kind == "Path") and #App.area.layers > 0 then
-						objectRows(list, order)
+						entry.kids = objectRows(list, order)
 					end
 				end
 			end
@@ -10280,10 +10644,44 @@ return function(App)
 			local t = App.para("Nothing yet. + makes a zone, a path or a keep-clear zone.", { Parent = list })
 			t.TextColor3 = P.faint
 		end
+		-- the filter: rows whose name has what's typed stay (shown and hidden in place: the box keeps its focus)
+		local function applyFilter()
+			local want = string.lower(filter)
+			for _, e in rows do
+				local show = want == "" or string.find(e.name, want, 1, true) ~= nil
+				e.row.Visible = show
+				for _, k in e.kids do
+					k.Visible = show
+				end
+			end
+		end
+		if total >= FILTER_FROM then
+			local tb = new("TextBox", {
+				Text = filter,
+				PlaceholderText = "Filter by name",
+				PlaceholderColor3 = P.faint,
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = P.text,
+				BackgroundColor3 = P.field,
+				ClearTextOnFocus = false,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.new(1, 0, 0, 24),
+				LayoutOrder = -1,
+				Parent = wrap,
+			}, { corner(6), pad(8, 8, 0, 0) })
+			scroll.LayoutOrder = 1
+			tb:GetPropertyChangedSignal("Text"):Connect(function()
+				filter = tb.Text
+				applyFilter()
+			end)
+			App.ui.outlinerFilter = tb
+			applyFilter()
+		end
 		-- as tall as its rows, up to MAX_H; then it scrolls, with the selected row in view
 		local function fit()
 			local h = list.AbsoluteSize.Y
-			scroll.Size = UDim2.new(1, 0, 0, math.min(h, MAX_H))
+			scroll.Size = UDim2.new(1, 0, 0, math.min(h, maxH))
 		end
 		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()
@@ -10291,8 +10689,8 @@ return function(App)
 			task.defer(function()
 				if selRow.Parent then
 					local top = selRow.AbsolutePosition.Y - list.AbsolutePosition.Y
-					if top + ROW > MAX_H then
-						scroll.CanvasPosition = Vector2.new(0, top - MAX_H / 2)
+					if top + ROW > maxH then
+						scroll.CanvasPosition = Vector2.new(0, top - maxH / 2)
 					end
 				end
 			end)
@@ -12091,6 +12489,7 @@ return function(App)
 		"gearBtn",
 		"outliner",
 		"outlinerCount",
+		"outlinerFilter",
 		"tabs",
 		"tabRow",
 		"search",
@@ -12245,8 +12644,10 @@ return function(App)
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
 		end)
 		buildTitle(head)
-		box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
-		buildSearch(head)
+		if App.settingsOpen or not G.compact then -- (compact: no search box over the outliner; Space still searches)
+			box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
+			buildSearch(head)
+		end
 		if not App.settingsOpen then
 			box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
 			App.buildOutliner(head)
@@ -12627,6 +13028,20 @@ return function(App)
 			saveG()
 			task.defer(App.rebuildAll) -- (after this click: the whole panel is rebuilt)
 		end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
+			b
+		switchRow(
+			"Compact panel",
+			function()
+				return G.compact == true
+			end,
+			function(v)
+				G.compact = v
+				saveG()
+				task.defer(App.rebuildAll)
+			end,
+			nil,
+			"Leaves out the search box over the outliner and keeps the outliner shorter, so the page below has more room. Space still searches every action."
+		).Parent =
 			b
 		label("Text size", 13, P.text, SANS, { Parent = b })
 		App.segmented({ "Small", "Normal", "Large" }, function()
@@ -13665,7 +14080,19 @@ return function(App)
 		press = nil
 		clearLine()
 	end
-	App.registerMode("Array", { move = move, down = down, up = up, stop = stop, noArea = true })
+	App.registerMode("Array", {
+		move = move,
+		down = down,
+		up = up,
+		stop = stop,
+		header = function()
+			local src = source()
+			return "Array" .. (src and (" · " .. src.Name) or ""),
+				{ { text = src and "Press and drag along where the copies go" or "Select a model in the Explorer first" } },
+				src and src.Name or ""
+		end,
+		noArea = true,
+	})
 	App.registerTool({
 		id = "array",
 		group = "Stamp",
@@ -15248,8 +15675,18 @@ return function(App)
 	local lastKeyAt = {}
 	-- keys that also work with no tool on (while the panel is open): the search menu, the overlay, shuffling, and
 	-- picking a painting tool or erasing, which starts painting with it
-	local ANY_TIME =
-		{ palette = true, overlay = true, shuffle = true, erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
+	local ANY_TIME = {
+		palette = true,
+		quick = true,
+		overlay = true,
+		shuffle = true,
+		erase = true,
+		tool1 = true,
+		tool2 = true,
+		tool3 = true,
+		tool4 = true,
+		tool5 = true,
+	}
 	local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true } -- (no new area from a key)
 	local function onKey(name)
 		if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
@@ -15264,6 +15701,12 @@ return function(App)
 		if name == "palette" then -- the search menu opens anywhere in the viewport while the panel is open, tool or not
 			if App.widget.Enabled and App.openPalette then
 				App.openPalette()
+			end
+			return
+		end
+		if name == "quick" then -- the quick menu, round the mouse: the tools, or what can be done to the picked copies
+			if App.widget.Enabled and App.openQuick then
+				App.openQuick()
 			end
 			return
 		end
@@ -15443,7 +15886,7 @@ return function(App)
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} deletes a point, {close} to finish.",
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-		Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, Shift + right-click (or a second click) has more.",
+		Select = "Click a zone's ground, a path or a placed copy; Shift + click or drag a box for more copies. Shift + wheel turns them, Alt + wheel sizes them, {quick} or the bar at the top has the rest.",
 		Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
@@ -15628,6 +16071,8 @@ end
 	  a placed copy     its zone, with its object active
 	  a path            the path (its curve, or a point of it, within a few pixels on screen)
 	  painted ground    the zone painted there (a keep-clear zone if no zone is)
+	Shift + click picks more copies of the same zone (or takes one back out), and a drag over the ground boxes them;
+	what's done then is done to each. The viewport's header shows what's picked, with the same changes as buttons.
 	A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
 	sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
 	picked one, has the rest (another model,
@@ -15728,7 +16173,7 @@ return function(App)
 				end
 				cur = cur.Parent
 			end
-			if area then
+			if area and not (App.isHidden and App.isHidden(area)) then -- (a hidden zone's copies can't be clicked)
 				return App.thingOf(area), key, key and copy or nil
 			end
 		end
@@ -15769,17 +16214,21 @@ return function(App)
 	end
 
 	--------------------------------------------------------------------------------
-	-- One placed copy, picked
+	-- Placed copies, picked: one (a click), or several of one zone (Shift + click adds or takes one; a drag over the
+	-- ground boxes them). What's done to them is done to each.
 	--------------------------------------------------------------------------------
-	-- picked: { folder = its area's, key = its object's, x, z = where it stands, copy = the instance (another one
-	-- after its spot is rebuilt), l, pin = its object and pin once it was changed }; moving: the next click on the
-	-- ground puts it there
-	local picked, moving = nil, false
+	-- picks: { { folder = its area's, key = its object's, x, z = where it stands, copy = the instance (another one
+	-- after its spot is rebuilt), l, pin = its object and pin once it was changed } … }, the last one the main one
+	-- (the label is by it; one alone can be moved). moving: the next click on the ground puts it there.
+	-- press: a press that may become a box: { px = where on screen, add = Shift was held }
+	local picks, moving, press = {}, false, nil
+	local MAX_PICKS = 300
+	local DRAG_PX = 6
 
-	-- an outline round a copy (name: which of the two, the picked one's or the one under the mouse)
-	local function light(name, copy, fill)
+	-- the outline round the copy under the mouse
+	local function lightHover(copy)
 		App.gizmoFolder()
-		local h = App.gz[name]
+		local h = App.gz.copyHover
 		if not (h and h.Parent) then
 			if not copy then
 				return
@@ -15787,38 +16236,66 @@ return function(App)
 			h = Instance.new("Highlight")
 			h.DepthMode = Enum.HighlightDepthMode.Occluded
 			h.OutlineTransparency = 0
+			h.FillTransparency = 1
 			h.Parent = App.gz.folder
-			App.gz[name] = h
+			App.gz.copyHover = h
 		end
-		h.FillColor, h.OutlineColor = P.accent, P.accent
-		h.FillTransparency = fill
+		h.OutlineColor = P.accent
 		h.Adornee = copy
 	end
-	-- the picked copy's instance now: the one picked, or (its spot rebuilt since) the one standing there
-	local function pickedCopy()
-		if not picked then
-			return nil
+	-- a pick's instance now: the one picked, or (its spot rebuilt since) the one standing there
+	local function copyOf(e)
+		if e.copy and e.copy.Parent then
+			return e.copy
 		end
-		if picked.copy and picked.copy.Parent then
-			return picked.copy
-		end
-		picked.copy = nil
+		e.copy = nil
 		local a = App.area
-		if not (a and a.folder == picked.folder) then
+		if not (a and a.folder == e.folder) then
 			return nil
 		end
 		for _, f in a.folder:GetChildren() do
-			if f:GetAttribute("SS_Key") == picked.key then
+			if f:GetAttribute("SS_Key") == e.key then
 				for _, d in f:GetDescendants() do
 					local x, z = d:GetAttribute("SS_X"), d:GetAttribute("SS_Z")
-					if x and z and d:GetAttribute("SS_Type") and math.abs(x - picked.x) < 0.05 and math.abs(z - picked.z) < 0.05 then
-						picked.copy = d
+					if x and z and d:GetAttribute("SS_Type") and math.abs(x - e.x) < 0.05 and math.abs(z - e.z) < 0.05 then
+						e.copy = d
 						return d
 					end
 				end
 			end
 		end
 		return nil
+	end
+	local function pickedCopy() -- the main one's
+		local e = picks[#picks]
+		return e and copyOf(e) or nil
+	end
+	-- a box round every picked copy (boxes, not Highlights: Studio draws only a few dozen of those)
+	local function outline()
+		App.gizmoFolder()
+		local pool = App.gz.copyBoxes or {}
+		App.gz.copyBoxes = pool
+		local n = 0
+		for _, e in picks do
+			local c = copyOf(e)
+			if c then
+				n += 1
+				local sb = pool[n]
+				if not sb then
+					sb = Instance.new("SelectionBox")
+					sb.LineThickness = 0.04
+					sb.SurfaceTransparency = 0.88
+					sb.Parent = App.gz.folder
+					pool[n] = sb
+				end
+				sb.Color3, sb.SurfaceColor3 = P.accent, P.accent
+				sb.Adornee = c
+			end
+		end
+		for i = n + 1, #pool do
+			pool[i].Adornee = nil
+		end
+		return n
 	end
 	-- "Rock · 45° · 1.20×"
 	local function describe(copy)
@@ -15829,102 +16306,139 @@ return function(App)
 		return string.format("%s · %d° · %.2f×", copy.Name, math.floor(math.deg(pose.yaw) + 0.5) % 360, pose.k)
 	end
 	local function showPicked()
+		outline()
 		local copy = pickedCopy()
-		light("copySel", copy, 0.8)
 		if copy then
 			App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
-			App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  Shift + right-click for more"))
+			App.setLabel(
+				moving and "Click where it should stand"
+					or #picks > 1 and string.format("%d copies  ·  Shift + right-click for more", #picks)
+					or (describe(copy) .. "  ·  Shift + right-click for more")
+			)
 		end
 	end
 	local function unpick()
-		picked, moving = nil, false
-		light("copySel", nil, 0.8)
-		light("copyHover", nil, 1)
+		picks, moving, press = {}, false, nil
+		outline()
+		lightHover(nil)
 		if App.closeViewMenu then
 			App.closeViewMenu()
 		end
+		if App.viewRect then
+			App.viewRect(nil)
+		end
 	end
-	-- after a change its spot is rebuilt a moment later: the outline goes to the copy that comes back
+	-- after a change their spots are rebuilt a moment later: the boxes go to the copies that come back
 	local function follow()
-		local mine = picked
+		local mine = picks
 		task.spawn(function()
 			for _ = 1, 60 do
 				task.wait(0.05)
-				if picked ~= mine or App.mode ~= "Select" then
+				if picks ~= mine or App.mode ~= "Select" then
 					return
 				end
-				if pickedCopy() then
-					showPicked()
-					return
+				local all = true
+				for _, e in picks do
+					all = all and copyOf(e) ~= nil
 				end
+				if all then
+					break
+				end
+			end
+			if picks == mine and App.mode == "Select" then
+				showPicked()
 			end
 		end)
 	end
-
-	-- One change to the picked copy: change(pose) -> { x, z, yaw, k, vi } (what it leaves out stays). The copy becomes
-	-- (or already is) a stamp's pin of its object, and its spot is rebuilt at once, Live on or off. One undo step.
-	local function edit(what, change)
+	local function ready()
 		local a = App.area
-		if not (picked and a and a.folder == picked.folder) then
-			return false
+		if #picks == 0 or not a or a.folder ~= picks[1].folder then
+			return nil
 		end
 		if a.locked then
 			App.status("This area is locked. Unlock it to change its copies.")
-			return false
+			return nil
 		end
 		if not App.canGenerate() then
 			App.status("The area can't be rebuilt right now: the Generate button says why.")
+			return nil
+		end
+		return a
+	end
+
+	-- One change to every picked copy: change(pose) -> { x, z, yaw, k, vi } (what it leaves out stays). Each becomes
+	-- (or already is) a stamp's pin of its object, and their spots are rebuilt at once, Live on or off: the pins
+	-- alone, every other copy there stays as it is. One undo step.
+	local function edit(what, change)
+		local a = ready()
+		if not a then
 			return false
 		end
-		local copy = pickedCopy()
-		local pose = copy and Engine.copyPose(a, copy)
-		if not pose and not copy and picked.pin and picked.l.pins and table.find(picked.l.pins, picked.pin) then
-			-- (changed again before its spot was rebuilt: the pin is changed, there's no copy to read)
-			local q = picked.pin
-			pose = { l = picked.l, vi = q[6], x = q[1], z = q[2], yaw = q[4], k = q[5], pin = q }
+		local box, done
+		for _, e in picks do
+			local copy = copyOf(e)
+			local pose = copy and Engine.copyPose(a, copy)
+			if not pose and not copy and e.pin and e.l.pins and table.find(e.l.pins, e.pin) then
+				-- (changed again before its spot was rebuilt: the pin is changed, there's no copy to read)
+				local q = e.pin
+				pose = { l = e.l, vi = q[6], x = q[1], z = q[2], yaw = q[4], k = q[5], pin = q }
+			end
+			if pose then
+				local l = pose.l
+				local fromX, fromZ = pose.x, pose.z
+				local c = change(pose)
+				local pin
+				if copy then
+					pin = Engine.pinCopy(a, copy, c)
+				else
+					pin = Engine.changePin(l, pose.pin, c)
+				end
+				if pin then
+					local v = l.variants[pin[6]] or l.variants[1]
+					local r = v.m.radius * pin[5] * v.size * 2 + 6 -- (the patch rebuilt: where it stood and where it stands)
+					local x0, z0 = math.min(fromX, pin[1]) - r, math.min(fromZ, pin[2]) - r
+					local x1, z1 = math.max(fromX, pin[1]) + r, math.max(fromZ, pin[2]) + r
+					box = box and { math.min(box[1], x0), math.min(box[2], z0), math.max(box[3], x1), math.max(box[4], z1) } or { x0, z0, x1, z1 }
+					e.copy, e.x, e.z, e.l, e.pin = nil, pin[1], pin[2], l, pin
+					done = true
+				end
+			end
 		end
-		if not pose then
-			App.status(copy and "This copy can't be changed by itself (a piece of a line, or a preview box)." or "That copy is gone.")
+		if not done then
+			App.status(
+				#picks == 1 and "This copy can't be changed by itself (a piece of a line, or a preview box)."
+					or "These copies can't be changed by themselves."
+			)
 			return false
 		end
-		local l = pose.l
-		local fromX, fromZ = pose.x, pose.z
-		local c = change(pose)
-		local pin
-		if copy then
-			pin = Engine.pinCopy(a, copy, c)
-		else
-			pin = Engine.changePin(l, pose.pin, c)
-		end
-		if not pin then
-			return false
-		end
-		local v = l.variants[pin[6]] or l.variants[1]
-		local r = v.m.radius * pin[5] * v.size * 2 + 6 -- (the patch rebuilt: where it stood and where it stands)
-		local box = { math.min(fromX, pin[1]) - r, math.min(fromZ, pin[2]) - r, math.max(fromX, pin[1]) + r, math.max(fromZ, pin[2]) + r }
-		picked.copy, picked.x, picked.z, picked.l, picked.pin = nil, pin[1], pin[2], l, pin
-		light("copySel", nil, 0.8)
-		App.applyNow(l, what, box, true) -- (its pin alone: every other copy there stays as it is)
+		outline()
+		App.applyNow(nil, what, box, true) -- (their pins alone: every other copy there stays as it is)
 		follow()
 		return true
 	end
+	local function several(one, many)
+		return #picks > 1 and many or one
+	end
 	local function turn(dir)
-		return edit("Turn a copy", function(pose)
+		return edit(several("Turn a copy", "Turn copies"), function(pose)
 			return { yaw = (math.floor(pose.yaw / STEP + 0.5) + dir) * STEP }
 		end)
 	end
 	local function size(dir)
-		return edit("Size a copy", function(pose)
+		return edit(several("Size a copy", "Size copies"), function(pose)
 			return { k = math.clamp(pose.k * 1.1 ^ dir, 0.05, 20) }
 		end)
 	end
-	local function nextModel()
-		return edit("Change a copy's model", function(pose)
-			return { vi = pose.vi % #pose.l.variants + 1 }
+	local function nextModel(dir)
+		return edit(several("Change a copy's model", "Change copies' models"), function(pose)
+			return { vi = (pose.vi - 1 + (dir or 1)) % #pose.l.variants + 1 }
 		end)
 	end
 	local function moveTo(pos)
 		local a = App.area
+		if #picks ~= 1 then
+			return false
+		end
 		if not (a and Engine.hasCell(a, math.floor(pos.X / a.cell), math.floor(pos.Z / a.cell))) then
 			App.status("Click on this zone's painted ground to move it there.")
 			return false
@@ -15933,17 +16447,24 @@ return function(App)
 			return { x = pos.X, z = pos.Z }
 		end)
 	end
-	-- takes it out for good (as the Remove copies tool does)
+	-- takes them out for good (as the Remove copies tool does)
 	local function remove()
-		local a, copy = App.area, pickedCopy()
-		if not (a and copy) or a.locked then
+		local a = App.area
+		if #picks == 0 or not a or a.folder ~= picks[1].folder or a.locked then
 			return false
 		end
-		local rec = App.beginRec("Smart Scatter: Remove copy")
-		local h = Engine.removeCopy(a, copy)
-		for _, l in a.layers do
-			if l._h == h and App.lastCounts[l] then
-				App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
+		local rec = App.beginRec("Smart Scatter: " .. several("Remove copy", "Remove copies"))
+		local n = 0
+		for _, e in picks do
+			local copy = copyOf(e)
+			local h = copy and Engine.removeCopy(a, copy)
+			if h then
+				n += 1
+				for _, l in a.layers do
+					if l._h == h and App.lastCounts[l] then
+						App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
+					end
+				end
 			end
 		end
 		App.saveArea()
@@ -15951,29 +16472,74 @@ return function(App)
 		unpick()
 		App.setLabel("")
 		App.refreshCounts()
-		App.status("Removed. Ctrl+Z brings it back.")
-		return true
+		App.status(n == 1 and "Removed. Ctrl+Z brings it back." or string.format("Removed %d. Ctrl+Z brings them back.", n))
+		return n > 0
 	end
-	-- gives a changed copy back to the rules: the one they place there comes back
+	-- the picked copies that were the rules' and still stand where those put them
+	local function canGoBack()
+		local a, n = App.area, 0
+		for _, e in picks do
+			local copy = copyOf(e)
+			if a and copy and Engine.canUnpinCopy(a, copy) then
+				n += 1
+			end
+		end
+		return n
+	end
+	-- gives changed copies back to the rules: the ones they place there come back
 	local function backToRules()
-		local a, copy = App.area, pickedCopy()
-		if not (a and copy) or a.locked or not App.canGenerate() then
+		local a = ready()
+		if not a then
 			return false
 		end
-		local pose = Engine.copyPose(a, copy)
-		if not (pose and Engine.unpinCopy(a, copy)) then
+		local first
+		for _, e in picks do
+			local copy = copyOf(e)
+			local pose = copy and Engine.copyPose(a, copy)
+			if pose and Engine.unpinCopy(a, copy) then
+				local i = table.find(a.layers, pose.l) or 1
+				first = math.min(first or i, i)
+				e.copy, e.pin = nil, nil
+			end
+		end
+		if not first then
 			return false
 		end
-		picked.copy, picked.pin = nil, nil
-		light("copySel", nil, 0.8)
-		-- (its object is placed again in full: the rules put every copy back exactly where it was, this one too)
-		App.applyNow(pose.l, "Give a copy back to its rules")
+		outline()
+		-- (their objects are placed again in full: the rules put every copy back exactly where it was, these too)
+		App.applyNow(a.layers[first], "Give copies back to their rules")
 		follow()
 		return true
 	end
 
-	-- picks one copy (its zone selected, its object active)
-	local function pick(thing, key, copy)
+	local function entry(thing, key, copy)
+		return { folder = thing.folder, key = key, copy = copy, x = copy:GetAttribute("SS_X") or 0, z = copy:GetAttribute("SS_Z") or 0 }
+	end
+	local function indexOf(copy)
+		for i, e in picks do
+			if copyOf(e) == copy then
+				return i
+			end
+		end
+		return nil
+	end
+	-- picks a copy: alone (its zone selected, its object active), or (add) one more of the same zone, or one fewer
+	local function pick(thing, key, copy, add)
+		if add and #picks > 0 and picks[1].folder == thing.folder and App.mode == "Select" then
+			local i = indexOf(copy)
+			if i then
+				table.remove(picks, i)
+			elseif #picks < MAX_PICKS then
+				table.insert(picks, entry(thing, key, copy))
+			end
+			picks = table.clone(picks) -- (a new list: what was following the old one stops)
+			moving = false
+			showPicked()
+			if #picks == 0 then
+				App.setLabel("")
+			end
+			return nil
+		end
 		local object
 		App.select(thing)
 		for _, l in App.area and App.area.layers or {} do
@@ -15982,21 +16548,88 @@ return function(App)
 			end
 		end
 		App.select(thing, object)
-		if App.mode ~= "Select" then -- (selecting a thing may put the tool away: a picked copy is the Select tool's)
+		if App.mode ~= "Select" then -- (selecting a thing may put the tool away: picked copies are the Select tool's)
 			return object
 		end
-		picked = { folder = thing.folder, key = key, copy = copy, x = copy:GetAttribute("SS_X") or 0, z = copy:GetAttribute("SS_Z") or 0 }
+		picks = { entry(thing, key, copy) }
 		moving = false
-		light("copyHover", nil, 1)
+		lightHover(nil)
 		showPicked()
 		return object
 	end
-	-- what can be done to the picked copy (Shift + right-click, or a second click on it)
+	-- Picks the copies inside a rectangle of the screen (a, b: two corners): of the zone already picked from (add),
+	-- else of the zone being worked on if any of its copies are inside, else of the zone with the most inside.
+	-- Returns how many.
+	local function boxPick(a, b, add)
+		local out = workspace:FindFirstChild(Engine.OUT)
+		local cam = workspace.CurrentCamera
+		if not (out and cam) then
+			return 0
+		end
+		local x0, x1, y0, y1 = math.min(a.X, b.X), math.max(a.X, b.X), math.min(a.Y, b.Y), math.max(a.Y, b.Y)
+		local keep = add and #picks > 0 and picks[1].folder or nil
+		local found = {} -- [area folder] = { { key, copy } }
+		for _, area in out:GetChildren() do
+			if area:GetAttribute("SS_Area") and (not keep or area == keep) and not (App.isHidden and App.isHidden(area)) then
+				for _, f in area:GetChildren() do
+					local key = f:GetAttribute("SS_Key")
+					if key and not f:GetAttribute("SS_Ghost") then
+						for _, d in f:GetDescendants() do
+							if d:GetAttribute("SS_Type") and d:GetAttribute("SS_X") then
+								local v = cam:WorldToViewportPoint(d:GetPivot().Position)
+								if v.Z > 0 and v.X >= x0 and v.X <= x1 and v.Y >= y0 and v.Y <= y1 then
+									found[area] = found[area] or {}
+									table.insert(found[area], { key, d })
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		local chosen = keep or (App.area and found[App.area.folder] and App.area.folder) or nil
+		if not chosen then
+			for area, list in found do
+				if not chosen or #list > #found[chosen] then
+					chosen = area
+				end
+			end
+		end
+		local list = chosen and found[chosen]
+		if not list then
+			return 0
+		end
+		local thing = App.thingOf(chosen)
+		if not keep then
+			if not App.sameThing(App.selected, thing) then
+				App.select(thing)
+			end
+			if App.mode ~= "Select" then
+				return 0
+			end
+			picks = {}
+		end
+		local next = table.clone(picks)
+		for _, pair in list do
+			if #next >= MAX_PICKS then
+				break
+			end
+			if not indexOf(pair[2]) then
+				table.insert(next, entry(thing, pair[1], pair[2]))
+			end
+		end
+		picks = next
+		moving = false
+		showPicked()
+		return #picks
+	end
+
+	-- what can be done to the picked copies (Shift + right-click, a second click on one, or the quick menu)
 	local function menu()
 		local a, copy = App.area, pickedCopy()
 		local pose = a and copy and Engine.copyPose(a, copy)
 		local items = {}
-		if pose then
+		if pose or #picks > 1 then
 			table.insert(items, {
 				"Turn 15°",
 				function()
@@ -16021,36 +16654,121 @@ return function(App)
 					size(-1)
 				end,
 			})
-			if #pose.l.variants > 1 then
-				table.insert(items, { "Another of its models", nextModel })
+			if #picks == 1 and pose and #pose.l.variants > 1 then
+				table.insert(items, {
+					"Another of its models",
+					function()
+						nextModel(1)
+					end,
+				})
 			end
-			table.insert(items, {
-				"Move it…",
-				function()
-					moving = true
-					showPicked()
-					App.status("Click this zone's painted ground where it should stand. Esc leaves it where it is.")
-				end,
-			})
+			if #picks == 1 then
+				table.insert(items, {
+					"Move it…",
+					function()
+						moving = true
+						showPicked()
+						App.status("Click this zone's painted ground where it should stand. Esc leaves it where it is.")
+					end,
+				})
+			end
 			table.insert(items, "-")
-			if Engine.canUnpinCopy(a, copy) then
-				table.insert(items, { "Back to its rules", backToRules, P.dim })
+			if canGoBack() > 0 then
+				table.insert(items, { several("Back to its rules", "Back to their rules"), backToRules, P.dim })
 			end
 		end
-		table.insert(items, {
-			"Its object's settings",
-			function()
-				App.openTab("object")
-			end,
-			P.dim,
-		})
+		if #picks == 1 then
+			table.insert(items, {
+				"Its object's settings",
+				function()
+					App.openTab("object")
+				end,
+				P.dim,
+			})
+		end
 		table.insert(items, "-")
-		table.insert(items, { "Remove", remove, P.danger })
+		table.insert(items, { several("Remove", string.format("Remove %d", #picks)), remove, P.danger })
 		return items
 	end
+	-- the viewport's header while Select is on: what's picked, and the same changes as buttons
+	local function header()
+		local a, copy = App.area, pickedCopy()
+		if #picks == 0 or not copy then
+			return "Select", { { text = "Click a zone, a path or a copy · Shift + click or drag a box for more copies" } }, "none"
+		end
+		local one = #picks == 1
+		local pose = one and a and Engine.copyPose(a, copy) or nil
+		local items = {
+			{
+				step = "Turn",
+				value = pose and string.format("%d°", math.floor(math.deg(pose.yaw) + 0.5) % 360) or "15°",
+				dec = function()
+					turn(-1)
+				end,
+				inc = function()
+					turn(1)
+				end,
+			},
+			{
+				step = "Size",
+				value = pose and string.format("%.2f×", pose.k) or "10%",
+				dec = function()
+					size(-1)
+				end,
+				inc = function()
+					size(1)
+				end,
+			},
+		}
+		if pose and #pose.l.variants > 1 then
+			table.insert(items, {
+				step = "Model",
+				value = pose.l.variants[pose.vi].inst.Name,
+				dec = function()
+					nextModel(-1)
+				end,
+				inc = function()
+					nextModel(1)
+				end,
+			})
+		end
+		if one then
+			table.insert(items, {
+				button = "Move",
+				on = moving,
+				click = function()
+					moving = not moving
+					showPicked()
+				end,
+			})
+		end
+		local back = canGoBack()
+		if back > 0 then
+			table.insert(items, { button = several("Back to its rules", "Back to their rules"), click = backToRules })
+		end
+		table.insert(items, { button = several("Remove", string.format("Remove %d", #picks)), click = remove, danger = true })
+		local title = one and copy.Name or string.format("%d copies", #picks)
+		local key = string.format(
+			"%d|%s|%s|%d|%s",
+			#picks,
+			tostring(moving),
+			pose and string.format("%.3f|%.3f|%d", pose.yaw, pose.k, pose.vi) or "",
+			back,
+			title
+		)
+		return title, items, key
+	end
 
-	-- the mouse moved with Select on: name what a click would select; the picked copy keeps its outline
+	-- the mouse moved with Select on: name what a click would select; the picked copies keep their boxes
 	App.selectMove = function()
+		if press and (Vector2.new(rawMouse.X, rawMouse.Y) - press.px).Magnitude > DRAG_PX then
+			press.dragging = true
+		end
+		if press and press.dragging then -- a box being dragged out
+			App.viewRect(press.px, Vector2.new(rawMouse.X, rawMouse.Y))
+			App.setLabel("")
+			return
+		end
 		local thing, key, copy = App.pickAt()
 		local g = App.mouseHit()
 		App.gizmoFolder()
@@ -16059,10 +16777,10 @@ return function(App)
 				App.gz[k].Visible = false
 			end
 		end
-		local mine = pickedCopy()
-		light("copySel", mine, 0.8)
-		light("copyHover", not moving and copy ~= mine and copy or nil, 1)
-		if moving or (mine and (copy == mine or not thing)) then
+		outline()
+		local mine = copy ~= nil and indexOf(copy) ~= nil
+		lightHover(not moving and not mine and copy or nil)
+		if moving or (#picks > 0 and (mine or not thing)) then
 			showPicked()
 		elseif thing and g then
 			App.gz.anchor.CFrame = CFrame.new(g.Position)
@@ -16070,7 +16788,7 @@ return function(App)
 			if key then
 				what ..= " · " .. (string.match(key, "([^%.]+)$") or key)
 			end
-			App.setLabel("Click to select " .. what)
+			App.setLabel((copy and #picks > 0 and App.shiftHeld()) and "Click to add it" or ("Click to select " .. what))
 		else
 			App.setLabel("")
 		end
@@ -16084,32 +16802,57 @@ return function(App)
 			end
 			return
 		end
+		local add = App.shiftHeld()
 		local thing, key, copy = App.pickAt()
-		if not thing then
-			unpick()
+		if not copy then -- on the ground or on nothing: a click selects what's there, a drag boxes copies
+			press = { px = Vector2.new(rawMouse.X, rawMouse.Y), add = add, thing = thing }
 			return
 		end
-		if copy and copy == pickedCopy() then
-			-- the picked copy clicked again: its menu, by the mouse (as Shift + right-click opens it)
-			App.viewMenu(menu(), string.upper(copy.Name))
+		if not add and indexOf(copy) then
+			-- a picked copy clicked again: the menu, by the mouse (as Shift + right-click opens it)
+			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
 			return
 		end
-		local object
-		if copy then
-			object = pick(thing, key, copy)
-		else
-			unpick()
-			App.select(thing)
+		local object = pick(thing, key, copy, add)
+		if #picks > 1 then
+			App.status(string.format("%d copies picked. Shift + wheel turns them, Alt + wheel sizes them; the bar at the top has the rest.", #picks))
+		elseif #picks == 1 then
+			App.status(
+				"Selected "
+					.. (thing.folder and thing.folder.Name or thing.kind)
+					.. (object and (" · " .. object.inst.Name) or "")
+					.. ". Shift + wheel turns this copy, Alt + wheel sizes it; Shift + click adds more."
+			)
 		end
-		App.status(
-			"Selected "
-				.. (thing.folder and thing.folder.Name or thing.kind)
-				.. (object and (" · " .. object.inst.Name) or "")
-				.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, Shift + right-click (or a second click) has more." or ".")
-		)
 	end
-	-- Shift + right-click on a copy: it's picked, and its menu opens by the mouse. (With Shift: Studio opens its own
-	-- menu on a plain right-click, and a plugin can't stop it.)
+	-- the button let go: a drag's box picks the copies in it; a plain click selects what was under it
+	App.selectUp = function()
+		local pr = press
+		press = nil
+		if not pr then
+			return
+		end
+		App.viewRect(nil)
+		if pr.dragging then
+			local n = boxPick(pr.px, Vector2.new(rawMouse.X, rawMouse.Y), pr.add)
+			App.status(
+				n > 0 and string.format("%d cop%s picked. The bar at the top turns, sizes and removes them.", n, n == 1 and "y" or "ies")
+					or "No copies in that box."
+			)
+			return
+		end
+		if pr.add and #picks > 0 then
+			return -- (Shift + a click beside the copies: nothing is let go)
+		end
+		unpick()
+		App.setLabel("")
+		if pr.thing then
+			App.select(pr.thing)
+			App.status("Selected " .. (pr.thing.folder and pr.thing.folder.Name or pr.thing.kind) .. ".")
+		end
+	end
+	-- Shift + right-click on a copy: it's picked (if it wasn't), and the menu opens by the mouse. (With Shift: Studio
+	-- opens its own menu on a plain right-click, and a plugin can't stop it.)
 	App.onRightClick(function()
 		if App.mode ~= "Select" or moving or not App.shiftHeld() then
 			return
@@ -16118,16 +16861,16 @@ return function(App)
 		if not copy then
 			return
 		end
-		if copy ~= pickedCopy() then
+		if not indexOf(copy) then
 			pick(thing, key, copy)
 		end
-		if picked then
-			App.viewMenu(menu(), string.upper(copy.Name))
+		if #picks > 0 then
+			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
 		end
 	end)
-	-- the wheel on the picked copy: Shift turns it, Alt sizes it (a plain notch zooms, as ever)
+	-- the wheel on the picked copies: Shift turns them, Alt sizes them (a plain notch zooms, as ever)
 	local function wheel(dir)
-		if App.mode ~= "Select" or not picked then
+		if App.mode ~= "Select" or #picks == 0 then
 			return
 		end
 		local does = App.wheelDoes()
@@ -16147,11 +16890,12 @@ return function(App)
 	App.track(rawMouse.WheelBackward:Connect(function()
 		wheel(-1)
 	end))
-	-- the picked copy's keys (the stamp's, and Delete); true when the key was one of them
+	-- the picked copies' keys (the stamp's, and Delete); true when the key was one of them
 	App.selectKey = function(name)
-		if name == "cancel" and (moving or picked) then -- first the move is dropped, then the copy let go
-			if moving then
-				moving = false
+		if name == "cancel" and (moving or press or #picks > 0) then -- first what's half done is dropped, then the copies let go
+			if moving or press then
+				moving, press = false, nil
+				App.viewRect(nil)
 				showPicked()
 			else
 				unpick()
@@ -16159,7 +16903,7 @@ return function(App)
 			end
 			return true
 		end
-		if not picked then
+		if #picks == 0 then
 			return false
 		end
 		if name == "turn" then
@@ -16167,7 +16911,7 @@ return function(App)
 		elseif name == "grow" or name == "shrink" then
 			size(name == "grow" and 1 or -1)
 		elseif name == "model" then
-			nextModel()
+			nextModel(1)
 		elseif name == "delete" then
 			remove()
 		else
@@ -16175,25 +16919,61 @@ return function(App)
 		end
 		return true
 	end
+	-- The quick menu (its key, Z): the picked copies' actions round the mouse, or with none picked the tools, one of
+	-- each group. Where the viewport can't show it, the search menu opens.
+	App.openQuick = function()
+		local items, title = {}, nil
+		if App.mode == "Select" and #picks > 0 then
+			for _, it in menu() do
+				if type(it) == "table" then
+					table.insert(items, it)
+				end
+			end
+			title = #picks == 1 and "COPY" or string.format("%d COPIES", #picks)
+		else
+			for _, g in App.toolGroups() do
+				local t = g.tools[1]
+				if t and t.id ~= "search" then
+					table.insert(items, { (string.match(t.name, "^([^:(]+)") or t.name):gsub("%s+$", ""), t.click, t.on() and P.accent or nil })
+				end
+			end
+			title = "TOOLS"
+		end
+		if not App.viewPie(items, title) and App.openPalette then
+			App.openPalette()
+		end
+	end
 	-- (for the search menu, the suite and other tools)
 	App.pickedCopy = pickedCopy
+	App.pickedCopies = function()
+		local t = {}
+		for _, e in picks do
+			local c = copyOf(e)
+			if c then
+				table.insert(t, c)
+			end
+		end
+		return t
+	end
 	App.pickCopy = pick
+	App.boxPick = boxPick
 	App.copyMenu = menu
+	App.copyHeader = header
 	App.copyEdit = { turn = turn, size = size, model = nextModel, move = moveTo, remove = remove, back = backToRules }
-	-- another thing selected: the picked copy was the last one's
+	-- another thing selected: the picked copies were the last one's
 	App.onSelect(function(thing)
-		if picked and not (thing and thing.folder == picked.folder) then
+		if #picks > 0 and not (thing and thing.folder == picks[1].folder) then
 			unpick()
 		end
 	end)
 
-	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, stop = unpick, noArea = true })
+	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, up = App.selectUp, stop = unpick, header = header, noArea = true })
 
 	App.registerTool({
 		id = "select",
 		group = "Select",
 		icon = "cursor",
-		name = "Select: click a zone, a path or a placed copy",
+		name = "Select: click a zone, a path or a placed copy; Shift + click or drag a box for more copies",
 		on = function()
 			return App.mode == "Select"
 		end,
@@ -17868,6 +18648,58 @@ return function(App)
 		stop = function()
 			App.clearStamp()
 		end,
+		-- the viewport's header: the model, and its turn, size and model as steps
+		header = function()
+			local models = stamp.models
+			local cur = models[stamp.vi] or models[1]
+			local function changed()
+				if App.refreshStamp then
+					App.refreshStamp()
+				end
+			end
+			local items = {
+				{
+					step = "Turn",
+					value = string.format("%d°", math.floor(math.deg(stamp.yaw) + 0.5) % 360),
+					dec = function()
+						App.setStamp(math.deg(stamp.yaw) - 15)
+						changed()
+					end,
+					inc = function()
+						App.setStamp(math.deg(stamp.yaw) + 15)
+						changed()
+					end,
+				},
+				{
+					step = "Size",
+					value = string.format("%.2f×", stamp.k),
+					dec = function()
+						App.setStamp(nil, math.max(stamp.k / 1.1, 0.05))
+						changed()
+					end,
+					inc = function()
+						App.setStamp(nil, math.min(stamp.k * 1.1, 20))
+						changed()
+					end,
+				},
+			}
+			if #models > 1 then
+				table.insert(items, {
+					step = "Model",
+					value = cur.Name,
+					dec = function()
+						App.setStamp(nil, nil, (stamp.vi - 2) % #models + 1)
+						changed()
+					end,
+					inc = function()
+						App.setStamp(nil, nil, stamp.vi % #models + 1)
+						changed()
+					end,
+				})
+			end
+			table.insert(items, { button = "Random", click = App.rollStamp })
+			return "Stamp · " .. (cur and cur.Name or ""), items, string.format("%.3f|%.3f|%s|%d", stamp.yaw, stamp.k, tostring(stamp.vi), #models)
+		end,
 		noArea = true,
 	})
 
@@ -18093,18 +18925,18 @@ return function(App)
 		saveG()
 		App.refreshSliders()
 	end
-	local function stampChanged()
-		if App.refreshStamp then
-			App.refreshStamp()
-		end
-	end
-
-	-- what the bar shows for the tool in use: a title, then items
-	-- { text } · { step = label, value, dec, inc } · { button = text, click, on? }
+	-- What the bar shows for the tool in use: a title, then items
+	-- { text } · { step = label, value, dec, inc } · { button = text, click, on?, danger? }
+	-- A mode of its own (App.registerMode) brings its header: header() -> title, items, key (key: a text that changes
+	-- when the bar should be drawn again). The painting tools' headers are here.
 	local function options()
 		local m = App.mode
 		if m == "Off" then
 			return nil
+		end
+		local handler = App.modeHandlers[m]
+		if handler and handler.header then
+			return handler.header()
 		end
 		local items = {}
 		local title
@@ -18150,50 +18982,6 @@ return function(App)
 			else
 				table.insert(items, { text = App.TOOL_HINT and App.TOOL_HINT[G.tool] or "" })
 			end
-		elseif m == "Stamp" then
-			local st = App.stamp
-			local models = st.models
-			local cur = models[st.vi] or models[1]
-			title = "Stamp · " .. (cur and cur.Name or "")
-			table.insert(items, {
-				step = "Turn",
-				value = string.format("%d°", math.floor(math.deg(st.yaw) + 0.5) % 360),
-				dec = function()
-					App.setStamp(math.deg(st.yaw) - 15)
-					stampChanged()
-				end,
-				inc = function()
-					App.setStamp(math.deg(st.yaw) + 15)
-					stampChanged()
-				end,
-			})
-			table.insert(items, {
-				step = "Size",
-				value = string.format("%.2f×", st.k),
-				dec = function()
-					App.setStamp(nil, math.max(st.k / 1.1, 0.05))
-					stampChanged()
-				end,
-				inc = function()
-					App.setStamp(nil, math.min(st.k * 1.1, 20))
-					stampChanged()
-				end,
-			})
-			if #models > 1 then
-				table.insert(items, {
-					step = "Model",
-					value = cur.Name,
-					dec = function()
-						App.setStamp(nil, nil, (st.vi - 2) % #models + 1)
-						stampChanged()
-					end,
-					inc = function()
-						App.setStamp(nil, nil, st.vi % #models + 1)
-						stampChanged()
-					end,
-				})
-			end
-			table.insert(items, { button = "Random", click = App.rollStamp })
 		elseif App.LAYER_MODES[m] and App.paintLayer then
 			title = App.LAYER_LABEL[m] .. " · " .. App.paintLayer.inst.Name
 			table.insert(items, brushSize)
@@ -18211,12 +18999,6 @@ return function(App)
 			if App.hasPath() then
 				table.insert(items, { button = "Subdivide", click = App.subdivideSpline })
 			end
-		elseif m == "Array" then
-			title = "Array"
-			table.insert(items, { text = "Press and drag along where the copies go" })
-		elseif m == "Select" then
-			title = "Select"
-			table.insert(items, { text = "Click a zone's ground, a path or a placed copy" })
 		elseif m == "Remove" then
 			title = "Remove copies"
 			table.insert(items, { text = "Click a copy to take it out" })
@@ -18238,12 +19020,12 @@ return function(App)
 			return
 		end
 		label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
-		local function small(text, click, on)
+		local function small(text, click, on, danger)
 			local b = new("TextButton", {
 				Text = text,
 				Font = SANS,
 				TextSize = 12,
-				TextColor3 = on and P.onAccent or P.text,
+				TextColor3 = on and P.onAccent or danger and P.danger or P.text,
 				AutoButtonColor = false,
 				BackgroundColor3 = on and P.accent or P.raised,
 				Size = UDim2.fromOffset(0, 24),
@@ -18276,7 +19058,7 @@ return function(App)
 				})
 				small("+", it.inc).Size = UDim2.fromOffset(22, 24)
 			else
-				small(it.button, it.click, it.on)
+				small(it.button, it.click, it.on, it.danger)
 			end
 		end
 	end
@@ -18348,7 +19130,7 @@ return function(App)
 			a and #a.layers or 0,
 			sel and sel.kind or ""
 		)
-		local st = App.stamp or {}
+		local handler = App.modeHandlers[App.mode]
 		local b = table.concat({
 			App.mode,
 			G.tool,
@@ -18358,7 +19140,7 @@ return function(App)
 			tostring(App.paintLayer and App.paintLayer.inst.Name),
 			tostring(App.shapeTool),
 			tostring(App.hasPath and App.hasPath()),
-			string.format("%.3f|%.3f|%s|%d", st.yaw or 0, st.k or 0, tostring(st.vi), st.models and #st.models or 0),
+			handler and handler.header and tostring(select(3, handler.header())) or "",
 		}, "|")
 		return s, b
 	end
@@ -18493,6 +19275,96 @@ return function(App)
 		end
 		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
 		keepOn()
+	end
+
+	-- The quick menu: up to eight actions in a ring round the mouse (Blender's pie menus), items { { text, run,
+	-- color? } }, a word in the middle if given. A click on one runs it; any other click closes it. false where the
+	-- viewport can't show it.
+	local RING, PIE_W, PIE_H = 96, 118, 28
+	App.viewPie = function(items, title)
+		App.closeViewMenu()
+		if not App.toolbarAvailable() then
+			return false
+		end
+		local list = {}
+		for _, it in items do
+			if type(it) == "table" and #list < 8 then
+				table.insert(list, it)
+			end
+		end
+		if #list == 0 then
+			return false
+		end
+		local screen = gui.AbsoluteSize
+		local at = Vector2.new(
+			math.clamp(App.rawMouse.X, RING + PIE_W / 2 + 6, math.max(RING + PIE_W / 2 + 6, screen.X - RING - PIE_W / 2 - 6)),
+			math.clamp(App.rawMouse.Y, RING + PIE_H, math.max(RING + PIE_H, screen.Y - RING - PIE_H))
+		)
+		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
+		menu = catcher
+		catcher.MouseButton1Click:Connect(App.closeViewMenu)
+		catcher.MouseButton2Click:Connect(App.closeViewMenu)
+		if title then
+			local mid = label(title, 11, P.dim, SANS_B, {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(at.X, at.Y),
+				Size = UDim2.fromOffset(0, 22),
+				AutomaticSize = Enum.AutomaticSize.X,
+				BackgroundTransparency = SEE,
+				BackgroundColor3 = P.card,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				ZIndex = 21,
+				Parent = catcher,
+			})
+			corner(11).Parent = mid
+			pad(9, 9, 0, 0).Parent = mid
+		end
+		for i, it in list do
+			local ang = -math.pi / 2 + (i - 1) * 2 * math.pi / #list -- (the first at the top, then clockwise)
+			local b = new("TextButton", {
+				Text = it[1],
+				Font = SANS,
+				TextSize = 12,
+				TextColor3 = it[3] or P.text,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				BackgroundColor3 = P.card,
+				BackgroundTransparency = SEE,
+				AutoButtonColor = false,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(at.X + math.cos(ang) * RING * 1.25, at.Y + math.sin(ang) * RING * 0.8),
+				Size = UDim2.fromOffset(PIE_W, PIE_H),
+				ZIndex = 22,
+				Parent = catcher,
+			}, { corner(7), stroke(P.line), pad(6, 6, 0, 0) })
+			b.MouseEnter:Connect(function()
+				b.BackgroundColor3, b.BackgroundTransparency = P.hover, 0
+			end)
+			b.MouseLeave:Connect(function()
+				b.BackgroundColor3, b.BackgroundTransparency = P.card, SEE
+			end)
+			b.MouseButton1Click:Connect(function()
+				App.closeViewMenu()
+				it[2]()
+			end)
+		end
+		return true
+	end
+
+	-- a drag's rectangle in the viewport, from a to b (screen points); nil takes it away
+	local rect
+	App.viewRect = function(a, b)
+		if not (a and b and gui and gui.Parent) then
+			if rect then
+				rect.Visible = false
+			end
+			return
+		end
+		if not (rect and rect.Parent) then
+			rect = box({ BackgroundTransparency = 0.85, BackgroundColor3 = P.accent, ZIndex = 15, Parent = gui }, { stroke(P.accent) })
+		end
+		rect.Visible = true
+		rect.Position = UDim2.fromOffset(math.min(a.X, b.X), math.min(a.Y, b.Y))
+		rect.Size = UDim2.fromOffset(math.abs(a.X - b.X), math.abs(a.Y - b.Y))
 	end
 
 	-- false when Studio won't show the strip (no CoreGui here): the panel then shows App.buildToolRow
