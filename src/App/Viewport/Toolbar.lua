@@ -376,82 +376,13 @@ return function(App)
 		return false
 	end
 
-	-- A small menu in the viewport, at the mouse: items { { text, run, color? } } or "-" for a line, a title first if
-	-- given (the panel's App.popupMenu, in the 3D view). A click on an item runs it; any click closes the menu. Where
-	-- Studio won't show the strip (no CoreGui), the panel's menu opens instead.
-	local menu
+	local menu -- the quick menu while it's open (the screen-wide button that holds it)
 	App.closeViewMenu = function()
 		if menu then
 			menu:Destroy()
 			menu = nil
 		end
 	end
-	App.viewMenu = function(items, title)
-		App.closeViewMenu()
-		if not App.toolbarAvailable() then
-			App.popupMenu(App.ui.outliner or App.root, items, title)
-			return
-		end
-		local at = Vector2.new(App.rawMouse.X, App.rawMouse.Y) -- (where it was opened: the mouse moves on)
-		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
-		menu = catcher
-		catcher.MouseButton1Click:Connect(App.closeViewMenu)
-		catcher.MouseButton2Click:Connect(App.closeViewMenu)
-		local W = 210
-		local list = box({
-			BackgroundTransparency = SEE,
-			BackgroundColor3 = P.card,
-			Position = UDim2.fromOffset(at.X + 4, at.Y + 4),
-			Size = UDim2.fromOffset(W, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			ZIndex = 21,
-			Parent = catcher,
-		}, { corner(8), stroke(P.line), pad(4, 4, 4, 4), App.vlist(1) })
-		if title then
-			local head = label(title, 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), ZIndex = 22, Parent = list })
-			pad(8, 8, 0, 0).Parent = head
-		end
-		for _, it in items do
-			if it == "-" then
-				box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 22, Parent = list })
-				continue
-			end
-			local b = new("TextButton", {
-				Text = it[1],
-				Font = SANS,
-				TextSize = 13,
-				TextColor3 = it[3] or P.text,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				BackgroundColor3 = P.hover,
-				BackgroundTransparency = 1,
-				AutoButtonColor = false,
-				Size = UDim2.new(1, 0, 0, 26),
-				ZIndex = 22,
-				Parent = list,
-			}, { corner(5), pad(8, 8, 0, 0) })
-			b.MouseEnter:Connect(function()
-				b.BackgroundTransparency = 0
-			end)
-			b.MouseLeave:Connect(function()
-				b.BackgroundTransparency = 1
-			end)
-			b.MouseButton1Click:Connect(function()
-				App.closeViewMenu()
-				it[2]()
-			end)
-		end
-		-- kept on the screen: a menu opened near the right or the bottom edge moves in (once it knows its height)
-		local function keepOn()
-			local screen = gui.AbsoluteSize
-			list.Position = UDim2.fromOffset(
-				math.max(4, math.min(at.X + 4, screen.X - W - 8)),
-				math.max(4, math.min(at.Y + 4, screen.Y - list.AbsoluteSize.Y - 8))
-			)
-		end
-		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
-		keepOn()
-	end
-
 	-- The quick menu: up to eight actions in a ring round the mouse (Blender's pie menus), items { { text, run,
 	-- color? } }, a word in the middle if given. A click on one runs it; any other click closes it. false where the
 	-- viewport can't show it.

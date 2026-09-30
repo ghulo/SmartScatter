@@ -1,7 +1,8 @@
 --[[
 	Smart Scatter — Properties: the tabs for what's selected (Core/Selection), from the tabs the features registered
 	(Core/Registry), and the page of the open one. Like Blender's properties editor: pick a thing and its settings are
-	here; pick one of its objects and its Object tab opens.
+	here; pick one of its objects and its Object tab opens. The tabs are a column of icons beside the page; the line
+	over the page names what's open.
 	Which tab is open: the one picked, while the selection keeps it; else the last one used for that kind of thing;
 	else the one for its next step (an unpainted zone: Zone; an undrawn path: Curve; else Objects).
 	Also the search results (every matching card of the selection's tabs and of Settings) and, with no areas at all,
@@ -83,67 +84,65 @@ return function(App)
 	end)
 
 	--------------------------------------------------------------------------------
-	-- The tab row
+	-- The tabs: a column of icons down the left of the page (as in Blender's properties editor), so every tab fits
+	-- however narrow the panel is. A tab's name is its tip, and the line over the page says which one is open.
 	--------------------------------------------------------------------------------
-	App.buildTabRow = function(parent)
+	App.TAB_COL = 38 -- the column's width
+	local TAB = 30 -- a tab's button
+	App.buildTabColumn = function(parent)
 		local open, tabs = App.currentTab()
-		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
-		App.ui.tabRow = strip
-		local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
-			new("UIGridLayout", {
-				CellSize = UDim2.new(1 / math.max(#tabs, 1), 0, 1, 0),
-				CellPadding = UDim2.fromOffset(0, 0),
+		local column = new("ScrollingFrame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(0, App.TAB_COL, 1, 0),
+			CanvasSize = UDim2.new(),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollBarThickness = 0, -- (more tabs than fit: the wheel scrolls them)
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+			ZIndex = 2,
+			Parent = parent,
+		}, {
+			new("UIListLayout", {
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				Padding = UDim.new(0, 4),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
+			App.pad(0, 0, 10, 10),
 		})
-		box({ -- the hairline the tabs stand on
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.line,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 0, 1, 0),
-			Size = UDim2.new(1, 0, 0, 1),
-			Parent = strip,
-		})
+		App.ui.tabRow = column
 		App.ui.tabs = {}
-		local fits = {} -- [label] = its icon: under a certain width only the icons show (the name on hover)
 		for i, t in tabs do
 			local on = t == open and not App.searching()
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, LayoutOrder = i, Parent = bar })
+			local b = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundColor3 = on and P.accentSoft or P.hover,
+				BackgroundTransparency = on and 0 or 1,
+				Size = UDim2.fromOffset(TAB, TAB),
+				LayoutOrder = i,
+				ZIndex = 2,
+				Parent = column,
+			}, { App.corner(8) })
+			local ic = App.icon(t.icon, 15, on and P.accent or P.dim)
+			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+			ic.ZIndex = 3
+			ic.Parent = b
 			if on then
-				box({
+				box({ -- the open tab's mark, on the edge the page is on
 					BackgroundTransparency = 0,
 					BackgroundColor3 = P.accent,
-					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5, 1),
-					Size = UDim2.new(1, -12, 0, 2),
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, 3, 0.5, 0),
+					Size = UDim2.fromOffset(2, TAB - 12),
 					ZIndex = 3,
 					Parent = b,
 				}, { App.corner(1) })
-			end
-			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-				new("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					HorizontalAlignment = Enum.HorizontalAlignment.Center,
-					VerticalAlignment = Enum.VerticalAlignment.Center,
-					Padding = UDim.new(0, 5),
-				}),
-			})
-			local fg = on and P.text or P.dim
-			local ic = App.icon(t.icon, 13, on and P.accent or fg)
-			ic.Parent = row
-			local text = label(t.title, 12, fg, on and SANS_B or SANS_M, {
-				Size = UDim2.fromOffset(0, 16),
-				AutomaticSize = Enum.AutomaticSize.X,
-				Parent = row,
-			})
-			fits[text] = ic
-			if not on then
+			else
 				b.MouseEnter:Connect(function()
-					text.TextColor3 = P.text
+					b.BackgroundTransparency = 0
 					App.setIconColor(ic, P.text)
 				end)
 				b.MouseLeave:Connect(function()
-					text.TextColor3 = P.dim
+					b.BackgroundTransparency = 1
 					App.setIconColor(ic, P.dim)
 				end)
 			end
@@ -153,23 +152,73 @@ return function(App)
 			App.hintOn(b, t.title)
 			App.ui.tabs[t.id] = b
 		end
-		-- every tab the same way: icons and names; else names alone (they read better); else icons alone (the name
-		-- on hover). One tab without its name among named ones would look broken.
-		local function fit()
-			local cell = bar.AbsoluteSize.X / math.max(#tabs, 1)
-			local both, names = true, true
-			for text, ic in fits do
-				both = both and cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
-				names = names and cell >= text.TextBounds.X + 8
+		return column
+	end
+
+	-- The line over the page: what the settings below belong to (the thing, then its open object; a click on the thing
+	-- goes back up to it) and, on the right, the open tab's name.
+	App.buildCrumb = function(parent)
+		local open = App.currentTab()
+		local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+		local left = box({ Size = UDim2.new(1, -96, 1, 0), ClipsDescendants = true, Parent = row }, { hlist(6) })
+		local function word(text, color, font, click)
+			local w = new(click and "TextButton" or "TextLabel", {
+				Text = text,
+				Font = font,
+				TextSize = 12,
+				TextColor3 = color,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				BackgroundTransparency = 1,
+				Size = UDim2.fromOffset(0, 22),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Parent = left,
+			}, { new("UISizeConstraint", { MaxSize = Vector2.new(130, 22) }) })
+			if click then
+				w.AutoButtonColor = false
+				w.MouseEnter:Connect(function()
+					w.TextColor3 = P.accent
+				end)
+				w.MouseLeave:Connect(function()
+					w.TextColor3 = color
+				end)
+				w.MouseButton1Click:Connect(click)
 			end
-			for text, ic in fits do
-				text.Visible = both or names
-				ic.Visible = both or not names
+			return w
+		end
+		local sel, active = App.selected, App.active
+		if App.searching() then
+			word("Search results", P.dim, SANS_M)
+		elseif not sel then
+			word("Nothing selected", P.faint, SANS_M)
+		else
+			local spec = App.kindSpec(sel.kind)
+			local name = sel.folder and sel.folder.Name or (spec and spec.title or sel.kind)
+			if active then
+				App.hintOn(
+					word(name, P.dim, SANS_M, function()
+						App.selectObject(nil)
+					end),
+					"Back to " .. name .. " itself."
+				)
+				local sep = App.icon("right", 9, P.faint)
+				sep.AnchorPoint, sep.Position = Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5)
+				sep.Parent = box({ Size = UDim2.fromOffset(9, 22), Parent = left })
+				word(active.inst.Name, P.text, SANS_B)
+			else
+				word(name, P.text, SANS_B)
 			end
 		end
-		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-		task.defer(fit) -- (once the names have measured their text)
-		return strip
+		if open and not App.searching() then
+			label(string.upper(open.title), 11, P.faint, SANS_B, {
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 0, 0, 0),
+				Size = UDim2.fromOffset(92, 22),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Parent = row,
+			})
+		end
+		App.ui.crumb = row
+		return row
 	end
 
 	--------------------------------------------------------------------------------

@@ -7,8 +7,7 @@
 	Shift + click picks more copies of the same zone (or takes one back out), and a drag over the ground boxes them;
 	what's done then is done to each. The viewport's header shows what's picked, with the same changes as buttons.
 	A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
-	sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
-	picked one, has the rest (another model,
+	sizes it (as the stamp's), the stamp's keys work on it, and the quick menu (its key, Z) has the rest (another model,
 	moving it, giving it back to the rules, removing it). A copy changed this way becomes a stamp's pin of its object
 	(Engine/Pins), so generating puts it back just as it was left.
 	Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
@@ -245,8 +244,8 @@ return function(App)
 			App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
 			App.setLabel(
 				moving and "Click where it should stand"
-					or #picks > 1 and string.format("%d copies  ·  Shift + right-click for more", #picks)
-					or (describe(copy) .. "  ·  Shift + right-click for more")
+					or #picks > 1 and string.format("%d copies  ·  %s for more", #picks, App.keyText("quick"))
+					or (describe(copy) .. "  ·  " .. App.keyText("quick") .. " for more")
 			)
 		end
 	end
@@ -557,7 +556,7 @@ return function(App)
 		return #picks
 	end
 
-	-- what can be done to the picked copies (Shift + right-click, a second click on one, or the quick menu)
+	-- what can be done to the picked copies: the quick menu's items (its key; the viewport's header has the same)
 	local function menu()
 		local a, copy = App.area, pickedCopy()
 		local pose = a and copy and Engine.copyPose(a, copy)
@@ -741,10 +740,8 @@ return function(App)
 			press = { px = Vector2.new(rawMouse.X, rawMouse.Y), add = add, thing = thing }
 			return
 		end
-		if not add and indexOf(copy) then
-			-- a picked copy clicked again: the menu, by the mouse (as Shift + right-click opens it)
-			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
-			return
+		if not add and #picks == 1 and indexOf(copy) then
+			return -- (the picked copy clicked again: it stays as it is)
 		end
 		local object = pick(thing, key, copy, add)
 		if #picks > 1 then
@@ -754,7 +751,9 @@ return function(App)
 				"Selected "
 					.. (thing.folder and thing.folder.Name or thing.kind)
 					.. (object and (" · " .. object.inst.Name) or "")
-					.. ". Shift + wheel turns this copy, Alt + wheel sizes it; Shift + click adds more."
+					.. ". Shift + wheel turns this copy, Alt + wheel sizes it, "
+					.. App.keyText("quick")
+					.. " has more; Shift + click adds copies."
 			)
 		end
 	end
@@ -784,23 +783,6 @@ return function(App)
 			App.status("Selected " .. (pr.thing.folder and pr.thing.folder.Name or pr.thing.kind) .. ".")
 		end
 	end
-	-- Shift + right-click on a copy: it's picked (if it wasn't), and the menu opens by the mouse. (With Shift: Studio
-	-- opens its own menu on a plain right-click, and a plugin can't stop it.)
-	App.onRightClick(function()
-		if App.mode ~= "Select" or moving or not App.shiftHeld() then
-			return
-		end
-		local thing, key, copy = App.pickAt()
-		if not copy then
-			return
-		end
-		if not indexOf(copy) then
-			pick(thing, key, copy)
-		end
-		if #picks > 0 then
-			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
-		end
-	end)
 	-- the wheel on the picked copies: Shift turns them, Alt sizes them (a plain notch zooms, as ever)
 	local function wheel(dir)
 		if App.mode ~= "Select" or #picks == 0 then
@@ -853,7 +835,9 @@ return function(App)
 		return true
 	end
 	-- The quick menu (its key, Z): the picked copies' actions round the mouse, or with none picked the tools, one of
-	-- each group. Where the viewport can't show it, the search menu opens.
+	-- each group. It's the one way to a copy's actions besides the header (a right-click can't be: Studio opens its
+	-- own menu on one). Where the viewport can't show it: the same actions as a menu in the panel, or, for the tools,
+	-- the search menu.
 	App.openQuick = function()
 		local items, title = {}, nil
 		if App.mode == "Select" and #picks > 0 then
@@ -872,7 +856,12 @@ return function(App)
 			end
 			title = "TOOLS"
 		end
-		if not App.viewPie(items, title) and App.openPalette then
+		if App.viewPie(items, title) then
+			return
+		end
+		if title ~= "TOOLS" then
+			App.popupMenu(App.ui.outliner or App.root, menu(), title)
+		elseif App.openPalette then
 			App.openPalette()
 		end
 	end

@@ -956,6 +956,65 @@ return function(App)
 		drag.add(r, index)
 	end
 
+	-- An object in the grid (the list's other view, like a foliage palette): its picture, its name, how many it
+	-- placed, and a dot that turns it on or off. Click to open its settings; right-click for its menu. (Their order is
+	-- changed in the list view, or with Move up / Move down in the menu.)
+	local CELL_H, CELL_THUMB = 102, 56
+	local function layerCell(l, parent, index)
+		local c = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = P.card,
+			LayoutOrder = index,
+			Parent = parent,
+		}, { corner(10), stroke(P.line) })
+		c.MouseEnter:Connect(function()
+			c.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
+		end)
+		c.MouseLeave:Connect(function()
+			c.BackgroundColor3 = P.card
+		end)
+		local th = thumbnail(l.inst, CELL_THUMB)
+		th.AnchorPoint, th.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 8)
+		th.ImageTransparency = l.s.enabled and 0 or 0.55 -- (the picture is reused: set either way)
+		th.Parent = c
+		local name = label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 11, l.s.enabled and P.text or P.faint, SANS_B, {
+			Position = UDim2.fromOffset(5, CELL_THUMB + 12),
+			Size = UDim2.new(1, -10, 0, 14),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Parent = c,
+		})
+		local count = label("", 10, P.dim, SANS, {
+			Position = UDim2.fromOffset(5, CELL_THUMB + 26),
+			Size = UDim2.new(1, -10, 0, 12),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Parent = c,
+		})
+		rowRefs[l] = { name = name, count = count }
+		local dot = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = l.s.enabled and P.accent or P.raised,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 6),
+			Size = UDim2.fromOffset(14, 14),
+			ZIndex = 3,
+			Parent = c,
+		}, { corner(7), stroke(P.line) })
+		hintOn(dot, "On or off, keeping its settings.")
+		dot.MouseButton1Click:Connect(function()
+			l.s.enabled = not l.s.enabled
+			commit(l)
+			App.refreshObjects()
+		end)
+		c.MouseButton1Click:Connect(function()
+			showObject(l)
+		end)
+		c.MouseButton2Click:Connect(function()
+			App.popupMenu(nil, App.objectMenu(l))
+		end)
+	end
+
 	-- one object's settings: its name and what to do with it, then its rules
 	local function objectPage(l, parent)
 		local head = box({ Size = UDim2.new(1, 0, 0, 44), Parent = parent })
@@ -1409,11 +1468,39 @@ return function(App)
 		end
 		buildEverything(list)
 		gap(list, 2)
-		local drag = App.reorderList(function(from, to)
-			App.moveObject(App.area.layers[from], to)
-		end)
-		for i, l in App.area.layers do
-			layerRow(l, list, drag, i)
+		-- the objects, as a list (a row each, with its share and switch) or a grid of pictures (many at a glance)
+		App.segmented({ "List", "Grid" }, function()
+			return G.objGrid and "Grid" or "List"
+		end, function(v)
+			G.objGrid = v == "Grid"
+		end, function()
+			saveG()
+			App.refreshObjects()
+		end).Parent =
+			list
+		if G.objGrid then
+			local grid = new("Frame", {
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				Parent = list,
+			}, {
+				new("UIGridLayout", {
+					CellSize = UDim2.new(1 / 3, -6, 0, CELL_H),
+					CellPadding = UDim2.fromOffset(8, 8),
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}),
+			})
+			for i, l in App.area.layers do
+				layerCell(l, grid, i)
+			end
+		else
+			local drag = App.reorderList(function(from, to)
+				App.moveObject(App.area.layers[from], to)
+			end)
+			for i, l in App.area.layers do
+				layerRow(l, list, drag, i)
+			end
 		end
 		gap(list, 2)
 		hintOn(
@@ -1521,12 +1608,15 @@ return function(App)
 			if r.kind then
 				r.kind.Text = l.s.enabled and (what .. placed .. (l.s.locked and " · locked" or "")) or "Off"
 			end
+			if r.count then -- (a grid cell: only room for the number)
+				r.count.Text = not l.s.enabled and "Off" or n and (num(n) .. " placed") or what
+			end
 		end
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
 			local ok = canGenerate()
 			local failed = ok and App.failure ~= nil
 			-- always short; what's missing, why it failed, or what's waiting is in its tooltip
-			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Generate  ·  changes waiting" or "Generate"
+			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Apply changes" or "Generate"
 			tween(App.ui.genBtn, FAST, {
 				BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 				TextColor3 = ok and P.onAccent or P.faint,

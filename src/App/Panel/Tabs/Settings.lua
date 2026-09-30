@@ -194,7 +194,7 @@ return function(App)
 			end)
 		end
 		local fixed = label(
-			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon; Shift + right-click on a placed copy (Select) opens its menu. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
+			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 			12,
 			P.faint,
 			SANS,

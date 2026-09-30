@@ -74,6 +74,7 @@ return function(App)
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
 		compact = false, -- the compact panel: no search box, a shorter outliner (Settings › Look)
+		objGrid = false, -- the Objects list as a grid of pictures (its List / Grid switch)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,

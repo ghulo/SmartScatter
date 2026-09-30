@@ -117,12 +117,6 @@ local okAll, err = pcall(function()
 		App.selectUp()
 		shift = false
 	end
-	local menus = 0
-	local realMenu = App.viewMenu
-	App.viewMenu = function(items, title)
-		menus += 1
-		return realMenu(items, title)
-	end
 
 	-- ── one copy ─────────────────────────────────────────────────────────────────
 	App.setMode("Select")
@@ -147,7 +141,23 @@ local okAll, err = pcall(function()
 	)
 	task.wait(0.4)
 	click(c1:GetPivot().Position)
-	check("a second click on it opens its menu", menus == 1 and App.pickedCopy() == c1, menus)
+	check("a second click on it leaves it picked and opens nothing", App.pickedCopy() == c1 and (App.ui.popup == nil or App.ui.popup.Parent == nil))
+	App.openQuick()
+	task.wait(0.1)
+	local texts = {}
+	for _, d in App.ui.popup and App.ui.popup:GetDescendants() or {} do
+		if d:IsA("TextButton") and d.Text ~= "" then
+			table.insert(texts, d.Text)
+		end
+	end
+	texts = table.concat(texts, " | ")
+	check(
+		"the quick menu has its actions (here, where the viewport can't draw it, as a menu in the panel)",
+		string.find(texts, "Turn 15°", 1, true) ~= nil
+			and string.find(texts, "Move it", 1, true) ~= nil
+			and string.find(texts, "Remove", 1, true) ~= nil,
+		texts
+	)
 	App.closePopup()
 	items[2].inc() -- the header's Size +
 	settle(allThere(1))
@@ -253,7 +263,7 @@ local okAll, err = pcall(function()
 	end
 	App.openQuick()
 	App.openPalette = realPalette
-	check("the quick menu falls back to the search menu here", palettes == 1)
+	check("with nothing picked the quick menu is the tools': here, the search menu", palettes == 1)
 	App.setMode("Off")
 
 	-- ── the stamp's header comes from its own module ─────────────────────────────
@@ -327,6 +337,19 @@ local okAll, err = pcall(function()
 			end
 			return nRows
 		end
+		local headY, firstRowY = nil, math.huge
+		for _, d in App.ui.outliner:GetDescendants() do
+			if d:IsA("TextLabel") and string.find(d.Text, "^OUTLINER") then
+				headY = d.AbsolutePosition.Y
+			elseif d:IsA("TextButton") and d.AbsoluteSize.Y == 28 then
+				firstRowY = math.min(firstRowY, d.AbsolutePosition.Y)
+			end
+		end
+		check(
+			"it sits between the outliner's head and its rows",
+			headY ~= nil and tb.AbsolutePosition.Y > headY and tb.AbsolutePosition.Y < firstRowY,
+			string.format("head %s, box %d, first row %s", tostring(headY), tb.AbsolutePosition.Y, tostring(firstRowY))
+		)
 		local before = rowsShown()
 		tb.Text = string.lower(zone.Name)
 		task.wait(0.1)
@@ -406,6 +429,99 @@ local okAll, err = pcall(function()
 	check("randomize, then adjusted down to nothing: every size as it was before it", moved and sizesBack and App.lastEdit().kind == "random")
 	blocks[1]:Destroy()
 	check("once one of them is gone there's nothing to adjust", App.lastEdit() == nil)
+
+	-- ── the layout: the tab column, the line over the page, the grid of objects ───
+	local more = {}
+	for i, n in { "SS_ChecksPine", "SS_ChecksBush", "SS_ChecksCrate", "SS_ChecksAVeryLongModelNameIndeed" } do
+		local m = Instance.new("Model")
+		m.Name = n
+		local mp = Instance.new("Part")
+		mp.Anchored = true
+		mp.Size = Vector3.new(2 + i, 3 + i, 2)
+		mp.Color = Color3.fromHSV(i / 5, 0.5, 0.8)
+		mp.Parent = m
+		m.PrimaryPart = mp
+		m.Parent = SS
+		table.insert(made, m)
+		more[i] = m
+	end
+	App.select(App.thingOf(zone))
+	Selection:Set(more)
+	App.addSelected()
+	App.selectObject(nil)
+	App.openTab("objects")
+	task.wait(0.4)
+	local column = App.ui.tabRow
+	local nTabs = 0
+	for _ in App.ui.tabs do
+		nTabs += 1
+	end
+	check(
+		"the tabs are a column beside the page, the page starting where it ends",
+		column ~= nil
+			and column.AbsoluteSize.X == App.TAB_COL
+			and nTabs >= 3
+			and App.ui.tabs.objects ~= nil
+			and math.abs(App.scroll.AbsolutePosition.X - (column.AbsolutePosition.X + App.TAB_COL)) < 1
+			and math.abs(column.AbsolutePosition.Y - App.scroll.AbsolutePosition.Y) < 1,
+		column and (column.AbsoluteSize.X .. " wide, " .. nTabs .. " tabs")
+	)
+	local function crumbText()
+		local t = {}
+		for _, d in App.ui.crumb:GetDescendants() do
+			if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text ~= "" then
+				table.insert(t, d.Text)
+			end
+		end
+		return table.concat(t, " | ")
+	end
+	local crumb = crumbText()
+	check(
+		"the line over the page names the zone and the open tab",
+		string.find(crumb, zone.Name, 1, true) ~= nil and string.find(crumb, "OBJECTS", 1, true) ~= nil,
+		crumb
+	)
+	App.selectObject(App.area.layers[2])
+	task.wait(0.4)
+	crumb = crumbText()
+	check(
+		"with an object open it names both, and the tab is the object's",
+		string.find(crumb, zone.Name, 1, true) ~= nil
+			and string.find(crumb, App.area.layers[2].inst.Name, 1, true) ~= nil
+			and string.find(crumb, "OBJECT", 1, true) ~= nil,
+		crumb
+	)
+	App.selectObject(nil)
+	App.openTab("objects")
+	App.G.objGrid = true
+	App.rebuildAll()
+	task.wait(0.4)
+	local cells, pictures = 0, 0
+	for _, d in App.scroll:GetDescendants() do
+		if d:IsA("TextButton") and d.Parent:FindFirstChildOfClass("UIGridLayout") and d.AbsoluteSize.Y == 102 then
+			cells += 1
+			pictures += d:FindFirstChildOfClass("ViewportFrame") and 1 or 0
+		end
+	end
+	check(
+		"the grid view has a cell and a picture for every object",
+		cells == #App.area.layers and pictures == cells and cells == 5,
+		cells .. " cells, " .. pictures .. " pictures"
+	)
+	if _G.SS_ChecksDump then -- (for a look at it: python tools/preview/render.py <that name>)
+		_G.SS_DumpName = _G.SS_ChecksDump
+		table.insert(report, "      dump: " .. tostring(assert(loadstring(HS:GetAsync(URL .. "dump.lua", true)))()))
+	end
+	App.G.objGrid = false
+	App.refreshObjects()
+	task.wait(0.2)
+	local rowsBack = 0
+	for _, d in App.scroll:GetDescendants() do
+		if d:IsA("TextButton") and d.AbsoluteSize.Y == 60 then
+			rowsBack += 1
+		end
+	end
+	check("and the list view has its rows again", rowsBack == #App.area.layers, rowsBack)
 end)
 check("no errors", okAll, err)
 

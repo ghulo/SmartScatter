@@ -25,8 +25,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 158
-local BUNDLED_VERSION = "9.94"
+local BUNDLED_BUILD = 159
+local BUNDLED_VERSION = "9.95"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -4344,6 +4344,7 @@ return function(App)
 		density = 1,
 		textScale = 1.2, -- text size: 1 small, 1.2 normal, 1.4 large (App.TEXT_SIZES)
 		compact = false, -- the compact panel: no search box, a shorter outliner (Settings › Look)
+		objGrid = false, -- the Objects list as a grid of pictures (its List / Grid switch)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
@@ -9614,6 +9615,65 @@ return function(App)
 		drag.add(r, index)
 	end
 
+	-- An object in the grid (the list's other view, like a foliage palette): its picture, its name, how many it
+	-- placed, and a dot that turns it on or off. Click to open its settings; right-click for its menu. (Their order is
+	-- changed in the list view, or with Move up / Move down in the menu.)
+	local CELL_H, CELL_THUMB = 102, 56
+	local function layerCell(l, parent, index)
+		local c = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = P.card,
+			LayoutOrder = index,
+			Parent = parent,
+		}, { corner(10), stroke(P.line) })
+		c.MouseEnter:Connect(function()
+			c.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
+		end)
+		c.MouseLeave:Connect(function()
+			c.BackgroundColor3 = P.card
+		end)
+		local th = thumbnail(l.inst, CELL_THUMB)
+		th.AnchorPoint, th.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 8)
+		th.ImageTransparency = l.s.enabled and 0 or 0.55 -- (the picture is reused: set either way)
+		th.Parent = c
+		local name = label(l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""), 11, l.s.enabled and P.text or P.faint, SANS_B, {
+			Position = UDim2.fromOffset(5, CELL_THUMB + 12),
+			Size = UDim2.new(1, -10, 0, 14),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Parent = c,
+		})
+		local count = label("", 10, P.dim, SANS, {
+			Position = UDim2.fromOffset(5, CELL_THUMB + 26),
+			Size = UDim2.new(1, -10, 0, 12),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Parent = c,
+		})
+		rowRefs[l] = { name = name, count = count }
+		local dot = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = l.s.enabled and P.accent or P.raised,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 6),
+			Size = UDim2.fromOffset(14, 14),
+			ZIndex = 3,
+			Parent = c,
+		}, { corner(7), stroke(P.line) })
+		hintOn(dot, "On or off, keeping its settings.")
+		dot.MouseButton1Click:Connect(function()
+			l.s.enabled = not l.s.enabled
+			commit(l)
+			App.refreshObjects()
+		end)
+		c.MouseButton1Click:Connect(function()
+			showObject(l)
+		end)
+		c.MouseButton2Click:Connect(function()
+			App.popupMenu(nil, App.objectMenu(l))
+		end)
+	end
+
 	-- one object's settings: its name and what to do with it, then its rules
 	local function objectPage(l, parent)
 		local head = box({ Size = UDim2.new(1, 0, 0, 44), Parent = parent })
@@ -10067,11 +10127,39 @@ return function(App)
 		end
 		buildEverything(list)
 		gap(list, 2)
-		local drag = App.reorderList(function(from, to)
-			App.moveObject(App.area.layers[from], to)
-		end)
-		for i, l in App.area.layers do
-			layerRow(l, list, drag, i)
+		-- the objects, as a list (a row each, with its share and switch) or a grid of pictures (many at a glance)
+		App.segmented({ "List", "Grid" }, function()
+			return G.objGrid and "Grid" or "List"
+		end, function(v)
+			G.objGrid = v == "Grid"
+		end, function()
+			saveG()
+			App.refreshObjects()
+		end).Parent =
+			list
+		if G.objGrid then
+			local grid = new("Frame", {
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				Parent = list,
+			}, {
+				new("UIGridLayout", {
+					CellSize = UDim2.new(1 / 3, -6, 0, CELL_H),
+					CellPadding = UDim2.fromOffset(8, 8),
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}),
+			})
+			for i, l in App.area.layers do
+				layerCell(l, grid, i)
+			end
+		else
+			local drag = App.reorderList(function(from, to)
+				App.moveObject(App.area.layers[from], to)
+			end)
+			for i, l in App.area.layers do
+				layerRow(l, list, drag, i)
+			end
 		end
 		gap(list, 2)
 		hintOn(
@@ -10179,12 +10267,15 @@ return function(App)
 			if r.kind then
 				r.kind.Text = l.s.enabled and (what .. placed .. (l.s.locked and " · locked" or "")) or "Off"
 			end
+			if r.count then -- (a grid cell: only room for the number)
+				r.count.Text = not l.s.enabled and "Off" or n and (num(n) .. " placed") or what
+			end
 		end
 		if App.ui.genBtn and not App.busy() then -- while busy the button shows progress
 			local ok = canGenerate()
 			local failed = ok and App.failure ~= nil
 			-- always short; what's missing, why it failed, or what's waiting is in its tooltip
-			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Generate  ·  changes waiting" or "Generate"
+			App.ui.genBtn.Text = failed and "Try again" or (ok and App.hasPending()) and "Apply changes" or "Generate"
 			tween(App.ui.genBtn, FAST, {
 				BackgroundColor3 = failed and P.danger or ok and P.accent or P.raised,
 				TextColor3 = ok and P.onAccent or P.faint,
@@ -10667,10 +10758,11 @@ return function(App)
 				ClearTextOnFocus = false,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				Size = UDim2.new(1, 0, 0, 24),
-				LayoutOrder = -1,
 				Parent = wrap,
 			}, { corner(6), pad(8, 8, 0, 0) })
-			scroll.LayoutOrder = 1
+			-- (between the head and the list: it takes the list's place in the order, the list the one after)
+			tb.LayoutOrder = scroll.LayoutOrder
+			scroll.LayoutOrder += 1
 			tb:GetPropertyChangedSignal("Text"):Connect(function()
 				filter = tb.Text
 				applyFilter()
@@ -11657,7 +11749,8 @@ end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Properties</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Properties: the tabs for what's selected (Core/Selection), from the tabs the features registered
 	(Core/Registry), and the page of the open one. Like Blender's properties editor: pick a thing and its settings are
-	here; pick one of its objects and its Object tab opens.
+	here; pick one of its objects and its Object tab opens. The tabs are a column of icons beside the page; the line
+	over the page names what's open.
 	Which tab is open: the one picked, while the selection keeps it; else the last one used for that kind of thing;
 	else the one for its next step (an unpainted zone: Zone; an undrawn path: Curve; else Objects).
 	Also the search results (every matching card of the selection's tabs and of Settings) and, with no areas at all,
@@ -11739,67 +11832,65 @@ return function(App)
 	end)
 
 	--------------------------------------------------------------------------------
-	-- The tab row
+	-- The tabs: a column of icons down the left of the page (as in Blender's properties editor), so every tab fits
+	-- however narrow the panel is. A tab's name is its tip, and the line over the page says which one is open.
 	--------------------------------------------------------------------------------
-	App.buildTabRow = function(parent)
+	App.TAB_COL = 38 -- the column's width
+	local TAB = 30 -- a tab's button
+	App.buildTabColumn = function(parent)
 		local open, tabs = App.currentTab()
-		local strip = box({ Size = UDim2.new(1, 0, 0, 34), Parent = parent })
-		App.ui.tabRow = strip
-		local bar = box({ Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = strip }, {
-			new("UIGridLayout", {
-				CellSize = UDim2.new(1 / math.max(#tabs, 1), 0, 1, 0),
-				CellPadding = UDim2.fromOffset(0, 0),
+		local column = new("ScrollingFrame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(0, App.TAB_COL, 1, 0),
+			CanvasSize = UDim2.new(),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollBarThickness = 0, -- (more tabs than fit: the wheel scrolls them)
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+			ZIndex = 2,
+			Parent = parent,
+		}, {
+			new("UIListLayout", {
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				Padding = UDim.new(0, 4),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 			}),
+			App.pad(0, 0, 10, 10),
 		})
-		box({ -- the hairline the tabs stand on
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.line,
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 0, 1, 0),
-			Size = UDim2.new(1, 0, 0, 1),
-			Parent = strip,
-		})
+		App.ui.tabRow = column
 		App.ui.tabs = {}
-		local fits = {} -- [label] = its icon: under a certain width only the icons show (the name on hover)
 		for i, t in tabs do
 			local on = t == open and not App.searching()
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, LayoutOrder = i, Parent = bar })
+			local b = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundColor3 = on and P.accentSoft or P.hover,
+				BackgroundTransparency = on and 0 or 1,
+				Size = UDim2.fromOffset(TAB, TAB),
+				LayoutOrder = i,
+				ZIndex = 2,
+				Parent = column,
+			}, { App.corner(8) })
+			local ic = App.icon(t.icon, 15, on and P.accent or P.dim)
+			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+			ic.ZIndex = 3
+			ic.Parent = b
 			if on then
-				box({
+				box({ -- the open tab's mark, on the edge the page is on
 					BackgroundTransparency = 0,
 					BackgroundColor3 = P.accent,
-					AnchorPoint = Vector2.new(0.5, 1),
-					Position = UDim2.fromScale(0.5, 1),
-					Size = UDim2.new(1, -12, 0, 2),
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, 3, 0.5, 0),
+					Size = UDim2.fromOffset(2, TAB - 12),
 					ZIndex = 3,
 					Parent = b,
 				}, { App.corner(1) })
-			end
-			local row = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
-				new("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					HorizontalAlignment = Enum.HorizontalAlignment.Center,
-					VerticalAlignment = Enum.VerticalAlignment.Center,
-					Padding = UDim.new(0, 5),
-				}),
-			})
-			local fg = on and P.text or P.dim
-			local ic = App.icon(t.icon, 13, on and P.accent or fg)
-			ic.Parent = row
-			local text = label(t.title, 12, fg, on and SANS_B or SANS_M, {
-				Size = UDim2.fromOffset(0, 16),
-				AutomaticSize = Enum.AutomaticSize.X,
-				Parent = row,
-			})
-			fits[text] = ic
-			if not on then
+			else
 				b.MouseEnter:Connect(function()
-					text.TextColor3 = P.text
+					b.BackgroundTransparency = 0
 					App.setIconColor(ic, P.text)
 				end)
 				b.MouseLeave:Connect(function()
-					text.TextColor3 = P.dim
+					b.BackgroundTransparency = 1
 					App.setIconColor(ic, P.dim)
 				end)
 			end
@@ -11809,23 +11900,73 @@ return function(App)
 			App.hintOn(b, t.title)
 			App.ui.tabs[t.id] = b
 		end
-		-- every tab the same way: icons and names; else names alone (they read better); else icons alone (the name
-		-- on hover). One tab without its name among named ones would look broken.
-		local function fit()
-			local cell = bar.AbsoluteSize.X / math.max(#tabs, 1)
-			local both, names = true, true
-			for text, ic in fits do
-				both = both and cell >= text.TextBounds.X + ic.AbsoluteSize.X + 5 + 10
-				names = names and cell >= text.TextBounds.X + 8
+		return column
+	end
+
+	-- The line over the page: what the settings below belong to (the thing, then its open object; a click on the thing
+	-- goes back up to it) and, on the right, the open tab's name.
+	App.buildCrumb = function(parent)
+		local open = App.currentTab()
+		local row = box({ Size = UDim2.new(1, 0, 0, 22), Parent = parent })
+		local left = box({ Size = UDim2.new(1, -96, 1, 0), ClipsDescendants = true, Parent = row }, { hlist(6) })
+		local function word(text, color, font, click)
+			local w = new(click and "TextButton" or "TextLabel", {
+				Text = text,
+				Font = font,
+				TextSize = 12,
+				TextColor3 = color,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				BackgroundTransparency = 1,
+				Size = UDim2.fromOffset(0, 22),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Parent = left,
+			}, { new("UISizeConstraint", { MaxSize = Vector2.new(130, 22) }) })
+			if click then
+				w.AutoButtonColor = false
+				w.MouseEnter:Connect(function()
+					w.TextColor3 = P.accent
+				end)
+				w.MouseLeave:Connect(function()
+					w.TextColor3 = color
+				end)
+				w.MouseButton1Click:Connect(click)
 			end
-			for text, ic in fits do
-				text.Visible = both or names
-				ic.Visible = both or not names
+			return w
+		end
+		local sel, active = App.selected, App.active
+		if App.searching() then
+			word("Search results", P.dim, SANS_M)
+		elseif not sel then
+			word("Nothing selected", P.faint, SANS_M)
+		else
+			local spec = App.kindSpec(sel.kind)
+			local name = sel.folder and sel.folder.Name or (spec and spec.title or sel.kind)
+			if active then
+				App.hintOn(
+					word(name, P.dim, SANS_M, function()
+						App.selectObject(nil)
+					end),
+					"Back to " .. name .. " itself."
+				)
+				local sep = App.icon("right", 9, P.faint)
+				sep.AnchorPoint, sep.Position = Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5)
+				sep.Parent = box({ Size = UDim2.fromOffset(9, 22), Parent = left })
+				word(active.inst.Name, P.text, SANS_B)
+			else
+				word(name, P.text, SANS_B)
 			end
 		end
-		bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-		task.defer(fit) -- (once the names have measured their text)
-		return strip
+		if open and not App.searching() then
+			label(string.upper(open.title), 11, P.faint, SANS_B, {
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 0, 0, 0),
+				Size = UDim2.fromOffset(92, 22),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Parent = row,
+			})
+		end
+		App.ui.crumb = row
+		return row
 	end
 
 	--------------------------------------------------------------------------------
@@ -11912,6 +12053,7 @@ return function(App)
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 	local runGenerate, commit = App.runGenerate, App.commit
+	local PAGE_PAD = 14 -- the page's side margin
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -12492,6 +12634,7 @@ return function(App)
 		"outlinerFilter",
 		"tabs",
 		"tabRow",
+		"crumb",
 		"search",
 		"foot",
 		"progress",
@@ -12635,7 +12778,7 @@ return function(App)
 			VerticalScrollBarInset = Enum.ScrollBarInset.Always,
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			Parent = App.root,
-		}, { pad(14, 12, 10, 24), vlist(2) })
+		}, { pad(PAGE_PAD, 12, 10, 24), vlist(2) })
 		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
 		App.scroll.MouseEnter:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
@@ -12656,24 +12799,35 @@ return function(App)
 				App.buildToolRow(head)
 			end
 			box({ Size = UDim2.new(1, 0, 0, 4), Parent = head })
-			App.buildTabRow(head)
+			App.buildCrumb(head)
 		end
 		box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
 		App.sheen(App.root, 0.04, 140, 150)
 		App.halftone(App.root, 0.07, 4, 150)
+		-- the tabs, a column beside the page (the settings page has none)
+		local column = not App.settingsOpen and App.buildTabColumn(App.root) or nil
+		local left = column and App.TAB_COL or 0
+		if column then
+			scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8) -- (the column is the page's margin on that side)
+		end
 		local function fit()
 			local h = head.AbsoluteSize.Y
-			App.scroll.Position = UDim2.fromOffset(0, h)
-			App.scroll.Size = UDim2.new(1, 0, 1, -h - barH())
+			App.scroll.Position = UDim2.fromOffset(left, h)
+			App.scroll.Size = UDim2.new(1, -left, 1, -h - barH())
+			if column then
+				column.Position = UDim2.fromOffset(0, h)
+				column.Size = UDim2.new(0, left, 1, -h - barH())
+			end
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()
 		buildBar(App.root)
 		buildToast(App.root)
 		buildPage()
-		if turned then
-			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
-			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
+		if turned then -- the new page slides in from the right
+			local rest = scrollPad.PaddingLeft.Offset
+			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, rest + 24), UDim.new(0, -12)
+			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, rest), PaddingRight = UDim.new(0, 12) })
 		end
 		if turned or firstBuild then
 			enterCards()
@@ -13192,7 +13346,7 @@ return function(App)
 			end)
 		end
 		local fixed = label(
-			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon; Shift + right-click on a placed copy (Select) opens its menu. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
+			"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 			12,
 			P.faint,
 			SANS,
@@ -13564,7 +13718,7 @@ return function(App)
 		{
 			chapter = "The panel",
 			title = "Its settings, as tabs",
-			text = "These tabs are for what's selected. A zone has Objects, Zone and World; a path has Curve and Road too; "
+			text = "The icons down this side are tabs, for what's selected (hover one for its name). A zone has Objects, Zone and World; a path has Curve and Road too; "
 				.. "an object you click opens its Object tab. World is always there: scanning a finished map, swapping its "
 				.. "models, seasons and the snapshot.\n\n"
 				.. "Lost? Type in the search box above, like road or spacing.",
@@ -16074,8 +16228,7 @@ end
 	Shift + click picks more copies of the same zone (or takes one back out), and a drag over the ground boxes them;
 	what's done then is done to each. The viewport's header shows what's picked, with the same changes as buttons.
 	A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
-	sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
-	picked one, has the rest (another model,
+	sizes it (as the stamp's), the stamp's keys work on it, and the quick menu (its key, Z) has the rest (another model,
 	moving it, giving it back to the rules, removing it). A copy changed this way becomes a stamp's pin of its object
 	(Engine/Pins), so generating puts it back just as it was left.
 	Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
@@ -16312,8 +16465,8 @@ return function(App)
 			App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
 			App.setLabel(
 				moving and "Click where it should stand"
-					or #picks > 1 and string.format("%d copies  ·  Shift + right-click for more", #picks)
-					or (describe(copy) .. "  ·  Shift + right-click for more")
+					or #picks > 1 and string.format("%d copies  ·  %s for more", #picks, App.keyText("quick"))
+					or (describe(copy) .. "  ·  " .. App.keyText("quick") .. " for more")
 			)
 		end
 	end
@@ -16624,7 +16777,7 @@ return function(App)
 		return #picks
 	end
 
-	-- what can be done to the picked copies (Shift + right-click, a second click on one, or the quick menu)
+	-- what can be done to the picked copies: the quick menu's items (its key; the viewport's header has the same)
 	local function menu()
 		local a, copy = App.area, pickedCopy()
 		local pose = a and copy and Engine.copyPose(a, copy)
@@ -16808,10 +16961,8 @@ return function(App)
 			press = { px = Vector2.new(rawMouse.X, rawMouse.Y), add = add, thing = thing }
 			return
 		end
-		if not add and indexOf(copy) then
-			-- a picked copy clicked again: the menu, by the mouse (as Shift + right-click opens it)
-			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
-			return
+		if not add and #picks == 1 and indexOf(copy) then
+			return -- (the picked copy clicked again: it stays as it is)
 		end
 		local object = pick(thing, key, copy, add)
 		if #picks > 1 then
@@ -16821,7 +16972,9 @@ return function(App)
 				"Selected "
 					.. (thing.folder and thing.folder.Name or thing.kind)
 					.. (object and (" · " .. object.inst.Name) or "")
-					.. ". Shift + wheel turns this copy, Alt + wheel sizes it; Shift + click adds more."
+					.. ". Shift + wheel turns this copy, Alt + wheel sizes it, "
+					.. App.keyText("quick")
+					.. " has more; Shift + click adds copies."
 			)
 		end
 	end
@@ -16851,23 +17004,6 @@ return function(App)
 			App.status("Selected " .. (pr.thing.folder and pr.thing.folder.Name or pr.thing.kind) .. ".")
 		end
 	end
-	-- Shift + right-click on a copy: it's picked (if it wasn't), and the menu opens by the mouse. (With Shift: Studio
-	-- opens its own menu on a plain right-click, and a plugin can't stop it.)
-	App.onRightClick(function()
-		if App.mode ~= "Select" or moving or not App.shiftHeld() then
-			return
-		end
-		local thing, key, copy = App.pickAt()
-		if not copy then
-			return
-		end
-		if not indexOf(copy) then
-			pick(thing, key, copy)
-		end
-		if #picks > 0 then
-			App.viewMenu(menu(), #picks == 1 and string.upper(copy.Name) or string.format("%d COPIES", #picks))
-		end
-	end)
 	-- the wheel on the picked copies: Shift turns them, Alt sizes them (a plain notch zooms, as ever)
 	local function wheel(dir)
 		if App.mode ~= "Select" or #picks == 0 then
@@ -16920,7 +17056,9 @@ return function(App)
 		return true
 	end
 	-- The quick menu (its key, Z): the picked copies' actions round the mouse, or with none picked the tools, one of
-	-- each group. Where the viewport can't show it, the search menu opens.
+	-- each group. It's the one way to a copy's actions besides the header (a right-click can't be: Studio opens its
+	-- own menu on one). Where the viewport can't show it: the same actions as a menu in the panel, or, for the tools,
+	-- the search menu.
 	App.openQuick = function()
 		local items, title = {}, nil
 		if App.mode == "Select" and #picks > 0 then
@@ -16939,7 +17077,12 @@ return function(App)
 			end
 			title = "TOOLS"
 		end
-		if not App.viewPie(items, title) and App.openPalette then
+		if App.viewPie(items, title) then
+			return
+		end
+		if title ~= "TOOLS" then
+			App.popupMenu(App.ui.outliner or App.root, menu(), title)
+		elseif App.openPalette then
 			App.openPalette()
 		end
 	end
@@ -19201,82 +19344,13 @@ return function(App)
 		return false
 	end
 
-	-- A small menu in the viewport, at the mouse: items { { text, run, color? } } or "-" for a line, a title first if
-	-- given (the panel's App.popupMenu, in the 3D view). A click on an item runs it; any click closes the menu. Where
-	-- Studio won't show the strip (no CoreGui), the panel's menu opens instead.
-	local menu
+	local menu -- the quick menu while it's open (the screen-wide button that holds it)
 	App.closeViewMenu = function()
 		if menu then
 			menu:Destroy()
 			menu = nil
 		end
 	end
-	App.viewMenu = function(items, title)
-		App.closeViewMenu()
-		if not App.toolbarAvailable() then
-			App.popupMenu(App.ui.outliner or App.root, items, title)
-			return
-		end
-		local at = Vector2.new(App.rawMouse.X, App.rawMouse.Y) -- (where it was opened: the mouse moves on)
-		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
-		menu = catcher
-		catcher.MouseButton1Click:Connect(App.closeViewMenu)
-		catcher.MouseButton2Click:Connect(App.closeViewMenu)
-		local W = 210
-		local list = box({
-			BackgroundTransparency = SEE,
-			BackgroundColor3 = P.card,
-			Position = UDim2.fromOffset(at.X + 4, at.Y + 4),
-			Size = UDim2.fromOffset(W, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			ZIndex = 21,
-			Parent = catcher,
-		}, { corner(8), stroke(P.line), pad(4, 4, 4, 4), App.vlist(1) })
-		if title then
-			local head = label(title, 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), ZIndex = 22, Parent = list })
-			pad(8, 8, 0, 0).Parent = head
-		end
-		for _, it in items do
-			if it == "-" then
-				box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 22, Parent = list })
-				continue
-			end
-			local b = new("TextButton", {
-				Text = it[1],
-				Font = SANS,
-				TextSize = 13,
-				TextColor3 = it[3] or P.text,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				BackgroundColor3 = P.hover,
-				BackgroundTransparency = 1,
-				AutoButtonColor = false,
-				Size = UDim2.new(1, 0, 0, 26),
-				ZIndex = 22,
-				Parent = list,
-			}, { corner(5), pad(8, 8, 0, 0) })
-			b.MouseEnter:Connect(function()
-				b.BackgroundTransparency = 0
-			end)
-			b.MouseLeave:Connect(function()
-				b.BackgroundTransparency = 1
-			end)
-			b.MouseButton1Click:Connect(function()
-				App.closeViewMenu()
-				it[2]()
-			end)
-		end
-		-- kept on the screen: a menu opened near the right or the bottom edge moves in (once it knows its height)
-		local function keepOn()
-			local screen = gui.AbsoluteSize
-			list.Position = UDim2.fromOffset(
-				math.max(4, math.min(at.X + 4, screen.X - W - 8)),
-				math.max(4, math.min(at.Y + 4, screen.Y - list.AbsoluteSize.Y - 8))
-			)
-		end
-		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
-		keepOn()
-	end
-
 	-- The quick menu: up to eight actions in a ring round the mouse (Blender's pie menus), items { { text, run,
 	-- color? } }, a word in the middle if given. A click on one runs it; any other click closes it. false where the
 	-- viewport can't show it.

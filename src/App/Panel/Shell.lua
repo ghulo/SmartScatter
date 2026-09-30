@@ -12,6 +12,7 @@ return function(App)
 	local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 	local runGenerate, commit = App.runGenerate, App.commit
+	local PAGE_PAD = 14 -- the page's side margin
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -592,6 +593,7 @@ return function(App)
 		"outlinerFilter",
 		"tabs",
 		"tabRow",
+		"crumb",
 		"search",
 		"foot",
 		"progress",
@@ -735,7 +737,7 @@ return function(App)
 			VerticalScrollBarInset = Enum.ScrollBarInset.Always,
 			ScrollingDirection = Enum.ScrollingDirection.Y,
 			Parent = App.root,
-		}, { pad(14, 12, 10, 24), vlist(2) })
+		}, { pad(PAGE_PAD, 12, 10, 24), vlist(2) })
 		local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
 		App.scroll.MouseEnter:Connect(function()
 			tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
@@ -756,24 +758,35 @@ return function(App)
 				App.buildToolRow(head)
 			end
 			box({ Size = UDim2.new(1, 0, 0, 4), Parent = head })
-			App.buildTabRow(head)
+			App.buildCrumb(head)
 		end
 		box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
 		App.sheen(App.root, 0.04, 140, 150)
 		App.halftone(App.root, 0.07, 4, 150)
+		-- the tabs, a column beside the page (the settings page has none)
+		local column = not App.settingsOpen and App.buildTabColumn(App.root) or nil
+		local left = column and App.TAB_COL or 0
+		if column then
+			scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8) -- (the column is the page's margin on that side)
+		end
 		local function fit()
 			local h = head.AbsoluteSize.Y
-			App.scroll.Position = UDim2.fromOffset(0, h)
-			App.scroll.Size = UDim2.new(1, 0, 1, -h - barH())
+			App.scroll.Position = UDim2.fromOffset(left, h)
+			App.scroll.Size = UDim2.new(1, -left, 1, -h - barH())
+			if column then
+				column.Position = UDim2.fromOffset(0, h)
+				column.Size = UDim2.new(0, left, 1, -h - barH())
+			end
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()
 		buildBar(App.root)
 		buildToast(App.root)
 		buildPage()
-		if turned then
-			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, 38), UDim.new(0, -12)
-			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 12) })
+		if turned then -- the new page slides in from the right
+			local rest = scrollPad.PaddingLeft.Offset
+			scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, rest + 24), UDim.new(0, -12)
+			tween(scrollPad, MED, { PaddingLeft = UDim.new(0, rest), PaddingRight = UDim.new(0, 12) })
 		end
 		if turned or firstBuild then
 			enterCards()

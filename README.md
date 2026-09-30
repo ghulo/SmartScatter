@@ -6,8 +6,10 @@ round bends, and everything updates live as you tweak it.
 
 ## Features
 
-- **One screen, like Blender** — an outliner of everything you made (zones, paths, keep-clear zones, stamps), tabs
-  for what's selected (Objects, Object, Zone, Curve, Road, World), and every tool in the viewport's tool strip.
+- **One screen, like Blender** — an outliner of everything you made (zones, paths, keep-clear zones, stamps), a
+  column of tabs for what's selected (Objects, Object, Zone, Curve, Road, World) beside their page, a line over the
+  page naming what's open, and every tool in the viewport's tool strip. The objects show as a list or as a grid of
+  pictures.
   Right-click a row for what can be done to it; drag rows to reorder them (a zone's objects are placed in that order);
   the eye hides what a zone placed, the padlock locks it, and with many things a filter box narrows the list.
   The viewport's header shows the tool in use (or the picked copies) with its settings as buttons, and Z opens a quick
@@ -19,7 +21,7 @@ round bends, and everything updates live as you tweak it.
 - **Stamp** — put any model down exactly, anywhere, no area needed: the real model shows under the mouse; drag to
   turn it, keys to size it or pick the model; stamps are plain models in Workspace › Stamps
 - **Copies by hand** — with Select, click any placed copy, Shift + click more, or drag a box over them: Shift +
-  wheel turns them, Alt + wheel sizes them, and the header, Shift + right-click or a second click has the rest (move,
+  wheel turns them, Alt + wheel sizes them, and the header or the quick menu (Z) has the rest (move,
   another model, remove, back to the rules). Nothing round them moves, and generating again keeps them as you left them
 - **Arrays** — any model repeated in a line, a grid, a circle or along a path, like Blender's Array modifier: turn per
   copy, random turn, size and nudge, dropped onto the ground; stays editable (and follows Studio's Move tool), or bake it

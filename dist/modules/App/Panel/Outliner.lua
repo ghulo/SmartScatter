@@ -446,10 +446,11 @@ return function(App)
 				ClearTextOnFocus = false,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				Size = UDim2.new(1, 0, 0, 24),
-				LayoutOrder = -1,
 				Parent = wrap,
 			}, { corner(6), pad(8, 8, 0, 0) })
-			scroll.LayoutOrder = 1
+			-- (between the head and the list: it takes the list's place in the order, the list the one after)
+			tb.LayoutOrder = scroll.LayoutOrder
+			scroll.LayoutOrder += 1
 			tb:GetPropertyChangedSignal("Text"):Connect(function()
 				filter = tb.Text
 				applyFilter()

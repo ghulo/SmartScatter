@@ -63,7 +63,7 @@ return function(App)
 		{
 			chapter = "The panel",
 			title = "Its settings, as tabs",
-			text = "These tabs are for what's selected. A zone has Objects, Zone and World; a path has Curve and Road too; "
+			text = "The icons down this side are tabs, for what's selected (hover one for its name). A zone has Objects, Zone and World; a path has Curve and Road too; "
 				.. "an object you click opens its Object tab. World is always there: scanning a finished map, swapping its "
 				.. "models, seasons and the snapshot.\n\n"
 				.. "Lost? Type in the search box above, like road or spacing.",

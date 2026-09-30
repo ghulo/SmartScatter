@@ -84,7 +84,7 @@ local plugin = {
 }
 
 -- the dock widget: a SurfaceGui on a board far away (it has the widget's Enabled)
-local W, H, PPS = 360, 860, 100
+local W, H, PPS = _G.SS_PreviewWidth or 360, 860, 100 -- (a narrower panel: set _G.SS_PreviewWidth first)
 local board = Instance.new("Part")
 board.Name = "SS_PanelPreviewBoard"
 board.Archivable = false
