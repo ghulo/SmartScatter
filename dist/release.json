@@ -1,6 +1,6 @@
 {
- "version": "9.97",
- "build": 161,
+ "version": "9.98",
+ "build": 162,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -8,7 +8,7 @@
   },
   "App/Core/Cards": {
    "path": "modules/App/Core/Cards.lua",
-   "sum": 884289878
+   "sum": 708380848
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
@@ -68,7 +68,7 @@
   },
   "App/Panel/Outliner": {
    "path": "modules/App/Panel/Outliner.lua",
-   "sum": 135069520
+   "sum": 17788463
   },
   "App/Panel/Palette": {
    "path": "modules/App/Panel/Palette.lua",
@@ -76,11 +76,11 @@
   },
   "App/Panel/Properties": {
    "path": "modules/App/Panel/Properties.lua",
-   "sum": 21478713
+   "sum": 185763712
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 574349438
+   "sum": 948351339
   },
   "App/Panel/StampTools": {
    "path": "modules/App/Panel/StampTools.lua",

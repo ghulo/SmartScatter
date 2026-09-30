@@ -14,6 +14,7 @@ return function(App)
 	local runGenerate, commit = App.runGenerate, App.commit
 	local PAGE_PAD = 14 -- the page's side margin
 	local CRUMB_H = 30 -- the strip across the top of the workbench
+	local SHADOW = settings().Studio.Theme.Name == "Light" and 0.9 or 0.72 -- how see-through a shadow is at its darkest
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -300,6 +301,20 @@ return function(App)
 		end
 		liveLook()
 		App.ui.liveLook = liveLook
+		-- in a narrow panel Live is its dot alone, so Generate keeps room for its word
+		local genPad = App.ui.genBtn:FindFirstChildOfClass("UIPadding")
+		local function fitFoot()
+			local tight = inner.AbsoluteSize.X < 250
+			live.Size = UDim2.fromOffset(tight and 32 or 66, 38)
+			liveText.Visible = not tight
+			dot.Position = tight and UDim2.new(0.5, -4, 0.5, 0) or UDim2.new(0, 12, 0.5, 0)
+			local side = tight and 4 or 8
+			genPad.PaddingLeft, genPad.PaddingRight = UDim.new(0, side), UDim.new(0, side)
+			App.ui.genBtn.Size = UDim2.new(1, -(right.AbsoluteSize.X + 6), 1, 0) -- (what the buttons beside it leave)
+		end
+		inner:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitFoot)
+		right:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitFoot)
+		fitFoot()
 		live.MouseButton1Click:Connect(App.toggleLive)
 		hintOn(
 			live,
@@ -809,12 +824,28 @@ return function(App)
 		end
 		local left = column and App.TAB_COL or 0
 		local top = strip and CRUMB_H or 0
+		-- soft shadows over the page's two edges (it scrolls under the strip and down to the footer): a few pixels of
+		-- dark fading out, so the surfaces read as lying one over the other
+		local function shadow(up)
+			local f = box({ BackgroundTransparency = 0, BackgroundColor3 = Color3.new(0, 0, 0), Active = false, ZIndex = 3, Parent = App.root })
+			new("UIGradient", {
+				Rotation = 90,
+				Transparency = up and NumberSequence.new(1, SHADOW) or NumberSequence.new(SHADOW, 1),
+				Parent = f,
+			})
+			return f
+		end
+		local under, over = shadow(false), shadow(true)
 		local function fit()
 			local h = head.AbsoluteSize.Y
 			bench.Position = UDim2.fromOffset(0, h)
 			bench.Size = UDim2.new(1, 0, 1, -h - barH())
 			App.scroll.Position = UDim2.fromOffset(left, h + top)
 			App.scroll.Size = UDim2.new(1, -left, 1, -h - top - barH())
+			under.Position = UDim2.fromOffset(left, h + top)
+			under.Size = UDim2.new(1, -left, 0, 8)
+			over.Position = UDim2.new(0, left, 1, -barH() - 10)
+			over.Size = UDim2.new(1, -left, 0, 10)
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()

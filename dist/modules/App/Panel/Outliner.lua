@@ -105,7 +105,17 @@ return function(App)
 			Size = UDim2.new(1, 0, 0, ROW),
 			LayoutOrder = order,
 			Parent = list,
-		}, { corner(6) })
+		}, { corner(4) })
+		if sel then -- the accent, strongest at the name and fading along the row
+			new("UIGradient", { Transparency = NumberSequence.new(0, 0.7), Parent = b })
+			box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.accent,
+				Position = UDim2.fromOffset(0, 5),
+				Size = UDim2.new(0, 2, 1, -10),
+				Parent = b,
+			}, { corner(1) })
+		end
 		local pictured = spec.thumb and spec.thumb(thing)
 		if pictured then
 			local th = App.thumbnail(pictured, THUMB)

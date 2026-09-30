@@ -87,6 +87,41 @@ return function(App)
 	-- however narrow the panel is. A tab's name is its tip, and the strip over the page says which one is open. The
 	-- shell stands it on its rail (Panel/Shell).
 	--------------------------------------------------------------------------------
+	-- Each tab has a colour of its own (as Blender's properties tabs do): its icon on the rail wears it, and so do
+	-- the marks of its sections, so where you are reads at a glance. Muted, to sit with the panel's warm greys; the
+	-- tabs a thing starts on (Start, Objects) wear the theme's accent. A tab may bring its own (spec.color).
+	local TAB_TINT = {
+		object = "E2A45C", -- amber
+		zone = "5DB6C4", -- teal
+		curve = "7FA2E6", -- blue
+		road = "B59AE8", -- violet
+		stamp = "E58D72", -- coral
+		array = "DCC65E", -- yellow
+		edit = "E68BB0", -- pink
+		world = "A8B4C2", -- steel
+	}
+	App.tabColor = function(id)
+		local spec = id and App.tabById(id)
+		local hex = spec and spec.color or TAB_TINT[id]
+		if not hex then
+			return P.accent
+		end
+		local c = Color3.fromHex(hex)
+		return settings().Studio.Theme.Name == "Light" and c:Lerp(Color3.new(0, 0, 0), 0.32) or c
+	end
+	-- the colour the sections being built now wear: their tab's (App.buildingTab is set while a tab's page is built)
+	App.sectionColor = function()
+		return App.tabColor(App.buildingTab)
+	end
+	local function buildTab(t, page)
+		App.buildingTab = t.id
+		local ok, err = pcall(t.build, page)
+		App.buildingTab = nil
+		if not ok then
+			error(err, 0)
+		end
+	end
+
 	App.TAB_COL = 38 -- the column's width
 	local TAB = 30 -- a tab's button
 	App.buildTabColumn = function(parent)
@@ -112,24 +147,26 @@ return function(App)
 		App.ui.tabs = {}
 		for i, t in tabs do
 			local on = t == open and not App.searching()
+			local tint = App.tabColor(t.id)
+			local quiet = tint:Lerp(P.well, 0.35) -- (a tab that isn't open: its colour, stepped back)
 			local b = new("TextButton", {
 				Text = "",
 				AutoButtonColor = false,
-				BackgroundColor3 = on and P.accentSoft or P.hover,
+				BackgroundColor3 = on and tint:Lerp(P.well, 0.78) or P.hover,
 				BackgroundTransparency = on and 0 or 1,
 				Size = UDim2.fromOffset(TAB, TAB),
 				LayoutOrder = i,
 				ZIndex = 2,
 				Parent = column,
 			}, { App.corner(5) })
-			local ic = App.icon(t.icon, 15, on and P.accent or P.dim)
+			local ic = App.icon(t.icon, 15, on and tint or quiet)
 			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 			ic.ZIndex = 3
 			ic.Parent = b
 			if on then
 				box({ -- the open tab's mark, on the edge the page is on
 					BackgroundTransparency = 0,
-					BackgroundColor3 = P.accent,
+					BackgroundColor3 = tint,
 					AnchorPoint = Vector2.new(1, 0.5),
 					Position = UDim2.new(1, 3, 0.5, 0),
 					Size = UDim2.fromOffset(2, TAB - 12),
@@ -138,12 +175,12 @@ return function(App)
 				}, { App.corner(1) })
 			else
 				b.MouseEnter:Connect(function()
-					b.BackgroundTransparency = 0
-					App.setIconColor(ic, P.text)
+					App.tween(b, App.FAST, { BackgroundTransparency = 0 })
+					App.setIconColor(ic, tint)
 				end)
 				b.MouseLeave:Connect(function()
-					b.BackgroundTransparency = 1
-					App.setIconColor(ic, P.dim)
+					App.tween(b, App.FAST, { BackgroundTransparency = 1 })
+					App.setIconColor(ic, quiet)
 				end)
 			end
 			b.MouseButton1Click:Connect(function()
@@ -209,7 +246,7 @@ return function(App)
 			end
 		end
 		if open and not App.searching() then
-			label(open.title, 12, P.dim, SANS_M, {
+			label(open.title, 12, App.tabColor(open.id), SANS_M, {
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, 0, 0, 0),
 				Size = UDim2.fromOffset(92, 22),
@@ -232,7 +269,7 @@ return function(App)
 		end
 		local open = App.currentTab()
 		if open then
-			open.build(page)
+			buildTab(open, page)
 		end
 	end
 
@@ -277,7 +314,9 @@ return function(App)
 		for _, t in App.tabsFor(App.selected, App.active) do
 			section(t.title, function()
 				App.openTab(t.id)
-			end, t.build)
+			end, function(holder)
+				buildTab(t, holder)
+			end)
 		end
 		section("Settings", function()
 			App.openSettings(true)

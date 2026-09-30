@@ -2202,6 +2202,7 @@ end
 end
 return true
 end
+local FOLD = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 App.cardCount = 0
 local function card(parent, spec, group)
 App.cardCount += 1
@@ -2219,12 +2220,14 @@ Size = UDim2.new(1, 0, 0, 28),
 Parent = c,
 }, { corner(5), pad(9, 9, 0, 0), hlist(7) })
 App.shade(head, 0.12)
+local tint = App.sectionColor and App.sectionColor() or P.accent
+box({ BackgroundTransparency = 0, BackgroundColor3 = tint, Size = UDim2.fromOffset(3, 14), Parent = head }, { corner(2) })
 local shut, unfolded = icon("right", 9, P.dim), icon("down", 9, P.dim)
 shut.Visible, unfolded.Visible = not open, open
 shut.Parent, unfolded.Parent = head, head
 local badgeIcon = spec.icon or ICON[spec.id]
 if badgeIcon then
-local ic = icon(badgeIcon, 13, P.accent)
+local ic = icon(badgeIcon, 13, tint)
 ic.Parent = head
 end
 label(spec.title, 13, P.text, SANS_B, { Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, Parent = head })
@@ -2236,7 +2239,9 @@ Parent = head,
 })
 tag.TextYAlignment = Enum.TextYAlignment.Center
 end
-local inner = col({ Visible = open, Parent = c }, { pad(9, 9, 2, 8), vlist(8) })
+local holder =
+box({ Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, ClipsDescendants = true, Visible = open, Parent = c })
+local inner = col({ Parent = holder }, { pad(9, 9, 2, 8), vlist(8) })
 local sub = spec.sub or SUB[spec.id]
 if sub and sub ~= "" then
 local t = App.para(sub, { Parent = inner })
@@ -2245,17 +2250,39 @@ end
 local body = col({ Parent = inner }, { vlist(6) })
 spec.build(body, c)
 head.MouseEnter:Connect(function()
-head.BackgroundColor3 = P.hover
+App.tween(head, App.FAST, { BackgroundColor3 = P.hover })
 end)
 head.MouseLeave:Connect(function()
-head.BackgroundColor3 = P.strip
+App.tween(head, App.FAST, { BackgroundColor3 = P.strip })
 end)
+local turn = 0
 head.MouseButton1Click:Connect(function()
 open = not open
 G.groups[key] = not open or nil
 saveG()
-inner.Visible = open
 shut.Visible, unfolded.Visible = not open, open
+turn += 1
+local mine = turn
+holder.Visible = true
+task.defer(function()
+if turn ~= mine then
+return
+end
+local h = inner.AbsoluteSize.Y
+holder.AutomaticSize = Enum.AutomaticSize.None
+holder.Size = UDim2.new(1, 0, 0, open and 0 or h)
+App.tween(holder, FOLD, { Size = UDim2.new(1, 0, 0, open and h or 0) })
+task.delay(FOLD.Time + 0.02, function()
+if turn ~= mine then
+return
+end
+if open then
+holder.AutomaticSize = Enum.AutomaticSize.Y
+else
+holder.Visible = false
+end
+end)
+end)
 end)
 c:SetAttribute("SS_Card", spec.id)
 return c
@@ -2300,6 +2327,7 @@ Parent = head,
 local chev = icon("right", 11, P.dim)
 chev.Parent = chip
 foldCount = label("", 12, P.dim, SANS_B, { Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X, Parent = chip })
+foldCount.TextTruncate = Enum.TextTruncate.None
 foldBody = col({ Parent = fold }, { vlist(10) })
 local function look()
 foldBody.Visible = open
