@@ -16,7 +16,7 @@ round bends, and everything updates live as you tweak it.
 - **Stamp** — put any model down exactly, anywhere, no area needed: the real model shows under the mouse; drag to
   turn it, keys to size it or pick the model; stamps are plain models in Workspace › Stamps
 - **One copy at a time** — with Select, click any placed copy: Shift + wheel turns it, Alt + wheel sizes it, and a
-  right-click moves it, swaps its model, removes it or gives it back to the rules. Nothing round it moves, and
+  second click on it moves it, swaps its model, removes it or gives it back to the rules. Nothing round it moves, and
   generating again keeps it as you left it
 - **Arrays** — any model repeated in a line, a grid, a circle or along a path, like Blender's Array modifier: turn per
   copy, random turn, size and nudge, dropped onto the ground; stays editable (and follows Studio's Move tool), or bake it

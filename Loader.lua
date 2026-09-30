@@ -144,7 +144,8 @@ bundled = normalize(bundled)
 local current = (saved and saved.build > bundled.build) and saved or bundled
 
 -- Online updates, as the running code sees them (ctx.updates). status: "off" (no update site), "checking",
--- "downloading" (version, done, of), "current", "ready" (version: downloaded, waiting for a yes) or "failed" (detail:
+-- "downloading" (version, done, of), "current" (cached: as far as GitHub's cache shows, up to five minutes behind),
+-- "ready" (version: downloaded, waiting for a yes) or "failed" (detail:
 -- "reach" the site, "download" a module, or "start" the new version).
 local ONLINE = UPDATE_URL ~= "" and string.sub(UPDATE_URL, 1, 2) ~= "__"
 local update = { status = ONLINE and "checking" or "off" }
@@ -319,11 +320,12 @@ local function gatherRelease(m, have, kept, get, progress)
 	return { build = m.build, version = m.version, modules = modules }
 end
 
--- a file of the release, tried again (after 1s, 2s…) when the request fails; nil and the error when it can't be had
-local function httpGet(file, tries)
+-- a file of the release (from base, or where releases are published), tried again (after 1s, 2s…) when the request
+-- fails; nil and the error when it can't be had
+local function httpGet(file, tries, base)
 	local err
 	for i = 1, tries do
-		local ok, body = pcall(HttpService.GetAsync, HttpService, UPDATE_URL .. "/" .. file, true)
+		local ok, body = pcall(HttpService.GetAsync, HttpService, (base or UPDATE_URL) .. "/" .. file, true)
 		if ok then
 			return body
 		end
@@ -333,6 +335,28 @@ local function httpGet(file, tries)
 		end
 	end
 	return nil, err
+end
+
+-- GitHub serves UPDATE_URL's files from a cache up to five minutes old, whatever the request says, so a release just
+-- pushed doesn't show there yet. For a check the user asks for, the branch's newest commit is looked up first
+-- (GitHub's API; Studio asks once before the plugin may reach it) and the release is read at that commit: current,
+-- and all of one push. Returns that commit's address, or nil (another host, the API refused or out of its hourly
+-- allowance): the check then reads the cached copy as the timed ones do.
+local OWNER, REPO, BRANCH, DIR = string.match(UPDATE_URL, "^https://raw%.githubusercontent%.com/([^/]+)/([^/]+)/([^/]+)/?(.*)$")
+local function freshBase()
+	if not OWNER then
+		return nil
+	end
+	local ok, res = pcall(HttpService.RequestAsync, HttpService, {
+		Url = "https://api.github.com/repos/" .. OWNER .. "/" .. REPO .. "/commits/" .. BRANCH,
+		Method = "GET",
+		Headers = { Accept = "application/vnd.github.sha" },
+	})
+	local sha = ok and res.Success and string.match(res.Body, "^%s*(%x+)%s*$")
+	if not sha or #sha ~= 40 then
+		return nil
+	end
+	return "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/" .. sha .. (DIR ~= "" and ("/" .. DIR) or "")
 end
 
 local unloading = false
@@ -377,7 +401,8 @@ checkForUpdate = function(asked)
 	if update.status ~= "ready" then
 		setUpdate("checking")
 	end
-	local body, err = httpGet("release.json", 1) -- (no retries: the next check is the retry)
+	local base = asked and freshBase() or nil -- (asked for: the newest commit itself, not GitHub's cached copy)
+	local body, err = httpGet("release.json", 1, base) -- (no retries: the next check is the retry)
 	local ok, m = pcall(HttpService.JSONDecode, HttpService, body or "")
 	if not (ok and type(m) == "table" and type(m.build) == "number" and type(m.modules) == "table") then
 		if ready then -- (what's already downloaded is still good)
@@ -389,11 +414,13 @@ checkForUpdate = function(asked)
 		setUpdate("failed", { detail = "start", version = tostring(m.version or m.build) })
 	elseif m.build <= current.build then
 		ready = nil
-		setUpdate("current")
+		-- cached: read from GitHub's cache (a release pushed in the last five minutes may not show in it yet)
+		-- refused: a check asked for that couldn't look the newest commit up
+		setUpdate("current", { cached = OWNER ~= nil and base == nil, refused = asked == true and OWNER ~= nil and base == nil })
 	else
 		local version = tostring(m.version or m.build)
 		local got = gatherRelease(m, current.modules, kept, function(file)
-			return (httpGet(file, 3))
+			return (httpGet(file, 3, base))
 		end, function(nth, of)
 			setUpdate("downloading", { version = version, done = nth - 1, of = of })
 		end)

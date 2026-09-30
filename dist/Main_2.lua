@@ -3296,7 +3296,14 @@ return "Checking for updates…"
 elseif s.status == "downloading" then
 return string.format("Downloading %s (%d of %d)…", tostring(s.version), (s.done or 0) + 1, s.of or 1)
 elseif s.status == "current" then
-return "Up to date.", "Check now", "check"
+local text = "Up to date."
+if s.refused then
+text = "Up to date, as far as GitHub's cache shows (up to five minutes behind). To look for the newest itself, "
+.. "let Smart Scatter reach api.github.com (Plugins › Manage Plugins)."
+elseif s.cached then
+text = "Up to date. A release from the last five minutes may not show yet: Check now looks for it."
+end
+return text, "Check now", "check"
 elseif s.status == "ready" then
 return "Smart Scatter " .. tostring(s.version) .. " is ready. Updating takes a second and needs no restart.", "Update now", "apply"
 elseif s.detail == "start" then
@@ -5903,7 +5910,7 @@ Fill = "Click the ground to fill everything connected of that surface.",
 Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, right-click has more.",
+Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, click it again for more.",
 Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",

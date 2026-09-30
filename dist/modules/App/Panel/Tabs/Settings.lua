@@ -203,7 +203,15 @@ return function(App)
 		elseif s.status == "downloading" then
 			return string.format("Downloading %s (%d of %d)…", tostring(s.version), (s.done or 0) + 1, s.of or 1)
 		elseif s.status == "current" then
-			return "Up to date.", "Check now", "check"
+			-- (a timed check reads GitHub's cache, up to five minutes behind; Check now asks for the newest itself)
+			local text = "Up to date."
+			if s.refused then -- (asked for, but the newest commit couldn't be looked up)
+				text = "Up to date, as far as GitHub's cache shows (up to five minutes behind). To look for the newest itself, "
+					.. "let Smart Scatter reach api.github.com (Plugins › Manage Plugins)."
+			elseif s.cached then
+				text = "Up to date. A release from the last five minutes may not show yet: Check now looks for it."
+			end
+			return text, "Check now", "check"
 		elseif s.status == "ready" then
 			return "Smart Scatter " .. tostring(s.version) .. " is ready. Updating takes a second and needs no restart.", "Update now", "apply"
 		elseif s.detail == "start" then
