@@ -13,6 +13,7 @@ return function(App)
 	local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 	local runGenerate, commit = App.runGenerate, App.commit
 	local PAGE_PAD = 14 -- the page's side margin
+	local CRUMB_H = 30 -- the strip across the top of the workbench
 
 	-- how heavy the area's output is for players: a note ("" when fine) and whether it's too much
 	App.perfNote = function()
@@ -757,26 +758,56 @@ return function(App)
 				box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
 				App.buildToolRow(head)
 			end
-			box({ Size = UDim2.new(1, 0, 0, 4), Parent = head })
-			App.buildCrumb(head)
 		end
-		box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
+		box({ Size = UDim2.new(1, 0, 0, 2), Parent = head })
 		App.sheen(App.root, 0.04, 140, 150)
 		App.halftone(App.root, 0.07, 4, 150)
-		-- the tabs, a column beside the page (the settings page has none)
-		local column = not App.settingsOpen and App.buildTabColumn(App.root) or nil
-		local left = column and App.TAB_COL or 0
-		if column then
-			scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8) -- (the column is the page's margin on that side)
+		-- The workbench, under the head: one solid sheet (the backdrop's colours stay behind the title and the
+		-- outliner), with a strip across its top naming what's open, the tabs as a rail down its left on a darker
+		-- ground, and the page. The settings page has the sheet alone.
+		local bench = box({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 0, Parent = App.root })
+		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = bench })
+		local strip, column, rail
+		if not App.settingsOpen then
+			strip = box({ BackgroundTransparency = 0, BackgroundColor3 = P.strip, Size = UDim2.new(1, 0, 0, CRUMB_H), Parent = bench }, {
+				pad(PAGE_PAD, PAGE_PAD, 4, 4),
+			})
+			App.buildCrumb(strip)
+			box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.line,
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.new(0, -PAGE_PAD, 1, 4),
+				Size = UDim2.new(1, PAGE_PAD * 2, 0, 1),
+				Parent = strip,
+			})
+			rail = box({
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.well,
+				Position = UDim2.fromOffset(0, CRUMB_H),
+				Size = UDim2.new(0, App.TAB_COL, 1, -CRUMB_H),
+				Parent = bench,
+			})
+			box({ -- the rail's edge, on the page's side
+				BackgroundTransparency = 0,
+				BackgroundColor3 = P.line,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.fromScale(1, 0),
+				Size = UDim2.new(0, 1, 1, 0),
+				Parent = rail,
+			})
+			column = App.buildTabColumn(rail)
+			column.Size = UDim2.fromScale(1, 1)
+			scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8) -- (beside the rail the page needs less of a margin)
 		end
+		local left = column and App.TAB_COL or 0
+		local top = strip and CRUMB_H or 0
 		local function fit()
 			local h = head.AbsoluteSize.Y
-			App.scroll.Position = UDim2.fromOffset(left, h)
-			App.scroll.Size = UDim2.new(1, -left, 1, -h - barH())
-			if column then
-				column.Position = UDim2.fromOffset(0, h)
-				column.Size = UDim2.new(0, left, 1, -h - barH())
-			end
+			bench.Position = UDim2.fromOffset(0, h)
+			bench.Size = UDim2.new(1, 0, 1, -h - barH())
+			App.scroll.Position = UDim2.fromOffset(left, h + top)
+			App.scroll.Size = UDim2.new(1, -left, 1, -h - top - barH())
 		end
 		head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 		fit()

@@ -395,6 +395,8 @@ return function(App)
 				raised = hex("32302B"), -- buttons, pickers, value pills
 				header = hex("201F1C"), -- footer strip
 				field = hex("1F1E1B"), -- inputs
+				well = hex("131211"), -- the outliner's well, the tab rail: a step below the panel
+				strip = hex("24221F"), -- the strip across the top of the workbench: a step above it
 				hover = hex("3B3934"),
 				line = hex("33312D"), -- borders and hairlines
 				text = hex("F2EFEA"),
@@ -412,6 +414,8 @@ return function(App)
 				raised = hex("ECE9E3"),
 				header = hex("EFECE7"),
 				field = hex("FFFFFF"),
+				well = hex("E9E6E0"),
+				strip = hex("FBFAF8"),
 				hover = hex("E3DFD8"),
 				line = hex("DDD8CF"),
 				text = hex("23211D"),

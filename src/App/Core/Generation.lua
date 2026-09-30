@@ -39,11 +39,8 @@ return function(App)
 		local op = OverlapParams.new()
 		op.FilterType = Enum.RaycastFilterType.Exclude
 		local skip = { workspace.CurrentCamera, workspace.Terrain }
-		for _, name in { Engine.OUT, Engine.ROADS } do
-			local f = workspace:FindFirstChild(name)
-			if f then
-				table.insert(skip, f)
-			end
+		for _, f in { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) } do
+			table.insert(skip, f)
 		end
 		for _, t in templates() do
 			table.insert(skip, t)

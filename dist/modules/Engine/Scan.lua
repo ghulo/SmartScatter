@@ -134,7 +134,7 @@ return function(E, I)
 
 	local meshMap = {}
 	function E.loadMeshMap()
-		local out = workspace:FindFirstChild(E.OUT)
+		local out = E.outFolder()
 		local ok, data = pcall(HttpService.JSONDecode, HttpService, out and out:GetAttribute("SS_MeshMap") or "{}")
 		meshMap = (ok and type(data) == "table") and data or {}
 		return meshMap
@@ -210,7 +210,7 @@ return function(E, I)
 	--------------------------------------------------------------------------------
 	function E.rayParams(extra)
 		local ex = { workspace.CurrentCamera }
-		local out = workspace:FindFirstChild(E.OUT)
+		local out = E.outFolder()
 		if out then
 			table.insert(ex, out)
 		end -- everything we place, including what a running generation adds

@@ -42,7 +42,7 @@ return function(App)
 	-- the models in the Explorer's selection (a folder counts as its models); none that the plugin placed itself
 	local function selectedModels()
 		local out = {}
-		local placedByUs = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) } -- (areas, roads)
+		local placedByUs = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) } -- (areas, roads)
 		local function ours(inst)
 			if inst:GetAttribute("SS_Type") ~= nil then -- a copy an area placed (it carries the area's tags and marks)
 				return true

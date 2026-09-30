@@ -84,7 +84,7 @@ return function(App)
 
 	-- what's under the mouse: thing, object (a layer key), and the placed copy itself; nil when nothing of ours
 	App.pickAt = function()
-		local out = workspace:FindFirstChild(Engine.OUT)
+		local out = Engine.outFolder()
 		if not out then
 			return nil
 		end
@@ -493,7 +493,7 @@ return function(App)
 	-- else of the zone being worked on if any of its copies are inside, else of the zone with the most inside.
 	-- Returns how many.
 	local function boxPick(a, b, add)
-		local out = workspace:FindFirstChild(Engine.OUT)
+		local out = Engine.outFolder()
 		local cam = workspace.CurrentCamera
 		if not (out and cam) then
 			return 0

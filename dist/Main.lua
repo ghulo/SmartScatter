@@ -347,6 +347,8 @@ card = hex("262420"),
 raised = hex("32302B"),
 header = hex("201F1C"),
 field = hex("1F1E1B"),
+well = hex("131211"),
+strip = hex("24221F"),
 hover = hex("3B3934"),
 line = hex("33312D"),
 text = hex("F2EFEA"),
@@ -364,6 +366,8 @@ card = hex("FFFFFF"),
 raised = hex("ECE9E3"),
 header = hex("EFECE7"),
 field = hex("FFFFFF"),
+well = hex("E9E6E0"),
+strip = hex("FBFAF8"),
 hover = hex("E3DFD8"),
 line = hex("DDD8CF"),
 text = hex("23211D"),
@@ -2297,27 +2301,10 @@ end
 App.cardCount = 0
 local function card(parent, spec)
 App.cardCount += 1
-local c = col({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.card,
-Parent = parent,
-}, {
-corner(8),
-stroke(P.line),
-pad(14, 14, 12, 14),
-vlist(8),
-})
-App.glass(c)
-local edge = c:FindFirstChildOfClass("UIStroke")
-if edge then
-local rest = edge.Color
-c.MouseEnter:Connect(function()
-App.tween(edge, App.MED, { Color = P.accent:Lerp(Color3.new(1, 1, 1), 0.25) })
-end)
-c.MouseLeave:Connect(function()
-App.tween(edge, App.MED, { Color = rest })
-end)
-end
+local c = col({ Parent = parent }, { corner(8), pad(8, 8, 8, 0), vlist(8) })
+local edge = stroke(P.accent)
+edge.Transparency = 1
+edge.Parent = c
 local head = col({ Parent = c })
 local txt = col({ Parent = head }, { vlist(2) })
 local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
@@ -2342,6 +2329,8 @@ s.TextColor3 = P.dim
 end
 local body = col({ Parent = c }, { vlist(6) })
 spec.build(body, c)
+box({ Size = UDim2.new(1, 0, 0, 6), Parent = c })
+box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = c })
 c:SetAttribute("SS_Card", spec.id)
 return c
 end
@@ -2453,9 +2442,9 @@ if d:GetAttribute("SS_Card") == id then
 App.scrollIntoView(d)
 local edge = d:FindFirstChildOfClass("UIStroke")
 if edge then
-edge.Color = P.accent
+edge.Transparency = 0
 task.delay(0.9, function()
-App.tween(edge, App.MED, { Color = P.line })
+App.tween(edge, App.MED, { Transparency = 1 })
 end)
 end
 return true
@@ -2826,11 +2815,8 @@ local centre = Vector3.new(an.x0 + w / 2, an.top - an.len / 2, an.z0 + d / 2)
 local op = OverlapParams.new()
 op.FilterType = Enum.RaycastFilterType.Exclude
 local skip = { workspace.CurrentCamera, workspace.Terrain }
-for _, name in { Engine.OUT, Engine.ROADS } do
-local f = workspace:FindFirstChild(name)
-if f then
+for _, f in { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) } do
 table.insert(skip, f)
-end
 end
 for _, t in templates() do
 table.insert(skip, t)
@@ -4963,6 +4949,17 @@ App.buildCurve = buildCurve
 App.buildRoad = buildRoad
 App.buildScanFix = buildScanFix
 App.buildWelcome = buildWelcome
+App.registerTab({
+id = "start",
+icon = "plus",
+title = "Start",
+order = 0,
+kinds = "all",
+when = function(thing)
+return thing == nil and #Engine.listAreas() == 0
+end,
+build = buildWelcome,
+})
 end
 end)()
 

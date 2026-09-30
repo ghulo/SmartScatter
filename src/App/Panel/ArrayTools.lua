@@ -213,7 +213,7 @@ return function(App)
 
 	-- a model of the Explorer's selection that can be arrayed (not a copy Smart Scatter made)
 	App.arraySource = function()
-		local ours = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS), folder() }
+		local ours = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS), folder() }
 		for _, s in App.Selection:Get() do
 			if (s:IsA("Model") or s:IsA("BasePart")) and s:GetAttribute("SS_Type") == nil and variantOf(s) then
 				local mine = false

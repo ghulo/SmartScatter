@@ -95,31 +95,15 @@ return function(App)
 
 	App.cardCount = 0 -- cards built since the panel was last built (the search tells empty tabs from ones with hits)
 
-	-- one feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
+	-- One feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
+	-- A card is a section of the page, flat on it, with a hairline under it: the page is one surface beside the tab
+	-- column (boxes inside a box would crowd it). Its edge is only drawn for a moment, when a search jumps to it.
 	local function card(parent, spec)
 		App.cardCount += 1
-		local c = col({
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.card,
-			Parent = parent,
-		}, {
-			corner(8),
-			stroke(P.line),
-			pad(14, 14, 12, 14),
-			vlist(8),
-		})
-		App.glass(c) -- (see-through, with a sheen and a lit top edge, over the colour blobs)
-		-- under the mouse its edge takes on the accent, softly
-		local edge = c:FindFirstChildOfClass("UIStroke")
-		if edge then
-			local rest = edge.Color
-			c.MouseEnter:Connect(function()
-				App.tween(edge, App.MED, { Color = P.accent:Lerp(Color3.new(1, 1, 1), 0.25) })
-			end)
-			c.MouseLeave:Connect(function()
-				App.tween(edge, App.MED, { Color = rest })
-			end)
-		end
+		local c = col({ Parent = parent }, { corner(8), pad(8, 8, 8, 0), vlist(8) })
+		local edge = stroke(P.accent)
+		edge.Transparency = 1
+		edge.Parent = c
 		local head = col({ Parent = c })
 		local txt = col({ Parent = head }, { vlist(2) })
 		-- the title, with its icon small and quiet before it (no badge)
@@ -145,6 +129,8 @@ return function(App)
 		end
 		local body = col({ Parent = c }, { vlist(6) })
 		spec.build(body, c)
+		box({ Size = UDim2.new(1, 0, 0, 6), Parent = c })
+		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = c }) -- the hairline under it
 		c:SetAttribute("SS_Card", spec.id) -- (App.openCard finds it by this)
 		return c
 	end
@@ -264,9 +250,9 @@ return function(App)
 				App.scrollIntoView(d)
 				local edge = d:FindFirstChildOfClass("UIStroke")
 				if edge then
-					edge.Color = P.accent
+					edge.Transparency = 0
 					task.delay(0.9, function()
-						App.tween(edge, App.MED, { Color = P.line })
+						App.tween(edge, App.MED, { Transparency = 1 })
 					end)
 				end
 				return true

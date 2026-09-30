@@ -235,8 +235,8 @@ local okAll, err = pcall(function()
 	check("two fewer", #copies() == n0 - 3, #copies())
 	-- a box over everything: the camera backed away from the zone along the way it looks (Studio keeps its own
 	-- turn, so it's moved, not turned), the box the whole screen
+	-- (no wait after moving it: someone working in Studio meanwhile moves the camera themselves)
 	cam.CFrame = CFrame.new(O - cam.CFrame.LookVector * 250) * cam.CFrame.Rotation
-	task.wait(0.1)
 	local n = App.boxPick(Vector2.new(-1e5, -1e5), Vector2.new(1e5, 1e5), false)
 	check(
 		"a box over the zone picks every copy in it",
@@ -339,7 +339,7 @@ local okAll, err = pcall(function()
 		end
 		local headY, firstRowY = nil, math.huge
 		for _, d in App.ui.outliner:GetDescendants() do
-			if d:IsA("TextLabel") and string.find(d.Text, "^OUTLINER") then
+			if d:IsA("TextLabel") and string.find(d.Text, "^Outliner") then
 				headY = d.AbsolutePosition.Y
 			elseif d:IsA("TextButton") and d.AbsoluteSize.Y == 28 then
 				firstRowY = math.min(firstRowY, d.AbsolutePosition.Y)
@@ -431,6 +431,36 @@ local okAll, err = pcall(function()
 	check("once one of them is gone there's nothing to adjust", App.lastEdit() == nil)
 
 	-- ── the layout: the tab column, the line over the page, the grid of objects ───
+	-- the way in ("Start") is a tab of its own, only while the place has nothing of Smart Scatter's; with nothing
+	-- selected the other tabs show their own pages
+	local start = App.tabById("start")
+	local nAreas = #E.listAreas()
+	check(
+		"the Start tab is there only with nothing made and nothing selected",
+		start ~= nil and start.when(nil) == (nAreas == 0) and start.when(App.thingOf(zone)) == false,
+		nAreas .. " areas"
+	)
+	App.select(nil)
+	task.wait(0.3)
+	local openNow, tabsNow = App.currentTab()
+	local ids = {}
+	for _, t in tabsNow do
+		table.insert(ids, t.id)
+	end
+	check(
+		"with nothing selected the open tab is the map's own (World), and Edit is its own page too",
+		openNow.id == "world" and table.find(ids, "edit") ~= nil and not table.find(ids, "start"),
+		table.concat(ids, ",")
+	)
+	App.openTab("edit")
+	task.wait(0.3)
+	local welcome = false
+	for _, d in App.scroll:GetDescendants() do
+		if d:IsA("TextLabel") and string.find(d.Text, "Fill your map by rules", 1, true) then
+			welcome = true
+		end
+	end
+	check("the Edit tab shows its helpers, not the introduction", App.currentTab().id == "edit" and not welcome)
 	local more = {}
 	for i, n in { "SS_ChecksPine", "SS_ChecksBush", "SS_ChecksCrate", "SS_ChecksAVeryLongModelNameIndeed" } do
 		local m = Instance.new("Model")
@@ -478,7 +508,7 @@ local okAll, err = pcall(function()
 	local crumb = crumbText()
 	check(
 		"the line over the page names the zone and the open tab",
-		string.find(crumb, zone.Name, 1, true) ~= nil and string.find(crumb, "OBJECTS", 1, true) ~= nil,
+		string.find(crumb, zone.Name, 1, true) ~= nil and string.find(crumb, "Objects", 1, true) ~= nil,
 		crumb
 	)
 	App.selectObject(App.area.layers[2])
@@ -488,7 +518,7 @@ local okAll, err = pcall(function()
 		"with an object open it names both, and the tab is the object's",
 		string.find(crumb, zone.Name, 1, true) ~= nil
 			and string.find(crumb, App.area.layers[2].inst.Name, 1, true) ~= nil
-			and string.find(crumb, "OBJECT", 1, true) ~= nil,
+			and string.find(crumb, "Object", 1, true) ~= nil,
 		crumb
 	)
 	App.selectObject(nil)

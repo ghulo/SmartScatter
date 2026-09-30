@@ -90,7 +90,7 @@ return function(E, I)
 		end
 		if not index.built then
 			index.built = true
-			local out = workspace:FindFirstChild(E.OUT)
+			local out = E.outFolder()
 			for _, root in { game:GetService("ServerStorage"), game:GetService("ReplicatedStorage"), workspace } do
 				for _, c in root:GetDescendants() do
 					-- not one of our copies, and not a part inside some bigger model
@@ -134,8 +134,26 @@ return function(E, I)
 		return table.concat(out, "|")
 	end
 
+	-- The folder in Workspace that holds the areas, or nil when there's none yet. Found by its name among Workspace's
+	-- children: the one that already holds areas, else a Folder of that name. Something else that happens to have the
+	-- name (a copy of the plugin dropped into the place is a Script called just that) is never taken for it, unless
+	-- areas were already made inside it: those stay found.
+	function E.outFolder()
+		local folder
+		for _, c in workspace:GetChildren() do
+			if c.Name == E.OUT then
+				for _, k in c:GetChildren() do
+					if k:GetAttribute("SS_Area") then
+						return c
+					end
+				end
+				folder = folder or (c:IsA("Folder") and c or nil)
+			end
+		end
+		return folder
+	end
 	function E.getOut()
-		local out = workspace:FindFirstChild(E.OUT)
+		local out = E.outFolder()
 		if not out then
 			out = Instance.new("Folder")
 			out.Name = E.OUT
@@ -146,7 +164,7 @@ return function(E, I)
 
 	function E.listAreas()
 		local t = {}
-		local out = workspace:FindFirstChild(E.OUT)
+		local out = E.outFolder()
 		if out then
 			for _, c in out:GetChildren() do
 				if c:IsA("Folder") and c:GetAttribute("SS_Area") then

@@ -350,7 +350,14 @@ return function(App)
 	end
 
 	App.buildOutliner = function(parent)
-		local wrap = col({ Parent = parent }, { vlist(4) })
+		-- (a well: darker than the panel round it, so the list reads as one thing apart from the search above and
+		-- the workbench below)
+		local wrap = col({ BackgroundTransparency = 0, BackgroundColor3 = P.well, Parent = parent }, {
+			corner(10),
+			App.stroke(P.line),
+			pad(8, 8, 5, 7),
+			vlist(4),
+		})
 		-- its head: the name, and the fold
 		local head =
 			new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22), Parent = wrap })
@@ -358,12 +365,12 @@ return function(App)
 		chev.AnchorPoint, chev.Position = Vector2.new(0, 0.5), UDim2.new(0, 2, 0.5, 0)
 		chev.Rotation = G.outliner and 90 or 0
 		chev.Parent = head
-		local title = label("OUTLINER", 11, P.faint, SANS_B, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = head })
+		local title = label("Outliner", 12, P.dim, SANS_B, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = head })
 		head.MouseEnter:Connect(function()
 			title.TextColor3 = P.text
 		end)
 		head.MouseLeave:Connect(function()
-			title.TextColor3 = P.faint
+			title.TextColor3 = P.dim
 		end)
 		head.MouseButton1Click:Connect(function()
 			G.outliner = not G.outliner
@@ -375,7 +382,7 @@ return function(App)
 		if not G.outliner then
 			local sel = App.selected
 			local spec = sel and App.kindSpec(sel.kind)
-			title.Text = sel and ("OUTLINER  ·  " .. string.upper(sel.folder and sel.folder.Name or (spec and spec.title or ""))) or "OUTLINER"
+			title.Text = sel and ("Outliner: " .. (sel.folder and sel.folder.Name or (spec and spec.title or ""))) or "Outliner"
 			return wrap
 		end
 		local scroll = new("ScrollingFrame", {

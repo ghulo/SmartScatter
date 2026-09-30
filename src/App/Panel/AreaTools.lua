@@ -752,4 +752,17 @@ return function(App)
 	App.buildRoad = buildRoad
 	App.buildScanFix = buildScanFix
 	App.buildWelcome = buildWelcome
+	-- the way in while the place has nothing of Smart Scatter's yet: its own tab, first in the column (the others,
+	-- Edit and World, are their own pages beside it)
+	App.registerTab({
+		id = "start",
+		icon = "plus",
+		title = "Start",
+		order = 0,
+		kinds = "all",
+		when = function(thing)
+			return thing == nil and #Engine.listAreas() == 0
+		end,
+		build = buildWelcome,
+	})
 end

@@ -28,6 +28,22 @@ return function(App)
 		end
 	end
 
+	-- The strip stands in the middle of the viewport's left edge. Placed by hand from its size: an anchor point on
+	-- a frame that sizes itself isn't kept up as its tools come and go, and the strip ended up hanging from the
+	-- middle with its lower tools off the screen. In a view too short for one column it wraps into two.
+	local stripNeeds = 0 -- one column's height, from what was put in it
+	local function placeStrip()
+		if not (gui and strip and strip.Parent) then
+			return
+		end
+		local room = gui.AbsoluteSize.Y
+		local wrap = stripNeeds > room - 16
+		local layout = strip:FindFirstChildOfClass("UIListLayout")
+		layout.Wraps = wrap
+		strip.AutomaticSize = wrap and Enum.AutomaticSize.X or Enum.AutomaticSize.XY
+		strip.Size = wrap and UDim2.fromOffset(0, math.max(room - 16, BTN * 3)) or UDim2.fromOffset(0, 0)
+		strip.Position = UDim2.fromOffset(10, math.max(8, math.floor((room - strip.AbsoluteSize.Y) / 2)))
+	end
 	local function buildStrip()
 		for _, c in strip:GetChildren() do
 			if c:IsA("GuiObject") then
@@ -35,9 +51,11 @@ return function(App)
 			end
 		end
 		table.clear(looks)
+		stripNeeds = 6 -- (its padding)
 		for gi, g in App.toolGroups() do
 			local group = g.tools
 			if gi > 1 then -- a thin line between groups
+				stripNeeds += 7 + 2
 				box({ Size = UDim2.fromOffset(BTN, 7), Parent = strip }, {
 					new("Frame", {
 						BackgroundColor3 = P.line,
@@ -48,6 +66,7 @@ return function(App)
 				})
 			end
 			for _, t in group do
+				stripNeeds += BTN + 2
 				local b = new("TextButton", {
 					Text = "",
 					AutoButtonColor = false,
@@ -194,7 +213,9 @@ return function(App)
 		if not title then
 			return
 		end
-		label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+		local _, _, takes = App.focusState()
+		label(title, 12, takes and P.danger or P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+		table.insert(items, { text = App.keyText("cancel") .. " to stop", quiet = true })
 		local function small(text, click, on, danger)
 			local b = new("TextButton", {
 				Text = text,
@@ -221,7 +242,11 @@ return function(App)
 		for _, it in items do
 			box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.fromOffset(1, 16), Parent = bar })
 			if it.text then
-				label(it.text, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+				label(it.text, 12, it.quiet and P.faint or P.dim, SANS, {
+					Size = UDim2.fromOffset(0, 24),
+					AutomaticSize = Enum.AutomaticSize.X,
+					Parent = bar,
+				})
 			elseif it.step then
 				label(it.step, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
 				small("−", it.dec).Size = UDim2.fromOffset(22, 24)
@@ -253,10 +278,12 @@ return function(App)
 			return f
 		end
 		strip = panel(
-			{ AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = gui },
+			{ Position = UDim2.fromOffset(10, 8), AutomaticSize = Enum.AutomaticSize.XY, Parent = gui },
 			new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) })
 		)
 		pad(3, 3, 3, 3).Parent = strip
+		strip:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeStrip)
+		gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeStrip)
 		bar = panel(
 			{
 				AnchorPoint = Vector2.new(0.5, 0),
@@ -316,6 +343,7 @@ return function(App)
 			tostring(App.shapeTool),
 			tostring(App.hasPath and App.hasPath()),
 			handler and handler.header and tostring(select(3, handler.header())) or "",
+			tostring(select(3, App.focusState())),
 		}, "|")
 		return s, b
 	end
@@ -340,6 +368,7 @@ return function(App)
 		if s ~= stripKey then
 			stripKey = s
 			buildStrip()
+			placeStrip()
 		else
 			for _, f in looks do
 				f()

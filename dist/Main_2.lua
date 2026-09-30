@@ -1408,10 +1408,7 @@ AutoButtonColor = false,
 BackgroundColor3 = P.card,
 Size = UDim2.new(1, 0, 0, 60),
 Parent = parent,
-}, { corner(12), stroke(P.line) })
-App.shade(r, 0.05)
-App.topLight(r, 0.06, 12)
-App.shadow(r, 12)
+}, { corner(8), stroke(P.line) })
 App.pressable(r, 0.985)
 r.MouseEnter:Connect(function()
 r.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
@@ -1495,7 +1492,7 @@ AutoButtonColor = false,
 BackgroundColor3 = P.card,
 LayoutOrder = index,
 Parent = parent,
-}, { corner(10), stroke(P.line) })
+}, { corner(8), stroke(P.line) })
 c.MouseEnter:Connect(function()
 c.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
 end)
@@ -3559,7 +3556,7 @@ endRec(rec)
 build(m)
 end
 App.arraySource = function()
-local ours = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS), folder() }
+local ours = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS), folder() }
 for _, s in App.Selection:Get() do
 if (s:IsA("Model") or s:IsA("BasePart")) and s:GetAttribute("SS_Type") == nil and variantOf(s) then
 local mine = false
@@ -3913,7 +3910,7 @@ local set = {}
 for _, s in sel do
 set[s] = true
 end
-local skip = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+local skip = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) }
 local arrays = workspace:FindFirstChild("Arrays")
 local out = {}
 for _, s in sel do
@@ -5701,19 +5698,24 @@ end
 return made
 end
 App.buildOutliner = function(parent)
-local wrap = col({ Parent = parent }, { vlist(4) })
+local wrap = col({ BackgroundTransparency = 0, BackgroundColor3 = P.well, Parent = parent }, {
+corner(10),
+App.stroke(P.line),
+pad(8, 8, 5, 7),
+vlist(4),
+})
 local head =
 new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22), Parent = wrap })
 local chev = App.icon("right", 10, P.faint)
 chev.AnchorPoint, chev.Position = Vector2.new(0, 0.5), UDim2.new(0, 2, 0.5, 0)
 chev.Rotation = G.outliner and 90 or 0
 chev.Parent = head
-local title = label("OUTLINER", 11, P.faint, SANS_B, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = head })
+local title = label("Outliner", 12, P.dim, SANS_B, { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -18, 1, 0), Parent = head })
 head.MouseEnter:Connect(function()
 title.TextColor3 = P.text
 end)
 head.MouseLeave:Connect(function()
-title.TextColor3 = P.faint
+title.TextColor3 = P.dim
 end)
 head.MouseButton1Click:Connect(function()
 G.outliner = not G.outliner
@@ -5725,7 +5727,7 @@ App.ui.outliner = wrap
 if not G.outliner then
 local sel = App.selected
 local spec = sel and App.kindSpec(sel.kind)
-title.Text = sel and ("OUTLINER  ·  " .. string.upper(sel.folder and sel.folder.Name or (spec and spec.title or ""))) or "OUTLINER"
+title.Text = sel and ("Outliner: " .. (sel.folder and sel.folder.Name or (spec and spec.title or ""))) or "Outliner"
 return wrap
 end
 local scroll = new("ScrollingFrame", {
@@ -5835,8 +5837,7 @@ here; pick one of its objects and its Object tab opens. The tabs are a column of
 over the page names what's open.
 Which tab is open: the one picked, while the selection keeps it; else the last one used for that kind of thing;
 else the one for its next step (an unpainted zone: Zone; an undrawn path: Curve; else Objects).
-Also the search results (every matching card of the selection's tabs and of Settings) and, with no areas at all,
-the welcome.
+Also the search results (every matching card of the selection's tabs and of Settings).
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
@@ -5847,7 +5848,7 @@ App.propTab = nil
 local shownFor, lastActive
 local function homeTab(thing)
 if not thing then
-return "world"
+return #Engine.listAreas() == 0 and "start" or "world"
 end
 if thing.kind == "Stamps" then
 return "stamp"
@@ -6020,7 +6021,7 @@ word(name, P.text, SANS_B)
 end
 end
 if open and not App.searching() then
-label(string.upper(open.title), 11, P.faint, SANS_B, {
+label(open.title, 12, P.dim, SANS_M, {
 AnchorPoint = Vector2.new(1, 0),
 Position = UDim2.new(1, 0, 0, 0),
 Size = UDim2.fromOffset(92, 22),
@@ -6034,10 +6035,6 @@ end
 App.buildProperties = function(page)
 if App.searching() then
 App.buildSearchResults(page)
-return
-end
-if not App.selected and #Engine.listAreas() == 0 then
-App.buildWelcome(page)
 return
 end
 local open = App.currentTab()

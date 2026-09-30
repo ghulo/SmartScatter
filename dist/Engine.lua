@@ -121,7 +121,7 @@ return nil
 end
 local meshMap = {}
 function E.loadMeshMap()
-local out = workspace:FindFirstChild(E.OUT)
+local out = E.outFolder()
 local ok, data = pcall(HttpService.JSONDecode, HttpService, out and out:GetAttribute("SS_MeshMap") or "{}")
 meshMap = (ok and type(data) == "table") and data or {}
 return meshMap
@@ -188,7 +188,7 @@ return E.classOf(material), false
 end
 function E.rayParams(extra)
 local ex = { workspace.CurrentCamera }
-local out = workspace:FindFirstChild(E.OUT)
+local out = E.outFolder()
 if out then
 table.insert(ex, out)
 end
@@ -957,7 +957,7 @@ E.BIOMES = {
 }
 local LIBRARY = { "asset", "template", "prefab", "model", "prop", "library", "sample" }
 function E.findTemplates()
-local byType, out, roads = {}, workspace:FindFirstChild(E.OUT), workspace:FindFirstChild(E.ROADS)
+local byType, out, roads = {}, E.outFolder(), workspace:FindFirstChild(E.ROADS)
 local function scan(root, needLibrary)
 for _, c in root:GetDescendants() do
 if not (c:IsA("Model") or c:IsA("MeshPart")) or c:FindFirstAncestorWhichIsA("Model") then
@@ -1270,7 +1270,7 @@ return nil
 end
 if not index.built then
 index.built = true
-local out = workspace:FindFirstChild(E.OUT)
+local out = E.outFolder()
 for _, root in { game:GetService("ServerStorage"), game:GetService("ReplicatedStorage"), workspace } do
 for _, c in root:GetDescendants() do
 if
@@ -1311,8 +1311,22 @@ end
 end
 return table.concat(out, "|")
 end
+function E.outFolder()
+local folder
+for _, c in workspace:GetChildren() do
+if c.Name == E.OUT then
+for _, k in c:GetChildren() do
+if k:GetAttribute("SS_Area") then
+return c
+end
+end
+folder = folder or (c:IsA("Folder") and c or nil)
+end
+end
+return folder
+end
 function E.getOut()
-local out = workspace:FindFirstChild(E.OUT)
+local out = E.outFolder()
 if not out then
 out = Instance.new("Folder")
 out.Name = E.OUT
@@ -1322,7 +1336,7 @@ return out
 end
 function E.listAreas()
 local t = {}
-local out = workspace:FindFirstChild(E.OUT)
+local out = E.outFolder()
 if out then
 for _, c in out:GetChildren() do
 if c:IsA("Folder") and c:GetAttribute("SS_Area") then

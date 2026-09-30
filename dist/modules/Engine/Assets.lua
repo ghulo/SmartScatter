@@ -543,7 +543,7 @@ return function(E, I)
 	-- own houses aren't taken for templates
 	local LIBRARY = { "asset", "template", "prefab", "model", "prop", "library", "sample" }
 	function E.findTemplates()
-		local byType, out, roads = {}, workspace:FindFirstChild(E.OUT), workspace:FindFirstChild(E.ROADS)
+		local byType, out, roads = {}, E.outFolder(), workspace:FindFirstChild(E.ROADS)
 		local function scan(root, needLibrary)
 			for _, c in root:GetDescendants() do
 				if not (c:IsA("Model") or c:IsA("MeshPart")) or c:FindFirstAncestorWhichIsA("Model") then

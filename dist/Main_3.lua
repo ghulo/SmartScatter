@@ -17,6 +17,7 @@ local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App
 local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
 local runGenerate, commit = App.runGenerate, App.commit
 local PAGE_PAD = 14
+local CRUMB_H = 30
 App.perfNote = function()
 if App.area and App.area.folder.Parent and App.Engine.isPreview(App.area) then
 return "Some are still a preview (boxes): press Generate to place the real models.", false
@@ -699,25 +700,53 @@ if App.toolbarAvailable and not App.toolbarAvailable() then
 box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
 App.buildToolRow(head)
 end
-box({ Size = UDim2.new(1, 0, 0, 4), Parent = head })
-App.buildCrumb(head)
 end
-box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
+box({ Size = UDim2.new(1, 0, 0, 2), Parent = head })
 App.sheen(App.root, 0.04, 140, 150)
 App.halftone(App.root, 0.07, 4, 150)
-local column = not App.settingsOpen and App.buildTabColumn(App.root) or nil
-local left = column and App.TAB_COL or 0
-if column then
+local bench = box({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 0, Parent = App.root })
+box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = bench })
+local strip, column, rail
+if not App.settingsOpen then
+strip = box({ BackgroundTransparency = 0, BackgroundColor3 = P.strip, Size = UDim2.new(1, 0, 0, CRUMB_H), Parent = bench }, {
+pad(PAGE_PAD, PAGE_PAD, 4, 4),
+})
+App.buildCrumb(strip)
+box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.line,
+AnchorPoint = Vector2.new(0, 1),
+Position = UDim2.new(0, -PAGE_PAD, 1, 4),
+Size = UDim2.new(1, PAGE_PAD * 2, 0, 1),
+Parent = strip,
+})
+rail = box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.well,
+Position = UDim2.fromOffset(0, CRUMB_H),
+Size = UDim2.new(0, App.TAB_COL, 1, -CRUMB_H),
+Parent = bench,
+})
+box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.line,
+AnchorPoint = Vector2.new(1, 0),
+Position = UDim2.fromScale(1, 0),
+Size = UDim2.new(0, 1, 1, 0),
+Parent = rail,
+})
+column = App.buildTabColumn(rail)
+column.Size = UDim2.fromScale(1, 1)
 scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8)
 end
+local left = column and App.TAB_COL or 0
+local top = strip and CRUMB_H or 0
 local function fit()
 local h = head.AbsoluteSize.Y
-App.scroll.Position = UDim2.fromOffset(left, h)
-App.scroll.Size = UDim2.new(1, -left, 1, -h - barH())
-if column then
-column.Position = UDim2.fromOffset(0, h)
-column.Size = UDim2.new(0, left, 1, -h - barH())
-end
+bench.Position = UDim2.fromOffset(0, h)
+bench.Size = UDim2.new(1, 0, 1, -h - barH())
+App.scroll.Position = UDim2.fromOffset(left, h + top)
+App.scroll.Size = UDim2.new(1, -left, 1, -h - top - barH())
 end
 head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 fit()
@@ -3392,7 +3421,7 @@ return inst, inst and variantOf(inst)
 end
 local function selectedModels()
 local out = {}
-local placedByUs = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+local placedByUs = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) }
 local function ours(inst)
 if inst:GetAttribute("SS_Type") ~= nil then
 return true
@@ -3892,7 +3921,7 @@ local t = ab.Magnitude > 1e-3 and math.clamp((m - pa):Dot(ab) / ab:Dot(ab), 0, 1
 return (m - (pa + ab * t)).Magnitude
 end
 App.pickAt = function()
-local out = workspace:FindFirstChild(Engine.OUT)
+local out = Engine.outFolder()
 if not out then
 return nil
 end
@@ -4269,7 +4298,7 @@ showPicked()
 return object
 end
 local function boxPick(a, b, add)
-local out = workspace:FindFirstChild(Engine.OUT)
+local out = Engine.outFolder()
 local cam = workspace.CurrentCamera
 if not (out and cam) then
 return 0
@@ -4814,21 +4843,18 @@ end)()
 MODULES["App/Viewport/Focus"] = (function()
 --[[
 Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
-brushing one object, removing copies), the world steps back a touch so the tool stands out, and the viewport's top
-left says what's going on, the way Blender's does: the tool, then what it works on, then how to stop. Small, plain
-text; no frame, no badges. The world only loses a little colour (a colour correction on the camera, never saved
-with the place). The tool's name turns red while it takes things away. Settings › Viewport can turn it off.
+brushing one object, removing copies), the world steps back a touch so the tool stands out: it loses a little
+colour (a colour correction on the camera, never saved with the place). Settings › Viewport can turn it off.
+What the tool is doing is said in one place, the viewport's header (Viewport/Toolbar); App.focusState tells it
+whether the tool takes things away (its name is red then).
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
-local G, P, tween, MED, FAST = App.G, App.P, App.tween, App.MED, App.FAST
-local new, box, label = App.new, App.box, App.label
-local SANS, SANS_M = App.SANS, App.SANS_M
+local G, tween, MED = App.G, App.tween, App.MED
+local new = App.new
 local LAYER_MODES = App.LAYER_MODES
 local LOOK = { Saturation = -0.18, Brightness = -0.03, Contrast = 0 }
-local WHITE = Color3.fromRGB(235, 235, 235)
 local cc
-local gui, group, tick, title, detail, stop
 local function describe()
 local m = App.mode
 local shift = App.shiftHeld and App.shiftHeld()
@@ -4865,66 +4891,12 @@ return App.LAYER_LABEL[act], (area and name) and (area .. "  ›  " .. name) or 
 end
 return nil, nil, false
 end
-local function build()
-gui = new("ScreenGui", {
-Name = "SmartScatterFocus",
-Archivable = false,
-IgnoreGuiInset = true,
-DisplayOrder = 50,
-ResetOnSpawn = false,
-ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-})
-group = new("CanvasGroup", { BackgroundTransparency = 1, GroupTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
-local corner =
-box({ Position = UDim2.fromOffset(14, 12), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = group })
-tick = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.accent,
-Position = UDim2.fromOffset(0, 3),
-Size = UDim2.fromOffset(2, 13),
-Parent = corner,
-})
-local lines = box(
-{ Position = UDim2.fromOffset(9, 0), Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = corner },
-{
-new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }),
-}
-)
-local function line(size, font, order)
-local t = label("", size, WHITE, font, {
-Size = UDim2.fromOffset(0, size + 5),
-AutomaticSize = Enum.AutomaticSize.X,
-LayoutOrder = order,
-Parent = lines,
-})
-t.TextTruncate = Enum.TextTruncate.None
-t.TextStrokeColor3, t.TextStrokeTransparency = Color3.new(0, 0, 0), 0.8
-return t
-end
-title = line(14, SANS_M, 1)
-detail = line(12, SANS, 2)
-detail.TextTransparency = 0.3
-stop = line(11, SANS, 3)
-stop.TextTransparency = 0.5
-pcall(function()
-gui.Parent = game:GetService("CoreGui")
-end)
-end
 local shown = false
+App.focusState = describe
 App.refreshFocus = function()
-local what, where, erase = describe()
+local what = describe()
 local on = G.focus ~= false and what ~= nil
 if on then
-if not (gui and gui.Parent) then
-build()
-end
-local col = erase and P.danger:Lerp(WHITE, 0.25) or WHITE
-tick.BackgroundColor3 = erase and P.danger or P.accent
-title.Text = what
-title.TextColor3 = col
-detail.Text = where or ""
-detail.Visible = where ~= nil and where ~= ""
-stop.Text = App.keyText("cancel") .. " to stop"
 local cam = workspace.CurrentCamera
 if cam and not (cc and cc.Parent == cam) then
 cc = new(
@@ -4932,18 +4904,12 @@ cc = new(
 { Name = "SmartScatterFocus", Archivable = false, Saturation = 0, Brightness = 0, Contrast = 0, Parent = cam }
 )
 end
-if not shown then
-tween(group, MED, { GroupTransparency = 0 })
-if cc then
+if not shown and cc then
 tween(cc, MED, LOOK)
-end
 end
 shown = true
 elseif shown then
 shown = false
-if group then
-tween(group, FAST, { GroupTransparency = 1 })
-end
 if cc then
 local gone = cc
 cc = nil
@@ -4959,10 +4925,6 @@ shown = false
 if cc then
 cc:Destroy()
 cc = nil
-end
-if gui then
-gui:Destroy()
-gui = nil
 end
 end
 local cam = workspace.CurrentCamera
@@ -5008,6 +4970,19 @@ tip.Text = text
 tip.Position = UDim2.fromOffset(strip.AbsolutePosition.X + strip.AbsoluteSize.X + 6, b.AbsolutePosition.Y + (BTN - 24) / 2)
 end
 end
+local stripNeeds = 0
+local function placeStrip()
+if not (gui and strip and strip.Parent) then
+return
+end
+local room = gui.AbsoluteSize.Y
+local wrap = stripNeeds > room - 16
+local layout = strip:FindFirstChildOfClass("UIListLayout")
+layout.Wraps = wrap
+strip.AutomaticSize = wrap and Enum.AutomaticSize.X or Enum.AutomaticSize.XY
+strip.Size = wrap and UDim2.fromOffset(0, math.max(room - 16, BTN * 3)) or UDim2.fromOffset(0, 0)
+strip.Position = UDim2.fromOffset(10, math.max(8, math.floor((room - strip.AbsoluteSize.Y) / 2)))
+end
 local function buildStrip()
 for _, c in strip:GetChildren() do
 if c:IsA("GuiObject") then
@@ -5015,9 +4990,11 @@ c:Destroy()
 end
 end
 table.clear(looks)
+stripNeeds = 6
 for gi, g in App.toolGroups() do
 local group = g.tools
 if gi > 1 then
+stripNeeds += 7 + 2
 box({ Size = UDim2.fromOffset(BTN, 7), Parent = strip }, {
 new("Frame", {
 BackgroundColor3 = P.line,
@@ -5028,6 +5005,7 @@ Size = UDim2.new(1, -10, 0, 1),
 })
 end
 for _, t in group do
+stripNeeds += BTN + 2
 local b = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
@@ -5165,7 +5143,9 @@ bar.Visible = title ~= nil
 if not title then
 return
 end
-label(title, 12, P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+local _, _, takes = App.focusState()
+label(title, 12, takes and P.danger or P.text, SANS_B, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+table.insert(items, { text = App.keyText("cancel") .. " to stop", quiet = true })
 local function small(text, click, on, danger)
 local b = new("TextButton", {
 Text = text,
@@ -5192,7 +5172,11 @@ end
 for _, it in items do
 box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.fromOffset(1, 16), Parent = bar })
 if it.text then
-label(it.text, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
+label(it.text, 12, it.quiet and P.faint or P.dim, SANS, {
+Size = UDim2.fromOffset(0, 24),
+AutomaticSize = Enum.AutomaticSize.X,
+Parent = bar,
+})
 elseif it.step then
 label(it.step, 12, P.dim, SANS, { Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, Parent = bar })
 small("−", it.dec).Size = UDim2.fromOffset(22, 24)
@@ -5223,10 +5207,12 @@ f.BackgroundTransparency, f.BackgroundColor3 = SEE, P.card
 return f
 end
 strip = panel(
-{ AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), AutomaticSize = Enum.AutomaticSize.XY, Parent = gui },
+{ Position = UDim2.fromOffset(10, 8), AutomaticSize = Enum.AutomaticSize.XY, Parent = gui },
 new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) })
 )
 pad(3, 3, 3, 3).Parent = strip
+strip:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeStrip)
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeStrip)
 bar = panel(
 {
 AnchorPoint = Vector2.new(0.5, 0),
@@ -5284,6 +5270,7 @@ tostring(App.paintLayer and App.paintLayer.inst.Name),
 tostring(App.shapeTool),
 tostring(App.hasPath and App.hasPath()),
 handler and handler.header and tostring(select(3, handler.header())) or "",
+tostring(select(3, App.focusState())),
 }, "|")
 return s, b
 end
@@ -5306,6 +5293,7 @@ local s, b = keys()
 if s ~= stripKey then
 stripKey = s
 buildStrip()
+placeStrip()
 else
 for _, f in looks do
 f()

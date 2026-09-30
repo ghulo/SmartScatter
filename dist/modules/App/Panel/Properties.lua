@@ -5,8 +5,7 @@
 	over the page names what's open.
 	Which tab is open: the one picked, while the selection keeps it; else the last one used for that kind of thing;
 	else the one for its next step (an unpainted zone: Zone; an undrawn path: Curve; else Objects).
-	Also the search results (every matching card of the selection's tabs and of Settings) and, with no areas at all,
-	the welcome.
+	Also the search results (every matching card of the selection's tabs and of Settings).
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -20,8 +19,8 @@ return function(App)
 
 	-- the tab a selection opens on when none was picked: where its next step is
 	local function homeTab(thing)
-		if not thing then
-			return "world"
+		if not thing then -- (nothing made yet: where to start; else the map's own tools)
+			return #Engine.listAreas() == 0 and "start" or "world"
 		end
 		if thing.kind == "Stamps" then
 			return "stamp"
@@ -85,7 +84,8 @@ return function(App)
 
 	--------------------------------------------------------------------------------
 	-- The tabs: a column of icons down the left of the page (as in Blender's properties editor), so every tab fits
-	-- however narrow the panel is. A tab's name is its tip, and the line over the page says which one is open.
+	-- however narrow the panel is. A tab's name is its tip, and the strip over the page says which one is open. The
+	-- shell stands it on its rail (Panel/Shell).
 	--------------------------------------------------------------------------------
 	App.TAB_COL = 38 -- the column's width
 	local TAB = 30 -- a tab's button
@@ -209,7 +209,7 @@ return function(App)
 			end
 		end
 		if open and not App.searching() then
-			label(string.upper(open.title), 11, P.faint, SANS_B, {
+			label(open.title, 12, P.dim, SANS_M, {
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, 0, 0, 0),
 				Size = UDim2.fromOffset(92, 22),
@@ -224,14 +224,10 @@ return function(App)
 	--------------------------------------------------------------------------------
 	-- The page
 	--------------------------------------------------------------------------------
-	-- the open tab's page, the search results, or (no areas at all, nothing picked) the welcome
+	-- the open tab's page, or the search results
 	App.buildProperties = function(page)
 		if App.searching() then
 			App.buildSearchResults(page)
-			return
-		end
-		if not App.selected and #Engine.listAreas() == 0 then
-			App.buildWelcome(page)
 			return
 		end
 		local open = App.currentTab()

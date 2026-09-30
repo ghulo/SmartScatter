@@ -7,7 +7,7 @@ round bends, and everything updates live as you tweak it.
 ## Features
 
 - **One screen, like Blender** — an outliner of everything you made (zones, paths, keep-clear zones, stamps), a
-  column of tabs for what's selected (Objects, Object, Zone, Curve, Road, World) beside their page, a line over the
+  rail of tabs for what's selected (Objects, Object, Zone, Curve, Road, World) beside their page, a strip over the
   page naming what's open, and every tool in the viewport's tool strip. The objects show as a list or as a grid of
   pictures.
   Right-click a row for what can be done to it; drag rows to reorder them (a zone's objects are placed in that order);

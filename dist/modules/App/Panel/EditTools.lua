@@ -23,7 +23,7 @@ return function(App)
 		for _, s in sel do
 			set[s] = true
 		end
-		local skip = { workspace:FindFirstChild(Engine.OUT), workspace:FindFirstChild(Engine.ROADS) }
+		local skip = { Engine.outFolder(), workspace:FindFirstChild(Engine.ROADS) }
 		local arrays = workspace:FindFirstChild("Arrays")
 		local out = {}
 		for _, s in sel do
