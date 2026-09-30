@@ -1,6 +1,6 @@
 {
- "version": "9.92",
- "build": 156,
+ "version": "9.93",
+ "build": 157,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -104,7 +104,7 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 367241982
+   "sum": 779965926
   },
   "App/Panel/Tabs/Stamp": {
    "path": "modules/App/Panel/Tabs/Stamp.lua",
@@ -140,11 +140,11 @@
   },
   "App/Viewport/Paint": {
    "path": "modules/App/Viewport/Paint.lua",
-   "sum": 211024708
+   "sum": 708844695
   },
   "App/Viewport/Select": {
    "path": "modules/App/Viewport/Select.lua",
-   "sum": 613526984
+   "sum": 982829683
   },
   "App/Viewport/Shapes": {
    "path": "modules/App/Viewport/Shapes.lua",
@@ -152,7 +152,7 @@
   },
   "App/Viewport/Spline": {
    "path": "modules/App/Viewport/Spline.lua",
-   "sum": 176162556
+   "sum": 125426593
   },
   "App/Viewport/Stamp": {
    "path": "modules/App/Viewport/Stamp.lua",

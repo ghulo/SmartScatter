@@ -674,7 +674,7 @@ local text
 if hoverHandle then
 text = "Drag to bend the curve · Shift for height"
 elseif hoverPt then
-text = "Drag to move · click to select · right-click to delete"
+text = "Drag to move · click to select · " .. App.keyText("delete") .. " to delete"
 elseif hoverIns then
 text = "Click to insert a point here"
 elseif not sp or #sp.pts == 0 then
@@ -950,11 +950,6 @@ elseif what == "delete" then
 deletePoint(selPt)
 end
 end
-App.onRightClick(function()
-if App.mode == "Spline" and hoverPt then
-deletePoint(hoverPt)
-end
-end)
 App.clickSplinePoint = function(at)
 if App.mode == "Spline" or not sv.folder or not App.area or not App.area.spline or App.area.locked then
 return false
@@ -1682,7 +1677,8 @@ a click selects it (Core/Selection), so the panel shows it:
   a path            the path (its curve, or a point of it, within a few pixels on screen)
   painted ground    the zone painted there (a keep-clear zone if no zone is)
 A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
-sizes it (as the stamp's), the stamp's keys work on it, and a second click on it has the rest (another model,
+sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
+picked one, has the rest (another model,
 moving it, giving it back to the rules, removing it). A copy changed this way becomes a stamp's pin of its object
 (Engine/Pins), so generating puts it back just as it was left.
 Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
@@ -1864,7 +1860,7 @@ local copy = pickedCopy()
 light("copySel", copy, 0.8)
 if copy then
 App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
-App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  click it again for more"))
+App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  Shift + right-click for more"))
 end
 end
 local function unpick()
@@ -2121,9 +2117,24 @@ App.status(
 "Selected "
 .. (thing.folder and thing.folder.Name or thing.kind)
 .. (object and (" · " .. object.inst.Name) or "")
-.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, click it again for more." or ".")
+.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, Shift + right-click (or a second click) has more." or ".")
 )
 end
+App.onRightClick(function()
+if App.mode ~= "Select" or moving or not App.shiftHeld() then
+return
+end
+local thing, key, copy = App.pickAt()
+if not copy then
+return
+end
+if copy ~= pickedCopy() then
+pick(thing, key, copy)
+end
+if picked then
+App.viewMenu(menu(), string.upper(copy.Name))
+end
+end)
 local function wheel(dir)
 if App.mode ~= "Select" or not picked then
 return

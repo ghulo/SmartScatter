@@ -12,7 +12,8 @@ return function(App)
 
 	--------------------------------------------------------------------------------
 	-- Spline editing: click to add points, drag to move them along any surface (Shift+drag = height),
-	-- click the curve to insert, right-click or Delete to remove, Enter/Esc to finish.
+	-- click the curve to insert, the delete key (X) to remove, Enter/Esc to finish. (Not a right-click: Studio opens
+	-- its own menu on one, and a plugin can't stop it.)
 	-- Networks: select any point, then click the ground. The end of a curve extends it; any other point
 	-- sprouts a new branch from there. Points that sit on each other are welded and move together.
 	--------------------------------------------------------------------------------
@@ -711,7 +712,7 @@ return function(App)
 		if hoverHandle then
 			text = "Drag to bend the curve · Shift for height"
 		elseif hoverPt then
-			text = "Drag to move · click to select · right-click to delete"
+			text = "Drag to move · click to select · " .. App.keyText("delete") .. " to delete"
 		elseif hoverIns then
 			text = "Click to insert a point here"
 		elseif not sp or #sp.pts == 0 then
@@ -999,11 +1000,6 @@ return function(App)
 		end
 	end
 
-	App.onRightClick(function()
-		if App.mode == "Spline" and hoverPt then
-			deletePoint(hoverPt)
-		end
-	end)
 	-- a click on a spline point with no tool on opens the editor on that point (your selection stays as it was)
 	App.clickSplinePoint = function(at)
 		if App.mode == "Spline" or not sv.folder or not App.area or not App.area.spline or App.area.locked then

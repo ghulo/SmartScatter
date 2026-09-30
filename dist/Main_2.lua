@@ -3276,7 +3276,7 @@ end)
 end)
 end
 local fixed = label(
-"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon or deletes a path point. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
+"Fixed: Shift erases while painting and raises a path point while dragging; Ctrl+Z undoes; a quick right-click closes a polygon; Shift + right-click on a placed copy (Select) opens its menu. A plain key still works with Shift held; with Ctrl or Alt held it's Studio's unless you bound that combo.",
 12,
 P.faint,
 SANS,
@@ -5907,10 +5907,10 @@ Lasso = "Drag an outline. It fills when you let go.",
 Box = "Drag a rectangle. It fills when you let go.",
 Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
 Fill = "Click the ground to fill everything connected of that surface.",
-Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
+Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} deletes a point, {close} to finish.",
 Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, click it again for more.",
+Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, Shift + right-click (or a second click) has more.",
 Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",

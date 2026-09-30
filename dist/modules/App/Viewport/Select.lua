@@ -5,7 +5,8 @@
 	  a path            the path (its curve, or a point of it, within a few pixels on screen)
 	  painted ground    the zone painted there (a keep-clear zone if no zone is)
 	A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
-	sizes it (as the stamp's), the stamp's keys work on it, and a second click on it has the rest (another model,
+	sizes it (as the stamp's), the stamp's keys work on it, and Shift + right-click on a copy, or a second click on the
+	picked one, has the rest (another model,
 	moving it, giving it back to the rules, removing it). A copy changed this way becomes a stamp's pin of its object
 	(Engine/Pins), so generating puts it back just as it was left.
 	Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
@@ -208,7 +209,7 @@ return function(App)
 		light("copySel", copy, 0.8)
 		if copy then
 			App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
-			App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  click it again for more"))
+			App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  Shift + right-click for more"))
 		end
 	end
 	local function unpick()
@@ -366,7 +367,7 @@ return function(App)
 		showPicked()
 		return object
 	end
-	-- what can be done to the picked copy (a second click on it)
+	-- what can be done to the picked copy (Shift + right-click, or a second click on it)
 	local function menu()
 		local a, copy = App.area, pickedCopy()
 		local pose = a and copy and Engine.copyPose(a, copy)
@@ -465,8 +466,7 @@ return function(App)
 			return
 		end
 		if copy and copy == pickedCopy() then
-			-- the picked copy clicked again: its menu, by the mouse. (Not a right-click: Studio opens its own menu
-			-- on one, and a plugin can't stop it.)
+			-- the picked copy clicked again: its menu, by the mouse (as Shift + right-click opens it)
 			App.viewMenu(menu(), string.upper(copy.Name))
 			return
 		end
@@ -481,9 +481,26 @@ return function(App)
 			"Selected "
 				.. (thing.folder and thing.folder.Name or thing.kind)
 				.. (object and (" · " .. object.inst.Name) or "")
-				.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, click it again for more." or ".")
+				.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, Shift + right-click (or a second click) has more." or ".")
 		)
 	end
+	-- Shift + right-click on a copy: it's picked, and its menu opens by the mouse. (With Shift: Studio opens its own
+	-- menu on a plain right-click, and a plugin can't stop it.)
+	App.onRightClick(function()
+		if App.mode ~= "Select" or moving or not App.shiftHeld() then
+			return
+		end
+		local thing, key, copy = App.pickAt()
+		if not copy then
+			return
+		end
+		if copy ~= pickedCopy() then
+			pick(thing, key, copy)
+		end
+		if picked then
+			App.viewMenu(menu(), string.upper(copy.Name))
+		end
+	end)
 	-- the wheel on the picked copy: Shift turns it, Alt sizes it (a plain notch zooms, as ever)
 	local function wheel(dir)
 		if App.mode ~= "Select" or not picked then
