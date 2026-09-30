@@ -39,8 +39,10 @@ Get it from the Creator Store, or download `SmartScatter.rbxmx` from the latest 
 Studio plugins folder (Plugins → Plugins Folder).
 
 The plugin updates itself: when Studio starts (and every five minutes) it checks this repository's `dist` folder and,
-if there's a newer build, downloads it. Studio asks once for permission to reach `raw.githubusercontent.com`;
-allow it to receive updates. Nothing else is sent anywhere.
+if there's a newer build, downloads the modules that changed. With the panel closed it goes straight in; with it open
+the plugin asks first. Studio asks once for permission to reach `raw.githubusercontent.com`; allow it to receive
+updates. Nothing else is sent anywhere. ⚙ › Tour and about shows how the last check went, with a button to check now
+(plugins installed before 9.89 update the same way, without that line).
 
 ## Development
 
@@ -66,13 +68,16 @@ src/
                             a card per feature; Settings: the ⚙ page
 tests/suite.lua           regression suite for Studio: builds its own world far away, checks every placement path,
                           cleans up
-tests/offline/            engine tests that need no Studio (patterns, spacing and footprints, the mask, curves), run
-                          by check.sh with the Luau runtime; roblox.luau stands in for the few Roblox types they use
+tests/offline/            tests that need no Studio, run by check.sh with the Luau runtime: engine.luau (patterns, spacing
+                          and footprints, the mask, curves) and loader.luau (what an update downloads, with the loader's
+                          own functions); roblox.luau stands in for the few Roblox types they use
 tools/                    tree.py (the module tree + flattening), check.sh, offline.py, push.py / push_patch.py
                           (dev pushes), loader_test.py, lint_dupes.py
   preview/                the panel without the plugin: server.py serves src/ to Studio, panel.lua runs the panel on
                           a board far away, dump.lua + render.py draw its layout as a PNG (and flag cut-off text),
-                          shots.lua dumps several states, run_suite.lua runs tests/suite.lua against src/
+                          shots.lua dumps several states, run_suite.lua runs tests/suite.lua against src/,
+                          loader_run.lua runs Loader.lua against a stand-in update site (server.py) and checks its
+                          online updates end to end
 ```
 
 In Studio the plugin is the same tree: the Loader Script with the `App` and `Engine` ModuleScripts (folders inside).
@@ -130,6 +135,10 @@ for the call) `tools/preview/panel.lua` (or `shots.lua` for several states) and 
    the parts (keyed "Engine/…" or "App/…"), and each collects its own. The offline tests run the engine split this way.
 3. Attach `SmartScatter.rbxmx` to a GitHub release, and update the Creator Store copy now and then so new installs
    start recent.
+
+`Loader.lua` is the one file an online update can't replace: a change to it reaches people only through a new
+`SmartScatter.rbxmx` (the Creator Store copy). The running code must therefore work with any loader: what a newer
+loader adds to `ctx` (like `ctx.updates`) is optional to it.
 
 Only people who can push to this repository can publish updates, so keep write access tight.
 

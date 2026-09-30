@@ -8,10 +8,11 @@
 	Code sources, newest build wins:
 	  1. bundled: the App and Engine trees inside this plugin file
 	  2. saved:   the last update, kept in plugin settings (so every place gets it)
-	  3. online:  the release published at UPDATE_URL (release.json + the modules). Checked when Studio starts (a newer
-	              build goes straight in) and every five minutes (the plugin asks first, then swaps it in live, no
-	              restart). Everyone who has the plugin gets updates without reinstalling. Studio asks once before the
-	              plugin may reach that site.
+	  3. online:  the release published at UPDATE_URL (release.json + the modules). Checked when Studio starts and
+	              every five minutes; only the modules that changed are downloaded. With the panel closed a newer build
+	              goes straight in; with it open the plugin asks first, then swaps it in live, no restart. Everyone who
+	              has the plugin gets updates without reinstalling. Studio asks once before the plugin may reach that
+	              site. The running code reads how that went from ctx.updates (its settings show it).
 	  4. live:    ServerStorage.SmartScatterSource in the open place (for development). Never saved with the place.
 	              Editing its modules and bumping its Build attribute hot-swaps the plugin instantly.
 ]]
@@ -142,8 +143,23 @@ local saved = normalize(plugin:GetSetting(SAVED_KEY))
 bundled = normalize(bundled)
 local current = (saved and saved.build > bundled.build) and saved or bundled
 
+-- Online updates, as the running code sees them (ctx.updates). status: "off" (no update site), "checking",
+-- "downloading" (version, done, of), "current", "ready" (version: downloaded, waiting for a yes) or "failed" (detail:
+-- "reach" the site, "download" a module, or "start" the new version).
+local ONLINE = UPDATE_URL ~= "" and string.sub(UPDATE_URL, 1, 2) ~= "__"
+local update = { status = ONLINE and "checking" or "off" }
+local checkForUpdate, applyReady -- (defined with the update code below)
+
 -- run a version of the code, cleaning up the previous one first
 local cleanup, holder, running -- running: the ctx of the code that's running (it may offer to update)
+local function setUpdate(status, fields)
+	update = fields or {}
+	update.status = status
+	local changed = running and running.updates and running.updates.changed -- (set by the code that shows it)
+	if changed then
+		task.spawn(pcall, changed)
+	end
+end
 local function start(code, reloaded)
 	if cleanup then
 		pcall(cleanup)
@@ -157,6 +173,18 @@ local function start(code, reloaded)
 	local made = buildTree(code.modules, holder, true)
 	holder.Parent = script
 	local ctx = { plugin = plugin, button = button, widget = widget, version = code.version, reloaded = reloaded }
+	ctx.updates = {
+		host = string.match(UPDATE_URL, "^%a+://([^/]+)"),
+		state = function()
+			return table.clone(update)
+		end,
+		check = function() -- look now (the answer arrives through changed)
+			task.spawn(checkForUpdate, true)
+		end,
+		apply = function() -- swap in the release that's ready
+			task.spawn(applyReady)
+		end,
+	}
 	running = ctx
 	local ok, err = pcall(function()
 		ctx.Engine = require(made.Engine)
@@ -257,60 +285,135 @@ local function checksum(str)
 	end
 	return h
 end
-local function fetchRelease()
-	if UPDATE_URL == "" or string.sub(UPDATE_URL, 1, 2) == "__" then
-		return nil
-	end
-	local function get(file)
-		local ok, body = pcall(HttpService.GetAsync, HttpService, UPDATE_URL .. "/" .. file, true)
-		return ok and body or nil
-	end
-	local ok, m = pcall(HttpService.JSONDecode, HttpService, get("release.json") or "")
-	if not (ok and type(m) == "table" and type(m.build) == "number" and type(m.modules) == "table") then
-		return nil
-	end
-	if m.build <= current.build then
-		return nil
-	end
-	local modules = {}
+
+-- The sources of release m ({ build, version, modules = { [path] = { path = file, sum } } }): a module this install
+-- already has (have[path], same checksum) is kept, one an earlier, unfinished try downloaded (kept[path]) is reused,
+-- and only the rest come from get(file), told to progress(nth, of) as they go. Returns the code, or nil and the
+-- module that couldn't be had.
+local function gatherRelease(m, have, kept, get, progress)
+	local modules, need = {}, {}
 	for path, entry in m.modules do
-		local src = type(entry) == "table" and type(entry.path) == "string" and get(entry.path)
-		if not src or checksum(src) ~= entry.sum then
-			return nil
+		if type(path) ~= "string" or type(entry) ~= "table" or type(entry.path) ~= "string" or type(entry.sum) ~= "number" then
+			return nil, tostring(path)
 		end
+		local mine, old = have[path], kept[path]
+		if mine and checksum(mine) == entry.sum then
+			modules[path] = mine
+		elseif old and old.sum == entry.sum then
+			modules[path] = old.src
+		else
+			table.insert(need, path)
+		end
+	end
+	table.sort(need)
+	for i, path in need do
+		progress(i, #need)
+		local entry = m.modules[path]
+		local src = get(entry.path)
+		if type(src) ~= "string" or checksum(src) ~= entry.sum then
+			return nil, path
+		end
+		kept[path] = { sum = entry.sum, src = src }
 		modules[path] = src
 	end
-	return normalize({ build = m.build, version = m.version, modules = modules })
+	return { build = m.build, version = m.version, modules = modules }
 end
+
+-- a file of the release, tried again (after 1s, 2s…) when the request fails; nil and the error when it can't be had
+local function httpGet(file, tries)
+	local err
+	for i = 1, tries do
+		local ok, body = pcall(HttpService.GetAsync, HttpService, UPDATE_URL .. "/" .. file, true)
+		if ok then
+			return body
+		end
+		err = body
+		if i < tries then
+			task.wait(i)
+		end
+	end
+	return nil, err
+end
+
 local unloading = false
+local checking = false -- one check at a time
+local ready -- a downloaded release, waiting to go in
+local kept = {} -- [path] = { sum, src }: what an unfinished download got, so the next try only fetches the rest
 local offered = {} -- [build] = true once the running plugin has asked about it
+local broken = {} -- [build] = true for a release that wouldn't start: not tried again this session
+
 local function apply(code)
 	if unloading or code.build <= current.build then
 		return
 	end
+	ready = nil
 	if start(code, true) then
 		current = code
+		kept = {}
 		plugin:SetSetting(SAVED_KEY, storable(code))
 		plugin:SetSetting("SmartScatter_lastBuild", code.build)
 		watch(writeMirror(current))
+		setUpdate("current")
 	else
+		broken[code.build] = true
 		start(current, false) -- a release that won't start: keep the version that works
+		setUpdate("failed", { detail = "start", version = code.version })
 	end
 end
--- at boot a new release goes straight in; while working, the plugin asks first (a swap mid-stroke would lose it)
-local function checkForUpdate(boot)
-	local code = fetchRelease()
-	if not code or unloading then
+applyReady = function()
+	if ready then
+		apply(ready)
+	end
+end
+
+-- asked: the user pressed "check now" (the settings then show what was found, with its own button). Otherwise a newer
+-- release goes straight in while the panel is closed (nothing is under way); with the panel open the plugin asks
+-- first, once (a swap mid-stroke would lose it).
+checkForUpdate = function(asked)
+	if not ONLINE or checking or unloading then
 		return
 	end
-	local ask = not boot and running and running.offerUpdate
-	if not ask then
-		apply(code)
-	elseif not offered[code.build] then
-		offered[code.build] = true
-		pcall(ask, code.version, function()
-			apply(code)
+	checking = true
+	if update.status ~= "ready" then
+		setUpdate("checking")
+	end
+	local body, err = httpGet("release.json", 1) -- (no retries: the next check is the retry)
+	local ok, m = pcall(HttpService.JSONDecode, HttpService, body or "")
+	if not (ok and type(m) == "table" and type(m.build) == "number" and type(m.modules) == "table") then
+		if ready then -- (what's already downloaded is still good)
+			setUpdate("ready", { version = ready.version })
+		else
+			setUpdate("failed", { detail = "reach", error = body and "unreadable release" or tostring(err) })
+		end
+	elseif broken[m.build] then
+		setUpdate("failed", { detail = "start", version = tostring(m.version or m.build) })
+	elseif m.build <= current.build then
+		ready = nil
+		setUpdate("current")
+	else
+		local version = tostring(m.version or m.build)
+		local got = gatherRelease(m, current.modules, kept, function(file)
+			return (httpGet(file, 3))
+		end, function(nth, of)
+			setUpdate("downloading", { version = version, done = nth - 1, of = of })
 		end)
+		ready = got and normalize(got)
+		if ready then
+			setUpdate("ready", { version = ready.version })
+		else
+			setUpdate("failed", { detail = "download", version = version })
+		end
+	end
+	checking = false
+	if not ready or unloading then
+		return
+	end
+	local ask = widget.Enabled and running and running.offerUpdate
+	if not ask then
+		applyReady()
+	elseif not asked and not offered[ready.build] then
+		offered[ready.build] = true
+		pcall(ask, ready.version, applyReady)
 	end
 end
 
@@ -335,13 +438,12 @@ if current ~= bundled then
 end
 watch(writeMirror(current))
 
--- then look for a newer release now and every five minutes, without holding up the start
+-- then look for a newer release now and every five minutes (a minute after a download that didn't finish), without
+-- holding up the start
 task.spawn(function()
-	local boot = true
 	while not unloading do
-		checkForUpdate(boot)
-		boot = false
-		task.wait(300)
+		checkForUpdate(false)
+		task.wait(update.status == "failed" and update.detail == "download" and 60 or 300)
 	end
 end)
 

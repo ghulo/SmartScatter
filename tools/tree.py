@@ -211,3 +211,14 @@ def checksum(text):
     for c in text.encode():
         h = (h * 31 + c) % 1000000007
     return h
+
+
+# The loader's functions that need nothing from Studio: the offline tests and tools/loader_test.py run them as they
+# are in Loader.lua.
+LOADER_PURE = ("checksum", "normalize", "gatherRelease")
+
+
+def loader_function(loader_src, name):
+    m = re.search(r"^local function %s\(.*?\n^end\n" % name, loader_src, re.S | re.M)
+    assert m, "Loader.lua has no top-level function " + name
+    return m.group(0)

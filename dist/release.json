@@ -1,6 +1,6 @@
 {
- "version": "9.88",
- "build": 152,
+ "version": "9.89",
+ "build": 153,
  "modules": {
   "App": {
    "path": "modules/App.lua",
@@ -104,7 +104,7 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 867576009
+   "sum": 417365060
   },
   "App/Panel/Tabs/Stamp": {
    "path": "modules/App/Panel/Tabs/Stamp.lua",

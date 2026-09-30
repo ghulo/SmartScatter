@@ -3,18 +3,13 @@ buildTree / readTree, the real App and Engine entries (init.lua), and a stand-in
 builds the tree, requires both entries, checks every module ran once in ORDER with E / I / App passed along, reads
 the tree back, and removes it. Returns "loader tree ok" or what went wrong."""
 import pathlib
-import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import tree as T  # noqa: E402
 
 loader = T.read(T.ROOT / "Loader.lua")
-fns = []
-for name in ("normalize", "buildTree", "readTree"):
-    m = re.search(r"^local function %s\(.*?\n^end\n" % name, loader, re.S | re.M)
-    assert m, name
-    fns.append(m.group(0))
+fns = [T.loader_function(loader, name) for name in ("normalize", "buildTree", "readTree")]
 t = T.tree()
 mods = {"App": t["App"], "Engine": t["Engine"]}
 for entry, arg in (("App", "App"), ("Engine", "E, I")):

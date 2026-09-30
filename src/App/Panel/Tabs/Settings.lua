@@ -195,6 +195,57 @@ return function(App)
 		end, { Parent = buttonRow(b) })
 	end
 
+	-- How the loader's update checks are going (ctx.updates; loaders installed before it have none: nothing shows),
+	-- with the button for what can be done about it. Follows the loader live while this card is up.
+	local function updateWords(s, host)
+		if s.status == "checking" then
+			return "Checking for updates…"
+		elseif s.status == "downloading" then
+			return string.format("Downloading %s (%d of %d)…", tostring(s.version), (s.done or 0) + 1, s.of or 1)
+		elseif s.status == "current" then
+			return "Up to date.", "Check now", "check"
+		elseif s.status == "ready" then
+			return "Smart Scatter " .. tostring(s.version) .. " is ready. Updating takes a second and needs no restart.", "Update now", "apply"
+		elseif s.detail == "start" then
+			return tostring(s.version) .. " wouldn't start, so this version stays.", "Check again", "check"
+		elseif s.detail == "download" then
+			return "The update didn't download fully. It tries again by itself in a minute.", "Try now", "check"
+		end
+		return "Couldn't check for updates. Check your connection, and that Studio lets Smart Scatter reach "
+			.. tostring(host or "its update site")
+			.. " (Plugins › Manage Plugins).",
+			"Try again",
+			"check"
+	end
+	local function buildUpdates(b)
+		local updates = App.ctx.updates
+		if type(updates) ~= "table" or updates.state().status == "off" then
+			return
+		end
+		local words = para("", { Parent = b })
+		local row = buttonRow(b)
+		local made
+		local function render()
+			if not words.Parent then -- this card is gone: the next one takes over
+				return
+			end
+			local s = updates.state()
+			local text, action, call = updateWords(s, updates.host)
+			words.Text = text
+			words.TextColor3 = s.status == "failed" and P.danger or P.faint
+			if made then
+				made:Destroy()
+				made = nil
+			end
+			row.Visible = action ~= nil
+			if action then
+				made = button(action, s.status == "ready" and "accent" or nil, updates[call], { Parent = row })
+			end
+		end
+		updates.changed = render
+		render()
+	end
+
 	local function buildAbout(b)
 		hintOn(
 			button("Replay the tour", nil, function()
@@ -207,6 +258,7 @@ return function(App)
 		local words = App.col({ Size = UDim2.new(1, -42, 0, 0), Parent = about }, { App.vlist(0) })
 		label("Smart Scatter  " .. tostring(App.ctx.version or "dev"), 13, P.text, SANS_B, { Size = UDim2.new(1, 0, 0, 18), Parent = words })
 		label("made by Ghulo", 12, P.faint, SANS, { Size = UDim2.new(1, 0, 0, 16), Parent = words })
+		buildUpdates(b)
 	end
 
 	App.buildSettingsPage = function(page)
@@ -228,8 +280,8 @@ return function(App)
 		cs.add({
 			id = "about",
 			title = "Tour and about",
-			sub = "A walk through everything, and the version",
-			keys = "tour help version",
+			sub = "A walk through everything, the version and updates",
+			keys = "tour help version update updates release new",
 			build = buildAbout,
 		})
 		cs.add({

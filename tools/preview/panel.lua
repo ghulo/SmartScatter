@@ -107,6 +107,7 @@ local cleanup = require(holder.App)({
 	Engine = E,
 	version = "preview",
 	preview = true, -- (the plugin leaves the viewport alone: no tool strip, the panel's tool row instead)
+	updates = _G.SS_PreviewUpdates, -- (a stand-in for the loader's update state, when a run sets one)
 })
 local App = _G.SS_PreviewApp
 _G.SS_PreviewApp = nil
