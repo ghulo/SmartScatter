@@ -1723,6 +1723,110 @@ return function(App)
 	App.textSize = textSize
 	App.TEXT_SIZES = TEXT_SIZES
 	App.corner = corner
+	--------------------------------------------------------------------------------
+	-- Rows of a list dragged to another place in it
+	--------------------------------------------------------------------------------
+	-- the gap a height falls in among rows' middles: 1 above the first row … n + 1 below the last
+	local function reorderSlot(mids, y)
+		local slot = 1
+		for i, mid in mids do
+			if y > mid then
+				slot = i + 1
+			end
+		end
+		return slot
+	end
+	-- where row `from` ends up when it's dropped in that gap (its own two gaps: where it is)
+	local function reorderTo(from, slot)
+		return slot > from and slot - 1 or slot
+	end
+	-- A list whose rows can be dragged up and down: add(row, index) for each row, in order; onMove(from, to) when one
+	-- is let go in another place. A press that barely moves stays a click; dragged() tells a row's click handler that
+	-- the press was a drag (it then does nothing). A line shows where the row would land.
+	local function reorderList(onMove)
+		local rows, moved = {}, false
+		local list = {}
+		function list.dragged()
+			return moved
+		end
+		function list.add(row, index)
+			rows[index] = row
+			row.InputBegan:Connect(function(input)
+				if input.UserInputType ~= Enum.UserInputType.MouseButton1 or #rows < 2 then
+					return
+				end
+				local root = App.root
+				local startY = App.widget:GetRelativeMousePosition().Y
+				local dragging, line, to, conn, done = false, nil, index, nil, false
+				local sawHeld = false -- (the button found up ends the drag: let go outside the panel, no end event comes)
+				local function finish(drop)
+					if done then
+						return
+					end
+					done = true
+					conn:Disconnect()
+					if line then
+						line:Destroy()
+					end
+					if dragging then
+						task.delay(0.1, function() -- (after the click this release may still send)
+							moved = false
+						end)
+						if drop and to ~= index then
+							onMove(index, to)
+						end
+					end
+				end
+				conn = RunService.Heartbeat:Connect(function()
+					if not row.Parent then -- (the list was rebuilt under the drag)
+						finish(false)
+						return
+					end
+					local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+					if ok and held then
+						sawHeld = true
+					elseif ok and sawHeld then
+						finish(true)
+						return
+					end
+					local y = App.widget:GetRelativeMousePosition().Y
+					if not dragging then
+						if math.abs(y - startY) < 6 then
+							return
+						end
+						dragging, moved = true, true
+						line = box({
+							BackgroundTransparency = 0,
+							BackgroundColor3 = P.accent,
+							Size = UDim2.fromOffset(row.AbsoluteSize.X, 2),
+							ZIndex = 60,
+							Parent = root,
+						}, { corner(1) })
+					end
+					local mids = {}
+					for i, r in rows do
+						mids[i] = r.AbsolutePosition.Y + r.AbsoluteSize.Y / 2
+					end
+					local slot = reorderSlot(mids, y)
+					to = reorderTo(index, slot)
+					local at = rows[math.min(slot, #rows)]
+					local lineY = slot > #rows and at.AbsolutePosition.Y + at.AbsoluteSize.Y or at.AbsolutePosition.Y
+					line.Position = UDim2.fromOffset(row.AbsolutePosition.X - root.AbsolutePosition.X, lineY - root.AbsolutePosition.Y - 1)
+					line.Visible = to ~= index
+				end)
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						finish(true)
+					end
+				end)
+			end)
+		end
+		return list
+	end
+	App.reorderSlot = reorderSlot
+	App.reorderTo = reorderTo
+	App.reorderList = reorderList
+
 	App.stroke = stroke
 	App.pad = pad
 	App.vlist = vlist

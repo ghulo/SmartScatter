@@ -2052,6 +2052,101 @@ App.new = new
 App.textSize = textSize
 App.TEXT_SIZES = TEXT_SIZES
 App.corner = corner
+local function reorderSlot(mids, y)
+local slot = 1
+for i, mid in mids do
+if y > mid then
+slot = i + 1
+end
+end
+return slot
+end
+local function reorderTo(from, slot)
+return slot > from and slot - 1 or slot
+end
+local function reorderList(onMove)
+local rows, moved = {}, false
+local list = {}
+function list.dragged()
+return moved
+end
+function list.add(row, index)
+rows[index] = row
+row.InputBegan:Connect(function(input)
+if input.UserInputType ~= Enum.UserInputType.MouseButton1 or #rows < 2 then
+return
+end
+local root = App.root
+local startY = App.widget:GetRelativeMousePosition().Y
+local dragging, line, to, conn, done = false, nil, index, nil, false
+local sawHeld = false
+local function finish(drop)
+if done then
+return
+end
+done = true
+conn:Disconnect()
+if line then
+line:Destroy()
+end
+if dragging then
+task.delay(0.1, function()
+moved = false
+end)
+if drop and to ~= index then
+onMove(index, to)
+end
+end
+end
+conn = RunService.Heartbeat:Connect(function()
+if not row.Parent then
+finish(false)
+return
+end
+local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+if ok and held then
+sawHeld = true
+elseif ok and sawHeld then
+finish(true)
+return
+end
+local y = App.widget:GetRelativeMousePosition().Y
+if not dragging then
+if math.abs(y - startY) < 6 then
+return
+end
+dragging, moved = true, true
+line = box({
+BackgroundTransparency = 0,
+BackgroundColor3 = P.accent,
+Size = UDim2.fromOffset(row.AbsoluteSize.X, 2),
+ZIndex = 60,
+Parent = root,
+}, { corner(1) })
+end
+local mids = {}
+for i, r in rows do
+mids[i] = r.AbsolutePosition.Y + r.AbsoluteSize.Y / 2
+end
+local slot = reorderSlot(mids, y)
+to = reorderTo(index, slot)
+local at = rows[math.min(slot, #rows)]
+local lineY = slot > #rows and at.AbsolutePosition.Y + at.AbsoluteSize.Y or at.AbsolutePosition.Y
+line.Position = UDim2.fromOffset(row.AbsolutePosition.X - root.AbsolutePosition.X, lineY - root.AbsolutePosition.Y - 1)
+line.Visible = to ~= index
+end)
+input.Changed:Connect(function()
+if input.UserInputState == Enum.UserInputState.End then
+finish(true)
+end
+end)
+end)
+end
+return list
+end
+App.reorderSlot = reorderSlot
+App.reorderTo = reorderTo
+App.reorderList = reorderList
 App.stroke = stroke
 App.pad = pad
 App.vlist = vlist
@@ -3157,17 +3252,17 @@ fn(vp)
 end
 end
 end
-local function pruneThumbs(all)
+local function pruneThumbs(all, under)
 local n = 0
 for _ in thumbCache do
 n += 1
 end
 for inst, bySize in thumbCache do
-local drop = all or n > 150 or not inst.Parent
+local drop = all or (n > 150 and not under) or not inst.Parent
 for _, vp in bySize do
 if drop then
 vp:Destroy()
-else
+elseif not under or vp:IsDescendantOf(under) then
 vp.Parent = nil
 end
 end
@@ -3371,7 +3466,8 @@ registers its pieces here, and the outliner, the properties, the tool strip and 
 those knows the features by name. Adding a tool is one module that registers what it brings.
   kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
         { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
-          menu = fn(thing) -> { { text, run, danger? } }? }
+          menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
+          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
   tab   a page of the properties for some kinds of thing:
         { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
           build = fn(page) }
@@ -3687,6 +3783,7 @@ closePopup()
 local root = App.root
 local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = root })
 catcher.MouseButton1Click:Connect(closePopup)
+catcher.MouseButton2Click:Connect(closePopup)
 App.ui.popup = catcher
 local x, y
 if anchor then
@@ -3743,6 +3840,14 @@ closePopup()
 it[2]()
 end)
 end
+local function keepOn()
+local over = y + menu.AbsoluteSize.Y + 8 - root.AbsoluteSize.Y
+if over > 0 then
+menu.Position = UDim2.fromOffset(menu.Position.X.Offset, math.max(8, y - over))
+end
+end
+menu:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
+keepOn()
 end
 local function areasOf(kind)
 return function()
@@ -3815,9 +3920,35 @@ end
 local function placed(thing)
 return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 end
-App.registerKind({ kind = "Zone", icon = "area", title = "Zone", order = 10, list = areasOf("Zone"), count = placed, menu = areaMenu })
-App.registerKind({ kind = "Path", icon = "spline", title = "Path", order = 20, list = areasOf("Path"), count = placed, menu = areaMenu })
-App.registerKind({ kind = "Clear", icon = "clear", title = "Keep-clear zone", order = 30, list = areasOf("Clear"), menu = areaMenu })
+App.registerKind({
+kind = "Zone",
+icon = "area",
+title = "Zone",
+order = 10,
+list = areasOf("Zone"),
+count = placed,
+menu = areaMenu,
+reorder = true,
+})
+App.registerKind({
+kind = "Path",
+icon = "spline",
+title = "Path",
+order = 20,
+list = areasOf("Path"),
+count = placed,
+menu = areaMenu,
+reorder = true,
+})
+App.registerKind({
+kind = "Clear",
+icon = "clear",
+title = "Keep-clear zone",
+order = 30,
+list = areasOf("Clear"),
+menu = areaMenu,
+reorder = true,
+})
 App.markSelected = function(cls)
 local sel = Selection:Get()
 if #sel == 0 then
@@ -4822,6 +4953,68 @@ commit(nil, "Remove " .. l.inst.Name)
 showObject(nil)
 App.status(string.format("Removed %s. Ctrl+Z brings it back.", l.inst.Name))
 end
+App.moveObject = function(l, to)
+local layers = App.area and App.area.layers
+local from = layers and table.find(layers, l)
+if not from then
+return
+end
+to = math.clamp(to, 1, #layers)
+if to == from then
+return
+end
+table.insert(layers, to, table.remove(layers, from))
+commit(nil, "Reorder objects")
+App.rebuildAll()
+end
+App.objectMenu = function(l)
+local layers = App.area and App.area.layers or {}
+local i = table.find(layers, l)
+local items = {
+{
+"Open its settings",
+function()
+showObject(l)
+end,
+},
+{
+l.s.enabled and "Turn off" or "Turn on",
+function()
+l.s.enabled = not l.s.enabled
+commit(l)
+App.rebuildAll()
+end,
+P.dim,
+},
+}
+if i and i > 1 then
+table.insert(items, {
+"Move up",
+function()
+App.moveObject(l, i - 1)
+end,
+P.dim,
+})
+end
+if i and i < #layers then
+table.insert(items, {
+"Move down",
+function()
+App.moveObject(l, i + 1)
+end,
+P.dim,
+})
+end
+table.insert(items, "-")
+table.insert(items, {
+"Remove",
+function()
+removeObject(l)
+end,
+P.danger,
+})
+return items
+end
 local function modelRow(parent, inst, text, actions)
 local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = parent })
 local th = thumbnail(inst, 28)
@@ -5544,7 +5737,7 @@ buildSlope(cs, c)
 end
 buildLook(l, cs, c)
 end
-local function layerRow(l, parent)
+local function layerRow(l, parent, drag, index)
 local r = new("TextButton", {
 Text = "",
 AutoButtonColor = false,
@@ -5621,8 +5814,14 @@ x.MouseButton1Click:Connect(function()
 removeObject(l)
 end)
 r.MouseButton1Click:Connect(function()
+if not drag.dragged() then
 showObject(l)
+end
 end)
+r.MouseButton2Click:Connect(function()
+App.popupMenu(nil, App.objectMenu(l))
+end)
+drag.add(r, index)
 end
 local function objectPage(l, parent)
 local head = box({ Size = UDim2.new(1, 0, 0, 44), Parent = parent })
@@ -6054,8 +6253,11 @@ return
 end
 buildEverything(list)
 gap(list, 2)
-for _, l in App.area.layers do
-layerRow(l, list)
+local drag = App.reorderList(function(from, to)
+App.moveObject(App.area.layers[from], to)
+end)
+for i, l in App.area.layers do
+layerRow(l, list, drag, i)
 end
 gap(list, 2)
 hintOn(
@@ -6188,228 +6390,6 @@ return liveBox(parent, buildPresets)
 end
 App.removeCopiesBox = function(parent)
 return liveBox(parent, fillRemoveCopies)
-end
-end
-end)()
--- #module Panel/StampTools
-MODULES["Panel/StampTools"] = (function()
---[[
-Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
-needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
-area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
-each stamp, and its keys. The object's own Stamp button (Panel/HandTools) starts the same tool.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local G, saveG, P = App.G, App.saveG, App.P
-local col, vlist, para = App.col, App.vlist, App.para
-local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
-App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
-local key = App.keyText
-local function controls(parent, rebuild)
-local st = App.stamp
-if #st.models > 1 then
-local grid = chipGrid(parent, 3, 28, 104)
-for i, inst in st.models do
-chip(grid, inst.Name, function()
-return st.vi == i
-end, function()
-App.setStamp(nil, nil, i)
-rebuild()
-end)
-end
-end
-slider("Turn", 0, 359, function()
-return math.floor(math.deg(st.yaw) + 0.5) % 360
-end, function(v)
-App.setStamp(v)
-end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
-parent
-slider("Size", 0.1, 5, function()
-return st.k
-end, function(v)
-App.setStamp(nil, v)
-end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
-parent
-switchRow("Stand along the surface", function()
-return G.stampAlign
-end, function(v)
-G.stampAlign = v
-end, saveG, "On: it leans with slopes and can go on walls. Off: it stands upright, settled on the lowest ground under it.").Parent =
-parent
-switchRow("A random one after each stamp", function()
-return G.stampRandom
-end, function(v)
-G.stampRandom = v
-end, saveG, "After each stamp the next gets a random turn, a size a little either side of the one set, and a random model of these.").Parent =
-parent
-local acts = buttonRow(parent)
-hintOn(
-button("Random now", nil, App.rollStamp, { Parent = acts }),
-"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
-)
-button("Stop stamping", nil, function()
-App.setMode("Off")
-end, { Parent = acts })
-App.keyChips(parent, {
-{ key("turn"), "turn" },
-{ "Shift", "turn freely" },
-{ key("shrink") .. " " .. key("grow"), "size" },
-{ key("model"), "model" },
-{ key("shuffle"), "random" },
-{ key("cancel"), "stop" },
-})
-end
-App.stampControls = controls
-App.stampViews = {}
-App.refreshStamp = function()
-for _, f in App.stampViews do
-f()
-end
-end
-App.buildStampCard = function(b)
-local box = col({ Parent = b }, { vlist(6) })
-local function build()
-for _, c in box:GetChildren() do
-if c:IsA("GuiObject") then
-c:Destroy()
-end
-end
-if App.mode == "Stamp" then
-local inst = App.stamp.models[App.stamp.vi]
-local head = para(
-string.format(
-"Stamping %s. Click the ground to put it down, press and drag to turn it. Stamps go in Workspace › Stamps.",
-inst and inst.Name or "?"
-),
-{ Parent = box }
-)
-head.TextColor3 = P.text
-controls(box, build)
-return
-end
-App.explain(
-box,
-"One model, exactly where you click, anywhere on the ground: no area needed. Select a model (or a folder of them) in the Explorer, then:"
-)
-local go = App.primaryButton("Stamp selected models", function()
-App.startStamp()
-end)
-go.Parent = buttonRow(box)
-hintOn(go, "The selected models float under the mouse; click to put one down. Pick up where you left off with no selection.")
-local a = App.area
-if a and #a.layers > 0 then
-App.label("Or one of this area's objects", 12, P.dim, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
-local grid = chipGrid(box, 3, 28, 104)
-for _, l in a.layers do
-chip(grid, l.inst.Name, nil, function()
-App.startStamp(l)
-end)
-end
-end
-end
-build()
-App.stampViews.card = function()
-if box.Parent then
-build()
-end
-end
-end
-end
-end)()
--- #module Panel/HandTools
-MODULES["Panel/HandTools"] = (function()
---[[
-Smart Scatter — HandTools: one object, by hand, as its Object tab shows it. The tools themselves (Spray, More,
-Less, Erase, Reset) are in the viewport's strip and act on the active object; here: what they do, what was done
-to this object by hand, and taking it back.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local P = App.P
-local para, button, buttonRow, hintOn = App.para, App.button, App.buttonRow, App.hintOn
-App.HAND_TOOLS = {
-{
-mode = "Place",
-icon = "spray",
-text = "Spray",
-how = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
-},
-{ mode = "More", icon = "plus", text = "More", how = "Brush where you want it thicker, up to three times as much." },
-{ mode = "Less", icon = "minus", text = "Less", how = "Brush where you want it thinner. Twice over clears it." },
-{
-mode = "None",
-icon = "trash",
-text = "Erase",
-danger = true,
-how = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
-},
-{
-mode = "Clear",
-icon = "refresh",
-text = "Reset",
-how = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
-},
-}
-for i, t in App.HAND_TOOLS do
-App.registerTool({
-id = "object:" .. t.mode,
-group = "Object",
-order = i,
-icon = t.icon,
-name = t.text .. ": " .. t.how,
-danger = t.danger,
-when = function()
-return App.brushTarget() ~= nil
-end,
-on = function()
-return App.mode == t.mode and App.paintLayer == App.brushTarget()
-end,
-click = function()
-App.setMode(t.mode, App.brushTarget())
-end,
-})
-end
-App.buildHandWork = function(l, parent)
-local what = {}
-if l.pins then
-table.insert(what, #l.pins .. " put down by hand")
-end
-if l.paint then
-table.insert(what, "painted more or less in places")
-end
-local line = para(
-#what > 0 and (table.concat(what, " · ") .. ".")
-or "Nothing done by hand yet. Pick Spray, More, Less, Erase or Reset in the viewport's strip: they act on this object.",
-{ Parent = parent }
-)
-line.TextColor3 = #what > 0 and P.text or P.faint
-if not (l.paint or l.pins) then
-return
-end
-local row = buttonRow(parent)
-if l.paint then
-hintOn(
-button("Reset all painting", nil, function()
-l.paint = nil
-if App.paintLayer == l then
-App.recolorOverlay()
-end
-App.applyNow(l, "Reset painting")
-App.refreshObjects()
-end, { Parent = row }),
-"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
-)
-end
-if l.pins then
-local rm = App.dangerButton(string.format("Remove %d put down by hand", #l.pins), function()
-l.pins = nil
-App.applyNow(l, "Remove hand-placed")
-App.refreshObjects()
-end, { confirm = "Click again to remove" })
-rm.Parent = row
-hintOn(rm, "Takes out every copy of it you put down with Spray. Ctrl+Z brings them back.")
-end
 end
 end
 end)()

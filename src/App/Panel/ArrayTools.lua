@@ -322,6 +322,11 @@ return function(App)
 			local c = thing.folder:FindFirstChild("Copies")
 			return c and #c:GetChildren() or 0
 		end,
+		thumb = function(thing) -- (the model it repeats)
+			local src = thing.folder:FindFirstChild("Source")
+			return src and src:IsA("ObjectValue") and src.Value or nil
+		end,
+		reorder = true,
 		menu = function(thing)
 			return {
 				{

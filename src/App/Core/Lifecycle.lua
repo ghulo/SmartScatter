@@ -26,7 +26,8 @@ return function(App)
 	local HttpService = game:GetService("HttpService")
 	local G = App.G
 	-- saved attributes a rebuild doesn't depend on (or that are compared on their own below)
-	local SKIP = { SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true }
+	local SKIP =
+		{ SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true, SS_Order = true }
 	-- attributes whose change was placed at once: the whole area rebuilt (a new layout, a new grid)
 	local AT_ONCE = { SS_Seed = true, SS_Cell = true }
 	-- steps that changed what's placed without changing the area's saved state: undoing them rebuilds it all

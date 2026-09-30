@@ -2020,6 +2020,92 @@ local ok, err = xpcall(function()
 		end
 	end
 
+	-- the outliner's order (the plugin's Panel/Outliner, with the registry and stand-ins): things of a kind whose rows
+	-- reorder are put where they're moved to, kept on their folders; the ones never moved stay as listed, after them
+	do
+		local core = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Core")
+		local panel = SRC:FindFirstChild("App") and SRC.App:FindFirstChild("Panel")
+		local reg, outl = core and core:FindFirstChild("Registry"), panel and panel:FindFirstChild("Outliner")
+		if reg and outl then
+			local rebuilt, steps = 0, 0
+			local App = {
+				P = {},
+				sameThing = function(a, b)
+					return a ~= nil and b ~= nil and a.folder == b.folder
+				end,
+				beginRec = function()
+					steps += 1
+					return steps
+				end,
+				endRec = function() end,
+				rebuildAll = function()
+					rebuilt += 1
+				end,
+			}
+			loadstring(reg.Source)()(App)
+			loadstring(outl.Source)()(App)
+			local function things(kind, names)
+				local list = {}
+				for _, n in names do
+					local f = Instance.new("Folder")
+					f.Name = n
+					table.insert(list, { kind = kind, folder = f })
+				end
+				return list
+			end
+			local movable, fixed = things("Movable", { "A", "B", "C", "D" }), things("Fixed", { "X", "Y" })
+			App.registerKind({
+				kind = "Movable",
+				title = "Movable",
+				order = 1,
+				reorder = true,
+				list = function()
+					return table.clone(movable)
+				end,
+			})
+			App.registerKind({
+				kind = "Fixed",
+				title = "Fixed",
+				order = 2,
+				list = function()
+					return table.clone(fixed)
+				end,
+			})
+			local function orders(list)
+				local t = {}
+				for _, th in list do
+					table.insert(t, th.folder.Name .. "=" .. tostring(th.folder:GetAttribute("SS_Order")))
+				end
+				return table.concat(t, " ")
+			end
+			App.moveThing(movable[3], 1) -- C to the top
+			local first = orders(movable)
+			App.moveThing(movable[1], 4) -- A to the bottom: the order is read back from what the first move left
+			local second = orders(movable)
+			local at = steps
+			App.moveThing(movable[1], 4) -- already there: nothing happens
+			App.moveThing(movable[4], 99) -- D past the end: last, after A
+			local third = orders(movable)
+			App.moveThing(fixed[2], 1) -- a kind whose rows don't reorder
+			check(
+				"outliner: things moved keep their order on their folders, one undo step each",
+				first == "A=2 B=3 C=1 D=4"
+					and second == "A=4 B=2 C=1 D=3"
+					and third == "A=3 B=2 C=1 D=4"
+					and orders(fixed) == "X=nil Y=nil"
+					and steps == at + 1
+					and rebuilt == 3,
+				string.format("%s · %s · %s · fixed %s · %d steps, %d rebuilds", first, second, third, orders(fixed), steps, rebuilt)
+			)
+			for _, th in movable do
+				th.folder:Destroy()
+			end
+			for _, th in fixed do
+				th.folder:Destroy()
+			end
+		end
+	end
+
 	-- arrays (the plugin's Panel/ArrayTools, with the engine and stand-ins): a line, a grid and a circle of copies where
 	-- they should be, on the ground; along a path; rebuilt when a setting changes; baked into plain models
 	do

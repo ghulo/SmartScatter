@@ -544,18 +544,19 @@ return function(App)
 	end
 	-- Thumbnails outlive a panel rebuild (a model's view is cloned once, not on every click): before the panel's
 	-- rows go, they're taken out of them; the ones whose model is gone are dropped, and all of them if there are
-	-- many. all: drop every one (a new theme: their colours come from it).
-	local function pruneThumbs(all)
+	-- many. all: drop every one (a new theme: their colours come from it). under: only the ones inside it are taken
+	-- out (the page rebuilt by itself: the outliner above it keeps its own).
+	local function pruneThumbs(all, under)
 		local n = 0
 		for _ in thumbCache do
 			n += 1
 		end
 		for inst, bySize in thumbCache do
-			local drop = all or n > 150 or not inst.Parent
+			local drop = all or (n > 150 and not under) or not inst.Parent
 			for _, vp in bySize do
 				if drop then
 					vp:Destroy()
-				else
+				elseif not under or vp:IsDescendantOf(under) then
 					vp.Parent = nil
 				end
 			end

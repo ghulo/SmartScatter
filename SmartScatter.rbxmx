@@ -25,8 +25,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 153
-local BUNDLED_VERSION = "9.89"
+local BUNDLED_BUILD = 154
+local BUNDLED_VERSION = "9.90"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1383,18 +1383,19 @@ return function(App)
 	end
 	-- Thumbnails outlive a panel rebuild (a model's view is cloned once, not on every click): before the panel's
 	-- rows go, they're taken out of them; the ones whose model is gone are dropped, and all of them if there are
-	-- many. all: drop every one (a new theme: their colours come from it).
-	local function pruneThumbs(all)
+	-- many. all: drop every one (a new theme: their colours come from it). under: only the ones inside it are taken
+	-- out (the page rebuilt by itself: the outliner above it keeps its own).
+	local function pruneThumbs(all, under)
 		local n = 0
 		for _ in thumbCache do
 			n += 1
 		end
 		for inst, bySize in thumbCache do
-			local drop = all or n > 150 or not inst.Parent
+			local drop = all or (n > 150 and not under) or not inst.Parent
 			for _, vp in bySize do
 				if drop then
 					vp:Destroy()
-				else
+				elseif not under or vp:IsDescendantOf(under) then
 					vp.Parent = nil
 				end
 			end
@@ -3323,6 +3324,110 @@ return function(App)
 	App.textSize = textSize
 	App.TEXT_SIZES = TEXT_SIZES
 	App.corner = corner
+	--------------------------------------------------------------------------------
+	-- Rows of a list dragged to another place in it
+	--------------------------------------------------------------------------------
+	-- the gap a height falls in among rows' middles: 1 above the first row … n + 1 below the last
+	local function reorderSlot(mids, y)
+		local slot = 1
+		for i, mid in mids do
+			if y > mid then
+				slot = i + 1
+			end
+		end
+		return slot
+	end
+	-- where row `from` ends up when it's dropped in that gap (its own two gaps: where it is)
+	local function reorderTo(from, slot)
+		return slot > from and slot - 1 or slot
+	end
+	-- A list whose rows can be dragged up and down: add(row, index) for each row, in order; onMove(from, to) when one
+	-- is let go in another place. A press that barely moves stays a click; dragged() tells a row's click handler that
+	-- the press was a drag (it then does nothing). A line shows where the row would land.
+	local function reorderList(onMove)
+		local rows, moved = {}, false
+		local list = {}
+		function list.dragged()
+			return moved
+		end
+		function list.add(row, index)
+			rows[index] = row
+			row.InputBegan:Connect(function(input)
+				if input.UserInputType ~= Enum.UserInputType.MouseButton1 or #rows < 2 then
+					return
+				end
+				local root = App.root
+				local startY = App.widget:GetRelativeMousePosition().Y
+				local dragging, line, to, conn, done = false, nil, index, nil, false
+				local sawHeld = false -- (the button found up ends the drag: let go outside the panel, no end event comes)
+				local function finish(drop)
+					if done then
+						return
+					end
+					done = true
+					conn:Disconnect()
+					if line then
+						line:Destroy()
+					end
+					if dragging then
+						task.delay(0.1, function() -- (after the click this release may still send)
+							moved = false
+						end)
+						if drop and to ~= index then
+							onMove(index, to)
+						end
+					end
+				end
+				conn = RunService.Heartbeat:Connect(function()
+					if not row.Parent then -- (the list was rebuilt under the drag)
+						finish(false)
+						return
+					end
+					local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
+					if ok and held then
+						sawHeld = true
+					elseif ok and sawHeld then
+						finish(true)
+						return
+					end
+					local y = App.widget:GetRelativeMousePosition().Y
+					if not dragging then
+						if math.abs(y - startY) < 6 then
+							return
+						end
+						dragging, moved = true, true
+						line = box({
+							BackgroundTransparency = 0,
+							BackgroundColor3 = P.accent,
+							Size = UDim2.fromOffset(row.AbsoluteSize.X, 2),
+							ZIndex = 60,
+							Parent = root,
+						}, { corner(1) })
+					end
+					local mids = {}
+					for i, r in rows do
+						mids[i] = r.AbsolutePosition.Y + r.AbsoluteSize.Y / 2
+					end
+					local slot = reorderSlot(mids, y)
+					to = reorderTo(index, slot)
+					local at = rows[math.min(slot, #rows)]
+					local lineY = slot > #rows and at.AbsolutePosition.Y + at.AbsoluteSize.Y or at.AbsolutePosition.Y
+					line.Position = UDim2.fromOffset(row.AbsolutePosition.X - root.AbsolutePosition.X, lineY - root.AbsolutePosition.Y - 1)
+					line.Visible = to ~= index
+				end)
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						finish(true)
+					end
+				end)
+			end)
+		end
+		return list
+	end
+	App.reorderSlot = reorderSlot
+	App.reorderTo = reorderTo
+	App.reorderList = reorderList
+
 	App.stroke = stroke
 	App.pad = pad
 	App.vlist = vlist
@@ -3394,7 +3499,8 @@ return function(App)
 	local HttpService = game:GetService("HttpService")
 	local G = App.G
 	-- saved attributes a rebuild doesn't depend on (or that are compared on their own below)
-	local SKIP = { SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true }
+	local SKIP =
+		{ SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true, SS_Order = true }
 	-- attributes whose change was placed at once: the whole area rebuilt (a new layout, a new grid)
 	local AT_ONCE = { SS_Seed = true, SS_Cell = true }
 	-- steps that changed what's placed without changing the area's saved state: undoing them rebuilds it all
@@ -3801,7 +3907,8 @@ end
 	those knows the features by name. Adding a tool is one module that registers what it brings.
 	  kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
 	        { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
-	          menu = fn(thing) -> { { text, run, danger? } }? }
+	          menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
+	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
 	  tab   a page of the properties for some kinds of thing:
 	        { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
 	          build = fn(page) }
@@ -5644,6 +5751,11 @@ return function(App)
 			local c = thing.folder:FindFirstChild("Copies")
 			return c and #c:GetChildren() or 0
 		end,
+		thumb = function(thing) -- (the model it repeats)
+			local src = thing.folder:FindFirstChild("Source")
+			return src and src:IsA("ObjectValue") and src.Value or nil
+		end,
+		reorder = true,
 		menu = function(thing)
 			return {
 				{
@@ -6717,6 +6829,7 @@ return function(App)
 		local root = App.root
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = root })
 		catcher.MouseButton1Click:Connect(closePopup)
+		catcher.MouseButton2Click:Connect(closePopup)
 		App.ui.popup = catcher
 		local x, y
 		if anchor then
@@ -6773,6 +6886,15 @@ return function(App)
 				it[2]()
 			end)
 		end
+		-- a menu that would run off the bottom of the panel moves up to fit (once it knows its height)
+		local function keepOn()
+			local over = y + menu.AbsoluteSize.Y + 8 - root.AbsoluteSize.Y
+			if over > 0 then
+				menu.Position = UDim2.fromOffset(menu.Position.X.Offset, math.max(8, y - over))
+			end
+		end
+		menu:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
+		keepOn()
 	end
 
 	--------------------------------------------------------------------------------
@@ -6853,9 +6975,35 @@ return function(App)
 	local function placed(thing) -- (known for the area being worked on; the others would each need loading)
 		return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 	end
-	App.registerKind({ kind = "Zone", icon = "area", title = "Zone", order = 10, list = areasOf("Zone"), count = placed, menu = areaMenu })
-	App.registerKind({ kind = "Path", icon = "spline", title = "Path", order = 20, list = areasOf("Path"), count = placed, menu = areaMenu })
-	App.registerKind({ kind = "Clear", icon = "clear", title = "Keep-clear zone", order = 30, list = areasOf("Clear"), menu = areaMenu })
+	App.registerKind({
+		kind = "Zone",
+		icon = "area",
+		title = "Zone",
+		order = 10,
+		list = areasOf("Zone"),
+		count = placed,
+		menu = areaMenu,
+		reorder = true,
+	})
+	App.registerKind({
+		kind = "Path",
+		icon = "spline",
+		title = "Path",
+		order = 20,
+		list = areasOf("Path"),
+		count = placed,
+		menu = areaMenu,
+		reorder = true,
+	})
+	App.registerKind({
+		kind = "Clear",
+		icon = "clear",
+		title = "Keep-clear zone",
+		order = 30,
+		list = areasOf("Clear"),
+		menu = areaMenu,
+		reorder = true,
+	})
 
 	App.markSelected = function(cls)
 		local sel = Selection:Get()
@@ -8231,6 +8379,71 @@ return function(App)
 		showObject(nil)
 		App.status(string.format("Removed %s. Ctrl+Z brings it back.", l.inst.Name))
 	end
+	-- puts an object in another place in its area's list. The order is the order they're placed in: an earlier object
+	-- takes its room first. One undo step; what's placed follows (at once with Live on).
+	App.moveObject = function(l, to)
+		local layers = App.area and App.area.layers
+		local from = layers and table.find(layers, l)
+		if not from then
+			return
+		end
+		to = math.clamp(to, 1, #layers)
+		if to == from then
+			return
+		end
+		table.insert(layers, to, table.remove(layers, from))
+		commit(nil, "Reorder objects")
+		App.rebuildAll()
+	end
+	-- what can be done to an object, for a right-click on its row (the outliner's and the list's)
+	App.objectMenu = function(l)
+		local layers = App.area and App.area.layers or {}
+		local i = table.find(layers, l)
+		local items = {
+			{
+				"Open its settings",
+				function()
+					showObject(l)
+				end,
+			},
+			{
+				l.s.enabled and "Turn off" or "Turn on",
+				function()
+					l.s.enabled = not l.s.enabled
+					commit(l)
+					App.rebuildAll()
+				end,
+				P.dim,
+			},
+		}
+		if i and i > 1 then
+			table.insert(items, {
+				"Move up",
+				function()
+					App.moveObject(l, i - 1)
+				end,
+				P.dim,
+			})
+		end
+		if i and i < #layers then
+			table.insert(items, {
+				"Move down",
+				function()
+					App.moveObject(l, i + 1)
+				end,
+				P.dim,
+			})
+		end
+		table.insert(items, "-")
+		table.insert(items, {
+			"Remove",
+			function()
+				removeObject(l)
+			end,
+			P.danger,
+		})
+		return items
+	end
 	-- a model with its thumbnail and, on the right, its buttons: actions = { { text, style, onClick }, ... }
 	local function modelRow(parent, inst, text, actions)
 		local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = parent })
@@ -8984,7 +9197,8 @@ return function(App)
 	-- The list
 	--------------------------------------------------------------------------------
 	-- one object: thumbnail, name, what it is and how many were placed, on/off. Click to open its settings.
-	local function layerRow(l, parent) -- an object in the list: thumbnail, name, what it is, its share, on/off
+	-- Drag it up or down to change the order they're placed in (drag: the list's App.reorderList); right-click for its menu.
+	local function layerRow(l, parent, drag, index)
 		local r = new("TextButton", {
 			Text = "",
 			AutoButtonColor = false,
@@ -9063,8 +9277,14 @@ return function(App)
 			removeObject(l)
 		end)
 		r.MouseButton1Click:Connect(function()
-			showObject(l)
+			if not drag.dragged() then
+				showObject(l)
+			end
 		end)
+		r.MouseButton2Click:Connect(function()
+			App.popupMenu(nil, App.objectMenu(l))
+		end)
+		drag.add(r, index)
 	end
 
 	-- one object's settings: its name and what to do with it, then its rules
@@ -9520,8 +9740,11 @@ return function(App)
 		end
 		buildEverything(list)
 		gap(list, 2)
-		for _, l in App.area.layers do
-			layerRow(l, list)
+		local drag = App.reorderList(function(from, to)
+			App.moveObject(App.area.layers[from], to)
+		end)
+		for i, l in App.area.layers do
+			layerRow(l, list, drag, i)
 		end
 		gap(list, 2)
 		hintOn(
@@ -9672,8 +9895,10 @@ end
 ]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Outliner</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Outliner: everything Smart Scatter made in this place, a row per thing, by kind (the kinds the
 	features registered: zones, paths, keep-clear zones, stamps). Click one to select it; the selected zone or path
-	opens to its objects, and a click on one makes it the active object. Double-click a name to rename it; the … at
-	the end of a row has what can be done to it. The whole list folds away, and scrolls past a few rows.
+	opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
+	to rename it; the … at the end of a row, or a right-click on the row, has what can be done to it. Rows drag up and
+	down: zones, paths and arrays into any order, a zone's objects into the order they're placed in (the first takes
+	its room first). The whole list folds away, and scrolls past a few rows.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
@@ -9681,6 +9906,7 @@ return function(App)
 	local G, saveG, P, SANS, SANS_M, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_M, App.SANS_B
 	local new, box, col, label, vlist, corner, pad = App.new, App.box, App.col, App.label, App.vlist, App.corner, App.pad
 	local ROW, CHILD, MAX_H = 28, 24, 190 -- row heights, and how tall the list gets before it scrolls
+	local THUMB = 18 -- a row's picture of its model
 
 	local renaming -- the thing whose name is being edited, if any
 	App.startRename = function(thing)
@@ -9688,8 +9914,79 @@ return function(App)
 		App.rebuildAll()
 	end
 
-	-- one row: icon, name (or a box to rename it), count, lock, … menu
-	local function thingRow(list, spec, thing, order)
+	-- a kind's things in the order its rows show: as listed, or (a kind whose rows reorder) by the place each was
+	-- dragged to, the ones never moved after them
+	local function thingsOf(spec)
+		local things = spec.list()
+		if spec.reorder then
+			local at = {}
+			for i, t in things do
+				at[t] = i
+			end
+			table.sort(things, function(a, b)
+				local oa, ob = a.folder:GetAttribute("SS_Order") or math.huge, b.folder:GetAttribute("SS_Order") or math.huge
+				if oa ~= ob then
+					return oa < ob
+				end
+				return at[a] < at[b]
+			end)
+		end
+		return things
+	end
+	-- puts a thing in another place among its kind (one undo step)
+	App.moveThing = function(thing, to)
+		local spec = App.kindSpec(thing.kind)
+		if not (spec and spec.reorder) then
+			return
+		end
+		local things = thingsOf(spec)
+		local from
+		for i, t in things do
+			if App.sameThing(t, thing) then
+				from = i
+			end
+		end
+		to = math.clamp(to, 1, #things)
+		if not from or from == to then
+			return
+		end
+		table.insert(things, to, table.remove(things, from))
+		local rec = App.beginRec("Smart Scatter: Reorder")
+		for i, t in things do
+			t.folder:SetAttribute("SS_Order", i)
+		end
+		App.endRec(rec)
+		App.rebuildAll()
+	end
+	-- what can be done to a thing: its kind's menu, with moving it up or down where its rows reorder
+	local function menuOf(spec, thing, index, n)
+		local items = spec.menu and spec.menu(thing) or {}
+		if spec.reorder and n > 1 then
+			local at = table.find(items, "-") or #items + 1
+			if index < n then
+				table.insert(items, at, {
+					"Move down",
+					function()
+						App.moveThing(thing, index + 1)
+					end,
+					P.dim,
+				})
+			end
+			if index > 1 then
+				table.insert(items, at, {
+					"Move up",
+					function()
+						App.moveThing(thing, index - 1)
+					end,
+					P.dim,
+				})
+			end
+		end
+		return items
+	end
+
+	-- one row: icon (or its model's picture), name (or a box to rename it), count, lock, … menu
+	local function thingRow(list, spec, thing, order, index, n, drag)
 		local sel = App.sameThing(thing, App.selected)
 		local b = new("TextButton", {
 			Text = "",
@@ -9700,9 +9997,16 @@ return function(App)
 			LayoutOrder = order,
 			Parent = list,
 		}, { corner(6) })
-		local ic = App.icon(spec.icon, 13, sel and P.accent or P.dim)
-		ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 8, 0.5, 0)
-		ic.Parent = b
+		local pictured = spec.thumb and spec.thumb(thing)
+		if pictured then
+			local th = App.thumbnail(pictured, THUMB)
+			th.AnchorPoint, th.Position = Vector2.new(0, 0.5), UDim2.new(0, 5, 0.5, 0)
+			th.Parent = b
+		else
+			local ic = App.icon(spec.icon, 13, sel and P.accent or P.dim)
+			ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 8, 0.5, 0)
+			ic.Parent = b
+		end
 		local name = thing.folder and thing.folder.Name or spec.title
 		if renaming and App.sameThing(renaming, thing) then
 			local tb = new("TextBox", {
@@ -9763,13 +10067,19 @@ return function(App)
 			lock.TextXAlignment = Enum.TextXAlignment.Right
 		end
 		if spec.menu then
-			local more = App.iconButton("down", "Rename, lock, bake, delete…", nil, false, 22)
+			local more = App.iconButton("down", "Rename, lock, bake, delete… (or right-click the row)", nil, false, 22)
 			more.LayoutOrder = 3
 			more.BackgroundTransparency = 1
 			more.Parent = right
 			more.MouseButton1Click:Connect(function()
-				App.popupMenu(more, spec.menu(thing))
+				App.popupMenu(more, menuOf(spec, thing, index, n))
 			end)
+			b.MouseButton2Click:Connect(function()
+				App.popupMenu(nil, menuOf(spec, thing, index, n))
+			end)
+		end
+		if drag then
+			drag.add(b, index)
 		end
 		if not sel then
 			b.MouseEnter:Connect(function()
@@ -9782,6 +10092,9 @@ return function(App)
 		end
 		local lastClick = 0
 		b.MouseButton1Click:Connect(function()
+			if drag and drag.dragged() then
+				return
+			end
 			local now = os.clock()
 			if sel and spec.menu and now - lastClick < 0.35 and thing.folder then -- double-click: rename
 				App.startRename(thing)
@@ -9797,8 +10110,11 @@ return function(App)
 		return b
 	end
 
-	-- the selected zone's or path's objects, under its row
+	-- the selected zone's or path's objects, under its row: each with its picture, in the order they're placed in
 	local function objectRows(list, order)
+		local drag = App.reorderList(function(from, to)
+			App.moveObject(App.area.layers[from], to)
+		end)
 		for i, l in App.area.layers do
 			local on = l == App.active
 			local b = new("TextButton", {
@@ -9830,11 +10146,14 @@ return function(App)
 				on and P.accent or (l.s.enabled and P.text or P.faint),
 				on and SANS_B or SANS,
 				{
-					Position = UDim2.fromOffset(30, 0),
-					Size = UDim2.new(1, -80, 1, 0),
+					Position = UDim2.fromOffset(34 + THUMB, 0),
+					Size = UDim2.new(1, -(84 + THUMB), 1, 0),
 					Parent = b,
 				}
 			)
+			local th = App.thumbnail(l.inst, THUMB)
+			th.AnchorPoint, th.Position = Vector2.new(0, 0.5), UDim2.new(0, 28, 0.5, 0)
+			th.Parent = b
 			local what = App.Engine.isLine(l) and "along" or string.lower(l.type)
 			local tag = label(l.s.enabled and what or "off", 11, P.faint, SANS, {
 				AnchorPoint = Vector2.new(1, 0),
@@ -9853,8 +10172,14 @@ return function(App)
 				end)
 			end
 			b.MouseButton1Click:Connect(function()
-				App.selectObject(l)
+				if not drag.dragged() then
+					App.selectObject(l)
+				end
 			end)
+			b.MouseButton2Click:Connect(function()
+				App.popupMenu(nil, App.objectMenu(l))
+			end)
+			drag.add(b, i)
 		end
 	end
 
@@ -9901,10 +10226,14 @@ return function(App)
 		local list = col({ Parent = scroll }, { vlist(1) })
 		local order, any, selRow = 0, false, nil
 		for _, spec in App.thingKinds() do
-			for _, thing in spec.list() do
+			local things = thingsOf(spec)
+			local drag = spec.reorder and App.reorderList(function(from, to)
+				App.moveThing(things[from], to)
+			end) or nil
+			for index, thing in things do
 				order += 100
 				any = true
-				local row = thingRow(list, spec, thing, order)
+				local row = thingRow(list, spec, thing, order, index, #things, drag)
 				if App.sameThing(thing, App.selected) then
 					selRow = row
 					if App.area and (thing.kind == "Zone" or thing.kind == "Path") and #App.area.layers > 0 then
@@ -11755,7 +12084,7 @@ return function(App)
 		end
 		App.ui = keep
 		App.hideTip()
-		App.pruneThumbs() -- (kept for the rows about to be built)
+		App.pruneThumbs(false, sc) -- (the page's, kept for the rows about to be built; the outliner keeps its own)
 		for _, ch in sc:GetChildren() do
 			if ch:IsA("GuiObject") then
 				ch:Destroy()

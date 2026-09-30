@@ -48,6 +48,71 @@ return function(App)
 		showObject(nil)
 		App.status(string.format("Removed %s. Ctrl+Z brings it back.", l.inst.Name))
 	end
+	-- puts an object in another place in its area's list. The order is the order they're placed in: an earlier object
+	-- takes its room first. One undo step; what's placed follows (at once with Live on).
+	App.moveObject = function(l, to)
+		local layers = App.area and App.area.layers
+		local from = layers and table.find(layers, l)
+		if not from then
+			return
+		end
+		to = math.clamp(to, 1, #layers)
+		if to == from then
+			return
+		end
+		table.insert(layers, to, table.remove(layers, from))
+		commit(nil, "Reorder objects")
+		App.rebuildAll()
+	end
+	-- what can be done to an object, for a right-click on its row (the outliner's and the list's)
+	App.objectMenu = function(l)
+		local layers = App.area and App.area.layers or {}
+		local i = table.find(layers, l)
+		local items = {
+			{
+				"Open its settings",
+				function()
+					showObject(l)
+				end,
+			},
+			{
+				l.s.enabled and "Turn off" or "Turn on",
+				function()
+					l.s.enabled = not l.s.enabled
+					commit(l)
+					App.rebuildAll()
+				end,
+				P.dim,
+			},
+		}
+		if i and i > 1 then
+			table.insert(items, {
+				"Move up",
+				function()
+					App.moveObject(l, i - 1)
+				end,
+				P.dim,
+			})
+		end
+		if i and i < #layers then
+			table.insert(items, {
+				"Move down",
+				function()
+					App.moveObject(l, i + 1)
+				end,
+				P.dim,
+			})
+		end
+		table.insert(items, "-")
+		table.insert(items, {
+			"Remove",
+			function()
+				removeObject(l)
+			end,
+			P.danger,
+		})
+		return items
+	end
 	-- a model with its thumbnail and, on the right, its buttons: actions = { { text, style, onClick }, ... }
 	local function modelRow(parent, inst, text, actions)
 		local row = box({ Size = UDim2.new(1, 0, 0, 32), Parent = parent })
@@ -801,7 +866,8 @@ return function(App)
 	-- The list
 	--------------------------------------------------------------------------------
 	-- one object: thumbnail, name, what it is and how many were placed, on/off. Click to open its settings.
-	local function layerRow(l, parent) -- an object in the list: thumbnail, name, what it is, its share, on/off
+	-- Drag it up or down to change the order they're placed in (drag: the list's App.reorderList); right-click for its menu.
+	local function layerRow(l, parent, drag, index)
 		local r = new("TextButton", {
 			Text = "",
 			AutoButtonColor = false,
@@ -880,8 +946,14 @@ return function(App)
 			removeObject(l)
 		end)
 		r.MouseButton1Click:Connect(function()
-			showObject(l)
+			if not drag.dragged() then
+				showObject(l)
+			end
 		end)
+		r.MouseButton2Click:Connect(function()
+			App.popupMenu(nil, App.objectMenu(l))
+		end)
+		drag.add(r, index)
 	end
 
 	-- one object's settings: its name and what to do with it, then its rules
@@ -1337,8 +1409,11 @@ return function(App)
 		end
 		buildEverything(list)
 		gap(list, 2)
-		for _, l in App.area.layers do
-			layerRow(l, list)
+		local drag = App.reorderList(function(from, to)
+			App.moveObject(App.area.layers[from], to)
+		end)
+		for i, l in App.area.layers do
+			layerRow(l, list, drag, i)
 		end
 		gap(list, 2)
 		hintOn(

@@ -7,7 +7,8 @@ round bends, and everything updates live as you tweak it.
 ## Features
 
 - **One screen, like Blender** — an outliner of everything you made (zones, paths, keep-clear zones, stamps), tabs
-  for what's selected (Objects, Object, Zone, Curve, Road, World), and every tool in the viewport's tool strip
+  for what's selected (Objects, Object, Zone, Curve, Road, World), and every tool in the viewport's tool strip.
+  Right-click a row for what can be done to it; drag rows to reorder them (a zone's objects are placed in that order)
 - **Zones** — paint with brush, lasso, box, polygon or smart fill, or fill the tops of selected parts; or make one
   from the models selected in the Explorer and start painting at once
 - **Paths** — draw a curve for roads, fences, walls, tiled paths or rows of lamps; branches and junctions join cleanly
@@ -115,7 +116,10 @@ tool strip (and the panel's tool row where the strip can't show) and the search 
   lights it; `when()` hides it when it doesn't apply; `name` is its tip (text after a `:` is the longer hint). The
   search menu lists it by itself. Its mode: add the mode to `App.setMode` callers as Paint does, and to
   `App.NO_AREA_MODES` if it needs no area.
-- **A thing it makes** (an outliner row): `App.registerKind({ kind, icon, title, order, list, count?, menu? })`.
+- **A thing it makes** (an outliner row): `App.registerKind({ kind, icon, title, order, list, count?, menu?, thumb?,
+  reorder? })`. `menu` is also its right-click menu; `thumb(thing)` gives the model its row pictures; `reorder = true`
+  lets its rows be dragged into any order (kept on each thing's folder). A list of your own that reorders:
+  `App.reorderList(onMove)`, then `add(row, index)` per row.
 - **Its settings** (a property tab): `App.registerTab({ id, icon, title, order, kinds, when?, build })`; `build(page)`
   adds cards with `App.cards(page, id).add({ id, title, sub, keys, more?, build })`.
 - **What it acts on**: `App.selected` (the thing) and `App.active` (its object), `App.onSelect(fn)` to follow them,

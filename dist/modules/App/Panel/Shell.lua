@@ -616,7 +616,7 @@ return function(App)
 		end
 		App.ui = keep
 		App.hideTip()
-		App.pruneThumbs() -- (kept for the rows about to be built)
+		App.pruneThumbs(false, sc) -- (the page's, kept for the rows about to be built; the outliner keeps its own)
 		for _, ch in sc:GetChildren() do
 			if ch:IsA("GuiObject") then
 				ch:Destroy()

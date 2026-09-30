@@ -3933,7 +3933,8 @@ return folder ~= nil and folder:IsDescendantOf(workspace)
 end
 local HttpService = game:GetService("HttpService")
 local G = App.G
-local SKIP = { SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true }
+local SKIP =
+{ SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true, SS_Order = true }
 local AT_ONCE = { SS_Seed = true, SS_Cell = true }
 local OUTPUT_STEPS = { ["Smart Scatter: Clear"] = true }
 local function decode(json)

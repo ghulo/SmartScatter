@@ -4,7 +4,8 @@
 	those knows the features by name. Adding a tool is one module that registers what it brings.
 	  kind  a thing the outliner lists (Zone, Path, Clear, Stamps…):
 	        { kind, icon, title, order, list = fn() -> { thing }, count = fn(thing) -> number?,
-	          menu = fn(thing) -> { { text, run, danger? } }? }
+	          menu = fn(thing) -> { { text, run, danger? } }?, thumb = fn(thing) -> the model its row pictures?,
+	          reorder = true when its rows can be put in any order (kept on each thing's folder, SS_Order) }
 	  tab   a page of the properties for some kinds of thing:
 	        { id, icon, title, order, kinds = { [kind] = true } | "all", when = fn(thing, active) -> bool?,
 	          build = fn(page) }

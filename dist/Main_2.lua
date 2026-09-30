@@ -571,6 +571,228 @@ return added
 end
 end
 end)()
+-- #module App/Panel/StampTools
+MODULES["App/Panel/StampTools"] = (function()
+--[[
+Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
+needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
+area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
+each stamp, and its keys. The object's own Stamp button (Panel/HandTools) starts the same tool.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local G, saveG, P = App.G, App.saveG, App.P
+local col, vlist, para = App.col, App.vlist, App.para
+local slider, switchRow, button, buttonRow, hintOn, chip, chipGrid =
+App.slider, App.switchRow, App.button, App.buttonRow, App.hintOn, App.chip, App.chipGrid
+local key = App.keyText
+local function controls(parent, rebuild)
+local st = App.stamp
+if #st.models > 1 then
+local grid = chipGrid(parent, 3, 28, 104)
+for i, inst in st.models do
+chip(grid, inst.Name, function()
+return st.vi == i
+end, function()
+App.setStamp(nil, nil, i)
+rebuild()
+end)
+end
+end
+slider("Turn", 0, 359, function()
+return math.floor(math.deg(st.yaw) + 0.5) % 360
+end, function(v)
+App.setStamp(v)
+end, "%d°", 1, nil, nil, "Which way it faces. Drag in the viewport to aim it, or " .. key("turn") .. " to turn it in 15° steps.", 0).Parent =
+parent
+slider("Size", 0.1, 5, function()
+return st.k
+end, function(v)
+App.setStamp(nil, v)
+end, "%.2f×", 0.05, nil, nil, "1× is the model's own size. " .. key("shrink") .. " and " .. key("grow") .. " in the viewport.", 1).Parent =
+parent
+switchRow("Stand along the surface", function()
+return G.stampAlign
+end, function(v)
+G.stampAlign = v
+end, saveG, "On: it leans with slopes and can go on walls. Off: it stands upright, settled on the lowest ground under it.").Parent =
+parent
+switchRow("A random one after each stamp", function()
+return G.stampRandom
+end, function(v)
+G.stampRandom = v
+end, saveG, "After each stamp the next gets a random turn, a size a little either side of the one set, and a random model of these.").Parent =
+parent
+local acts = buttonRow(parent)
+hintOn(
+button("Random now", nil, App.rollStamp, { Parent = acts }),
+"A random turn, size and model for the next stamp (" .. key("shuffle") .. " in the viewport)."
+)
+button("Stop stamping", nil, function()
+App.setMode("Off")
+end, { Parent = acts })
+App.keyChips(parent, {
+{ key("turn"), "turn" },
+{ "Shift", "turn freely" },
+{ key("shrink") .. " " .. key("grow"), "size" },
+{ key("model"), "model" },
+{ key("shuffle"), "random" },
+{ key("cancel"), "stop" },
+})
+end
+App.stampControls = controls
+App.stampViews = {}
+App.refreshStamp = function()
+for _, f in App.stampViews do
+f()
+end
+end
+App.buildStampCard = function(b)
+local box = col({ Parent = b }, { vlist(6) })
+local function build()
+for _, c in box:GetChildren() do
+if c:IsA("GuiObject") then
+c:Destroy()
+end
+end
+if App.mode == "Stamp" then
+local inst = App.stamp.models[App.stamp.vi]
+local head = para(
+string.format(
+"Stamping %s. Click the ground to put it down, press and drag to turn it. Stamps go in Workspace › Stamps.",
+inst and inst.Name or "?"
+),
+{ Parent = box }
+)
+head.TextColor3 = P.text
+controls(box, build)
+return
+end
+App.explain(
+box,
+"One model, exactly where you click, anywhere on the ground: no area needed. Select a model (or a folder of them) in the Explorer, then:"
+)
+local go = App.primaryButton("Stamp selected models", function()
+App.startStamp()
+end)
+go.Parent = buttonRow(box)
+hintOn(go, "The selected models float under the mouse; click to put one down. Pick up where you left off with no selection.")
+local a = App.area
+if a and #a.layers > 0 then
+App.label("Or one of this area's objects", 12, P.dim, App.SANS_B, { Size = UDim2.new(1, 0, 0, 20), Parent = box })
+local grid = chipGrid(box, 3, 28, 104)
+for _, l in a.layers do
+chip(grid, l.inst.Name, nil, function()
+App.startStamp(l)
+end)
+end
+end
+end
+build()
+App.stampViews.card = function()
+if box.Parent then
+build()
+end
+end
+end
+end
+end)()
+-- #module App/Panel/HandTools
+MODULES["App/Panel/HandTools"] = (function()
+--[[
+Smart Scatter — HandTools: one object, by hand, as its Object tab shows it. The tools themselves (Spray, More,
+Less, Erase, Reset) are in the viewport's strip and act on the active object; here: what they do, what was done
+to this object by hand, and taking it back.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local P = App.P
+local para, button, buttonRow, hintOn = App.para, App.button, App.buttonRow, App.hintOn
+App.HAND_TOOLS = {
+{
+mode = "Place",
+icon = "spray",
+text = "Spray",
+how = "Drag over the ground: copies land where you brush, at the object's spacing, and stay put when the area rebuilds.",
+},
+{ mode = "More", icon = "plus", text = "More", how = "Brush where you want it thicker, up to three times as much." },
+{ mode = "Less", icon = "minus", text = "Less", how = "Brush where you want it thinner. Twice over clears it." },
+{
+mode = "None",
+icon = "trash",
+text = "Erase",
+danger = true,
+how = "Brush where you want none of it, copies put down by hand too. It stays gone when the area rebuilds.",
+},
+{
+mode = "Clear",
+icon = "refresh",
+text = "Reset",
+how = "Brush over More, Less and Erase to take them back: it grows there by its rules alone again.",
+},
+}
+for i, t in App.HAND_TOOLS do
+App.registerTool({
+id = "object:" .. t.mode,
+group = "Object",
+order = i,
+icon = t.icon,
+name = t.text .. ": " .. t.how,
+danger = t.danger,
+when = function()
+return App.brushTarget() ~= nil
+end,
+on = function()
+return App.mode == t.mode and App.paintLayer == App.brushTarget()
+end,
+click = function()
+App.setMode(t.mode, App.brushTarget())
+end,
+})
+end
+App.buildHandWork = function(l, parent)
+local what = {}
+if l.pins then
+table.insert(what, #l.pins .. " put down by hand")
+end
+if l.paint then
+table.insert(what, "painted more or less in places")
+end
+local line = para(
+#what > 0 and (table.concat(what, " · ") .. ".")
+or "Nothing done by hand yet. Pick Spray, More, Less, Erase or Reset in the viewport's strip: they act on this object.",
+{ Parent = parent }
+)
+line.TextColor3 = #what > 0 and P.text or P.faint
+if not (l.paint or l.pins) then
+return
+end
+local row = buttonRow(parent)
+if l.paint then
+hintOn(
+button("Reset all painting", nil, function()
+l.paint = nil
+if App.paintLayer == l then
+App.recolorOverlay()
+end
+App.applyNow(l, "Reset painting")
+App.refreshObjects()
+end, { Parent = row }),
+"Forgets every More, Less and Erase for this object: it grows by its rules alone again."
+)
+end
+if l.pins then
+local rm = App.dangerButton(string.format("Remove %d put down by hand", #l.pins), function()
+l.pins = nil
+App.applyNow(l, "Remove hand-placed")
+App.refreshObjects()
+end, { confirm = "Click again to remove" })
+rm.Parent = row
+hintOn(rm, "Takes out every copy of it you put down with Spray. Ctrl+Z brings them back.")
+end
+end
+end
+end)()
 -- #module App/Panel/MapTools
 MODULES["App/Panel/MapTools"] = (function()
 --[[
@@ -1860,6 +2082,11 @@ count = function(thing)
 local c = thing.folder:FindFirstChild("Copies")
 return c and #c:GetChildren() or 0
 end,
+thumb = function(thing)
+local src = thing.folder:FindFirstChild("Source")
+return src and src:IsA("ObjectValue") and src.Value or nil
+end,
+reorder = true,
 menu = function(thing)
 return {
 {
@@ -3328,20 +3555,89 @@ MODULES["App/Panel/Outliner"] = (function()
 --[[
 Smart Scatter — Outliner: everything Smart Scatter made in this place, a row per thing, by kind (the kinds the
 features registered: zones, paths, keep-clear zones, stamps). Click one to select it; the selected zone or path
-opens to its objects, and a click on one makes it the active object. Double-click a name to rename it; the … at
-the end of a row has what can be done to it. The whole list folds away, and scrolls past a few rows.
+opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
+to rename it; the … at the end of a row, or a right-click on the row, has what can be done to it. Rows drag up and
+down: zones, paths and arrays into any order, a zone's objects into the order they're placed in (the first takes
+its room first). The whole list folds away, and scrolls past a few rows.
 Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 return function(App)
 local G, saveG, P, SANS, SANS_M, SANS_B = App.G, App.saveG, App.P, App.SANS, App.SANS_M, App.SANS_B
 local new, box, col, label, vlist, corner, pad = App.new, App.box, App.col, App.label, App.vlist, App.corner, App.pad
 local ROW, CHILD, MAX_H = 28, 24, 190
+local THUMB = 18
 local renaming
 App.startRename = function(thing)
 renaming = thing
 App.rebuildAll()
 end
-local function thingRow(list, spec, thing, order)
+local function thingsOf(spec)
+local things = spec.list()
+if spec.reorder then
+local at = {}
+for i, t in things do
+at[t] = i
+end
+table.sort(things, function(a, b)
+local oa, ob = a.folder:GetAttribute("SS_Order") or math.huge, b.folder:GetAttribute("SS_Order") or math.huge
+if oa ~= ob then
+return oa < ob
+end
+return at[a] < at[b]
+end)
+end
+return things
+end
+App.moveThing = function(thing, to)
+local spec = App.kindSpec(thing.kind)
+if not (spec and spec.reorder) then
+return
+end
+local things = thingsOf(spec)
+local from
+for i, t in things do
+if App.sameThing(t, thing) then
+from = i
+end
+end
+to = math.clamp(to, 1, #things)
+if not from or from == to then
+return
+end
+table.insert(things, to, table.remove(things, from))
+local rec = App.beginRec("Smart Scatter: Reorder")
+for i, t in things do
+t.folder:SetAttribute("SS_Order", i)
+end
+App.endRec(rec)
+App.rebuildAll()
+end
+local function menuOf(spec, thing, index, n)
+local items = spec.menu and spec.menu(thing) or {}
+if spec.reorder and n > 1 then
+local at = table.find(items, "-") or #items + 1
+if index < n then
+table.insert(items, at, {
+"Move down",
+function()
+App.moveThing(thing, index + 1)
+end,
+P.dim,
+})
+end
+if index > 1 then
+table.insert(items, at, {
+"Move up",
+function()
+App.moveThing(thing, index - 1)
+end,
+P.dim,
+})
+end
+end
+return items
+end
+local function thingRow(list, spec, thing, order, index, n, drag)
 local sel = App.sameThing(thing, App.selected)
 local b = new("TextButton", {
 Text = "",
@@ -3352,9 +3648,16 @@ Size = UDim2.new(1, 0, 0, ROW),
 LayoutOrder = order,
 Parent = list,
 }, { corner(6) })
+local pictured = spec.thumb and spec.thumb(thing)
+if pictured then
+local th = App.thumbnail(pictured, THUMB)
+th.AnchorPoint, th.Position = Vector2.new(0, 0.5), UDim2.new(0, 5, 0.5, 0)
+th.Parent = b
+else
 local ic = App.icon(spec.icon, 13, sel and P.accent or P.dim)
 ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 8, 0.5, 0)
 ic.Parent = b
+end
 local name = thing.folder and thing.folder.Name or spec.title
 if renaming and App.sameThing(renaming, thing) then
 local tb = new("TextBox", {
@@ -3414,13 +3717,19 @@ Parent = right,
 lock.TextXAlignment = Enum.TextXAlignment.Right
 end
 if spec.menu then
-local more = App.iconButton("down", "Rename, lock, bake, delete…", nil, false, 22)
+local more = App.iconButton("down", "Rename, lock, bake, delete… (or right-click the row)", nil, false, 22)
 more.LayoutOrder = 3
 more.BackgroundTransparency = 1
 more.Parent = right
 more.MouseButton1Click:Connect(function()
-App.popupMenu(more, spec.menu(thing))
+App.popupMenu(more, menuOf(spec, thing, index, n))
 end)
+b.MouseButton2Click:Connect(function()
+App.popupMenu(nil, menuOf(spec, thing, index, n))
+end)
+end
+if drag then
+drag.add(b, index)
 end
 if not sel then
 b.MouseEnter:Connect(function()
@@ -3433,6 +3742,9 @@ end)
 end
 local lastClick = 0
 b.MouseButton1Click:Connect(function()
+if drag and drag.dragged() then
+return
+end
 local now = os.clock()
 if sel and spec.menu and now - lastClick < 0.35 and thing.folder then
 App.startRename(thing)
@@ -3448,6 +3760,9 @@ end)
 return b
 end
 local function objectRows(list, order)
+local drag = App.reorderList(function(from, to)
+App.moveObject(App.area.layers[from], to)
+end)
 for i, l in App.area.layers do
 local on = l == App.active
 local b = new("TextButton", {
@@ -3479,11 +3794,14 @@ l.inst.Name .. (#l.variants > 1 and ("  +" .. (#l.variants - 1)) or ""),
 on and P.accent or (l.s.enabled and P.text or P.faint),
 on and SANS_B or SANS,
 {
-Position = UDim2.fromOffset(30, 0),
-Size = UDim2.new(1, -80, 1, 0),
+Position = UDim2.fromOffset(34 + THUMB, 0),
+Size = UDim2.new(1, -(84 + THUMB), 1, 0),
 Parent = b,
 }
 )
+local th = App.thumbnail(l.inst, THUMB)
+th.AnchorPoint, th.Position = Vector2.new(0, 0.5), UDim2.new(0, 28, 0.5, 0)
+th.Parent = b
 local what = App.Engine.isLine(l) and "along" or string.lower(l.type)
 local tag = label(l.s.enabled and what or "off", 11, P.faint, SANS, {
 AnchorPoint = Vector2.new(1, 0),
@@ -3502,8 +3820,14 @@ b.BackgroundTransparency = 1
 end)
 end
 b.MouseButton1Click:Connect(function()
+if not drag.dragged() then
 App.selectObject(l)
+end
 end)
+b.MouseButton2Click:Connect(function()
+App.popupMenu(nil, App.objectMenu(l))
+end)
+drag.add(b, i)
 end
 end
 App.buildOutliner = function(parent)
@@ -3548,10 +3872,14 @@ Parent = wrap,
 local list = col({ Parent = scroll }, { vlist(1) })
 local order, any, selRow = 0, false, nil
 for _, spec in App.thingKinds() do
-for _, thing in spec.list() do
+local things = thingsOf(spec)
+local drag = spec.reorder and App.reorderList(function(from, to)
+App.moveThing(things[from], to)
+end) or nil
+for index, thing in things do
 order += 100
 any = true
-local row = thingRow(list, spec, thing, order)
+local row = thingRow(list, spec, thing, order, index, #things, drag)
 if App.sameThing(thing, App.selected) then
 selRow = row
 if App.area and (thing.kind == "Zone" or thing.kind == "Path") and #App.area.layers > 0 then
@@ -4374,7 +4702,7 @@ keep[k] = App.ui[k]
 end
 App.ui = keep
 App.hideTip()
-App.pruneThumbs()
+App.pruneThumbs(false, sc)
 for _, ch in sc:GetChildren() do
 if ch:IsA("GuiObject") then
 ch:Destroy()

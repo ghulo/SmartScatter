@@ -85,6 +85,7 @@ return function(App)
 		local root = App.root
 		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 50, Parent = root })
 		catcher.MouseButton1Click:Connect(closePopup)
+		catcher.MouseButton2Click:Connect(closePopup)
 		App.ui.popup = catcher
 		local x, y
 		if anchor then
@@ -141,6 +142,15 @@ return function(App)
 				it[2]()
 			end)
 		end
+		-- a menu that would run off the bottom of the panel moves up to fit (once it knows its height)
+		local function keepOn()
+			local over = y + menu.AbsoluteSize.Y + 8 - root.AbsoluteSize.Y
+			if over > 0 then
+				menu.Position = UDim2.fromOffset(menu.Position.X.Offset, math.max(8, y - over))
+			end
+		end
+		menu:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
+		keepOn()
 	end
 
 	--------------------------------------------------------------------------------
@@ -221,9 +231,35 @@ return function(App)
 	local function placed(thing) -- (known for the area being worked on; the others would each need loading)
 		return App.area and App.area.folder == thing.folder and App.lastTotal or nil
 	end
-	App.registerKind({ kind = "Zone", icon = "area", title = "Zone", order = 10, list = areasOf("Zone"), count = placed, menu = areaMenu })
-	App.registerKind({ kind = "Path", icon = "spline", title = "Path", order = 20, list = areasOf("Path"), count = placed, menu = areaMenu })
-	App.registerKind({ kind = "Clear", icon = "clear", title = "Keep-clear zone", order = 30, list = areasOf("Clear"), menu = areaMenu })
+	App.registerKind({
+		kind = "Zone",
+		icon = "area",
+		title = "Zone",
+		order = 10,
+		list = areasOf("Zone"),
+		count = placed,
+		menu = areaMenu,
+		reorder = true,
+	})
+	App.registerKind({
+		kind = "Path",
+		icon = "spline",
+		title = "Path",
+		order = 20,
+		list = areasOf("Path"),
+		count = placed,
+		menu = areaMenu,
+		reorder = true,
+	})
+	App.registerKind({
+		kind = "Clear",
+		icon = "clear",
+		title = "Keep-clear zone",
+		order = 30,
+		list = areasOf("Clear"),
+		menu = areaMenu,
+		reorder = true,
+	})
 
 	App.markSelected = function(cls)
 		local sel = Selection:Get()
