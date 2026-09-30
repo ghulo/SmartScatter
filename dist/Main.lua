@@ -2920,7 +2920,7 @@ App.markPending = markPending
 App.hasPending = function()
 return App.area ~= nil and pendingFor[App.area.folder] == true
 end
-local lostPatch
+local lostPatch, lostPins = nil, false
 local function joinBoxes(a, b)
 if not (a and b) then
 return a or b
@@ -2943,7 +2943,7 @@ recolorOverlay()
 return true
 end
 App.readGround = readGround
-local function runGenerate(recorded, from, region, real)
+local function runGenerate(recorded, from, region, real, pins)
 if not canGenerate() then
 return
 end
@@ -2962,8 +2962,10 @@ job = me
 if lostPatch then
 from = nil
 region = lostPatch ~= true and region and joinBoxes(region, lostPatch) or nil
+pins = pins and lostPins
 end
 me.from, me.region = from, not recorded and region or nil
+me.pins = me.region ~= nil and pins == true
 App.heavyWarning = nil
 local area = App.area
 local t0, slice = os.clock(), os.clock()
@@ -3020,13 +3022,14 @@ phase = "Placing"
 local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 from = from,
 region = me.region,
+pins = me.pins,
 output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = preview },
 tick = tick,
 })
 if counts then
 App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 me.done = true
-lostPatch = nil
+lostPatch, lostPins = nil, false
 if not preview and from == nil and me.region == nil then
 pendingFor[area.folder] = nil
 end
@@ -3037,6 +3040,7 @@ return e
 end)
 job = nil
 if not me.done and App.area == area then
+lostPins = me.pins and (lostPatch == nil or lostPins)
 lostPatch = (me.region and lostPatch ~= true) and joinBoxes(lostPatch, me.region) or true
 end
 if App.showProgress then
@@ -3149,7 +3153,7 @@ task.spawn(function()
 runGenerate(true, f ~= ALL and f or nil)
 end)
 end
-local function applyNow(from, what, region)
+local function applyNow(from, what, region, pins)
 if what then
 local rec = beginRec("Smart Scatter: " .. what)
 saveArea()
@@ -3161,7 +3165,7 @@ end
 liveFrom = nil
 task.spawn(function()
 if region then
-runGenerate(false, from, region, true)
+runGenerate(false, from, region, true, pins)
 else
 runGenerate(true, from, nil, true)
 end

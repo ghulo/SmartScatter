@@ -634,7 +634,9 @@ end, { Parent = acts })
 App.keyChips(parent, {
 { key("turn"), "turn" },
 { "Shift", "turn freely" },
+{ "Shift + wheel", "turn" },
 { key("shrink") .. " " .. key("grow"), "size" },
+{ "Alt + wheel", "size" },
 { key("model"), "model" },
 { key("shuffle"), "random" },
 { key("cancel"), "stop" },
@@ -5740,6 +5742,9 @@ end
 if App.mode == "Stamp" and App.stampKey(name) then
 return
 end
+if App.mode == "Select" and App.selectKey and App.selectKey(name) then
+return
+end
 if name == "shuffle" then
 if App.area and not App.area.locked and App.shuffle then
 App.shuffle()
@@ -5898,7 +5903,7 @@ Fill = "Click the ground to fill everything connected of that surface.",
 Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-Select = "Click a zone's ground, a path or a placed copy to work on it.",
+Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, right-click has more.",
 Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 More = "Brush where you want more of it. Shift brushes less.",
 Less = "Brush where you want less of it (twice clears it). Shift brushes more.",

@@ -17,7 +17,9 @@ return function(E, I)
 	-- Regenerates the area. Each layer has its own seeded randomness, so changing one layer never reshuffles
 	-- another. opts.from = a layer: keep every layer placed before it untouched and only rebuild it + later ones.
 	-- Locked layers are always kept. opts.region = { x0, z0, x1, z1 } (world studs): only that patch changed (a brush
-	-- stroke), so every other layer keeps its copies outside it and only the patch is placed again.
+	-- stroke), so every other layer keeps its copies outside it and only the patch is placed again. opts.pins (with a
+	-- region): only the stamps' pins in the patch are placed again (one copy changed by hand, Engine/Pins); every other
+	-- copy in it stays exactly as it is.
 	-- Returns { [layer] = count }, total.
 	local function itemOf(inst)
 		local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
@@ -208,7 +210,7 @@ return function(E, I)
 						continue
 					end
 					local it = itemOf(inst)
-					if inPatch(it.x, it.z) then
+					if inPatch(it.x, it.z) and (not opts.pins or inst:GetAttribute("SS_Stamp")) then
 						table.insert(cut, inst)
 					else
 						if not inst:GetAttribute("SS_Stacked") then
@@ -335,7 +337,11 @@ return function(E, I)
 				end
 				local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
 				-- copies pinned by hand first, on their own random numbers: the rest of the layout draws as before
-				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
+				local pinsOnly = opts.pins and partial[l] ~= nil
+				if pinsOnly then
+					n = 0 -- (the rules' copies in the patch were kept)
+				end
+				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil, false, pinsOnly)
 				local got, t = 0, 0
 				if p.line then
 					got = placeLine(ctx, l, rng)
@@ -367,6 +373,11 @@ return function(E, I)
 						end
 					end
 				end
+				-- then the pins standing in for a rules' copy changed by hand (Engine/Pins): after the rules placed
+				-- theirs, so nothing round them moves (the copy they stand in for is taken out below, with the removed)
+				if not p.line then
+					pinned += placePins(ctx, l, partial[l] and inPatch or nil, true, pinsOnly)
+				end
 				counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 				total += counts[l]
 				base += p.line and 40 or math.max(p.n, 1)
@@ -391,7 +402,12 @@ return function(E, I)
 			for _, f in staged do
 				for _, inst in f:GetDescendants() do
 					local h = inst:GetAttribute("SS_L")
-					if h and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0) then
+					-- (a stamp stands where it's put: a copy changed by hand is one, on the spot its original left)
+					if
+						h
+						and not inst:GetAttribute("SS_Stamp")
+						and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0)
+					then
 						for l, n in counts do
 							if l._h == h then
 								counts[l] = n - 1

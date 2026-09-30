@@ -3,8 +3,8 @@
 	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
 	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
 	The model floats under the mouse, see-through, standing just as it will; a click puts it down, a drag from where
-	you pressed turns it to face the mouse (15° steps; Shift turns freely). Keys turn it, size it, pick the model or
-	roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
+	you pressed turns it to face the mouse (15° steps; Shift turns freely). Shift + the wheel turns it and Alt + the
+	wheel sizes it before it's put down. Keys turn it, size it, pick the model or roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
 	Workspace › Stamps: Generate, Erase and the areas never touch them; Ctrl+Z takes one back, Delete removes one.
 	Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -12,6 +12,7 @@
 
 return function(App)
 	local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
+	local UIS = game:GetService("UserInputService")
 	local STEP = math.rad(15) -- the turn's steps (keys, and dragging without Shift)
 	local DRAG_PX = 6 -- a press that moves further than this turns the stamp instead of just placing it
 	local FOLDER = "Stamps" -- where stamped copies go, in Workspace
@@ -349,6 +350,63 @@ return function(App)
 		refresh()
 		return true
 	end
+
+	-- The mouse wheel while aiming: with Shift it turns the stamp, with Alt it sizes it, a notch at a time (the steps
+	-- the keys take). Studio zooms its camera on every notch and a plugin can't take the notch for itself, so the
+	-- camera is held where it was for a moment after each one.
+	local HOLD = 0.2 -- seconds the camera is held after a notch
+	local camAt, holdUntil = nil, 0
+	-- what a notch of the wheel does with the keys held now: "turn" (Shift), "size" (Alt), or nil (it zooms, as ever).
+	-- Select's picked copy takes the wheel the same way.
+	App.wheelDoes = function()
+		if App.shiftHeld() then
+			return "turn"
+		elseif UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt) then
+			return "size"
+		end
+		return nil
+	end
+	App.holdCamera = function()
+		holdUntil = os.clock() + HOLD
+	end
+	local function wheel(dir)
+		if App.mode ~= "Stamp" or not current() then
+			return
+		end
+		local does = App.wheelDoes()
+		if does == "turn" then
+			stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + dir) * STEP % (math.pi * 2)
+		elseif does == "size" then
+			stamp.k = math.clamp(stamp.k * 1.1 ^ dir, 0.05, 20)
+			stamp.base = stamp.k
+		else
+			return
+		end
+		App.holdCamera()
+		refresh()
+	end
+	App.stampWheel = wheel
+	App.track(rawMouse.WheelForward:Connect(function()
+		wheel(1)
+	end))
+	App.track(rawMouse.WheelBackward:Connect(function()
+		wheel(-1)
+	end))
+	App.track(App.RunService.Heartbeat:Connect(function()
+		if App.mode == "Off" then
+			camAt = nil
+			return
+		end
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		if camAt and os.clock() < holdUntil then
+			cam.CFrame, cam.Focus = camAt.cf, camAt.focus
+		else
+			camAt = { cf = cam.CFrame, focus = cam.Focus }
+		end
+	end))
 
 	-- the panel's and the bar's controls change the stamp through these
 	App.setStamp = function(yaw, k, vi)

@@ -170,7 +170,8 @@ return function(App)
 
 	-- region: the patch a stroke changed (live only). A run that gets cancelled leaves its patch (or, for a full run,
 	-- everything: lostPatch = true) out of date, so the next run covers it too; a completed run clears it.
-	local lostPatch
+	-- lostPins: that patch was only ever a copy changed by hand's (pins), so the run covering it places pins alone.
+	local lostPatch, lostPins = nil, false
 	local function joinBoxes(a, b)
 		if not (a and b) then
 			return a or b
@@ -199,7 +200,8 @@ return function(App)
 	-- real: this run places the real models (the Generate button, a change applied at once). Any other run while Live
 	-- is on places the real models too when that's quick (a patch, a light area); a heavier one is a preview: a
 	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
-	local function runGenerate(recorded, from, region, real)
+	-- pins (with a region): only the stamps' pins in the patch are placed again, every other copy there stays.
+	local function runGenerate(recorded, from, region, real, pins)
 		if not canGenerate() then -- the Generate button shows why
 			return
 		end
@@ -219,8 +221,10 @@ return function(App)
 		if lostPatch then
 			from = nil
 			region = lostPatch ~= true and region and joinBoxes(region, lostPatch) or nil
+			pins = pins and lostPins
 		end
 		me.from, me.region = from, not recorded and region or nil
+		me.pins = me.region ~= nil and pins == true
 		App.heavyWarning = nil
 		local area = App.area
 		local t0, slice = os.clock(), os.clock()
@@ -281,13 +285,14 @@ return function(App)
 			local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 				from = from,
 				region = me.region,
+				pins = me.pins,
 				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = preview },
 				tick = tick,
 			})
 			if counts then
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
-				lostPatch = nil
+				lostPatch, lostPins = nil, false
 				if not preview and from == nil and me.region == nil then -- everything is as saved now
 					pendingFor[area.folder] = nil
 				end
@@ -298,6 +303,7 @@ return function(App)
 		end)
 		job = nil
 		if not me.done and App.area == area then
+			lostPins = me.pins and (lostPatch == nil or lostPins)
 			lostPatch = (me.region and lostPatch ~= true) and joinBoxes(lostPatch, me.region) or true
 		end
 		if App.showProgress then
@@ -423,7 +429,8 @@ return function(App)
 	-- A change to one object that you do by hand or by a button on it (New look, Swap, taking back what was done by
 	-- hand): saved as one undo step, then its real copies rebuilt at once, Live on or off, as a stamp is. from: the
 	-- object (it and the objects after it are rebuilt; nil: all of them). region: only that patch (a brush stroke).
-	local function applyNow(from, what, region)
+	-- pins (with a region): only the stamps' pins in the patch (a copy changed by hand); the rest of it stays.
+	local function applyNow(from, what, region, pins)
 		if what then
 			local rec = beginRec("Smart Scatter: " .. what)
 			saveArea()
@@ -435,7 +442,7 @@ return function(App)
 		liveFrom = nil -- (this run covers a preview still waiting)
 		task.spawn(function()
 			if region then -- (a patch is a quick run of its own: a newer stroke may take over from it)
-				runGenerate(false, from, region, true)
+				runGenerate(false, from, region, true, pins)
 			else
 				runGenerate(true, from, nil, true)
 			end

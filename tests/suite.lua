@@ -1270,6 +1270,159 @@ local ok, err = xpcall(function()
 		)
 	end
 
+	-- one placed copy changed by hand (Engine/Pins): it becomes a stamp's pin standing as it stood, the change holds
+	-- when the area is generated again, the copies round it stay where they were, and it can be given back to the rules
+	do
+		local a = newArea("SS_Test_CopyEdit", { E.makeLayer(rock, "Rock") })
+		paintRect(a, -30, -30, 30, 30)
+		local total, _, _, an = run(a)
+		local function spot(m)
+			return string.format("%.1f,%.1f", m:GetAttribute("SS_X"), m:GetAttribute("SS_Z"))
+		end
+		local function spots()
+			local t = {}
+			for _, m in placed(a.folder) do
+				t[spot(m)] = m
+			end
+			return t
+		end
+		local function changed(before, after, but)
+			local n = 0
+			for k in before do
+				n += (k ~= but and not after[k]) and 1 or 0
+			end
+			for k in after do
+				n += (k ~= but and not before[k]) and 1 or 0
+			end
+			return n
+		end
+		local before = spots()
+		local copy = placed(a.folder)[1]
+		local key = copy and spot(copy)
+		local pose = copy and E.copyPose(a, copy)
+		local size0, look0 = copy and copy:GetExtentsSize(), copy and copy:GetPivot().LookVector
+		local read = pose ~= nil and pose.l == a.layers[1] and pose.pin == nil and pose.k > 0
+		local pin = pose and E.pinCopy(a, copy, { k = pose.k * 2 })
+		-- (as the plugin does it: only the patch round it, and in it only the pins, so nothing else is placed again)
+		E.generate(a, an, 1, templates, { region = { pose.x - 12, pose.z - 12, pose.x + 12, pose.z + 12 }, pins = true })
+		local patched = spots()
+		local patchOK = patched[key] ~= nil and patched[key]:GetAttribute("SS_Stamp") == true and changed(before, patched, key) == 0
+		E.generate(a, an, 1, templates, {})
+		local after = spots()
+		local big = after[key]
+		check(
+			"a copy sized by hand stands where it stood, twice the size, facing the same way",
+			total > 1
+				and patchOK
+				and read
+				and pin ~= nil
+				and big ~= nil
+				and big:GetAttribute("SS_Stamp") == true
+				and math.abs(big:GetExtentsSize().Y - size0.Y * 2) < size0.Y * 0.05
+				and big:GetPivot().LookVector:Dot(look0) > 0.98, -- (a stamp stands upright: the rules' slight tilt is gone)
+			string.format(
+				"%d placed, patch %s, read %s, copy back %s, height %.2f of %.2f, facing %.3f",
+				total,
+				tostring(patchOK),
+				tostring(read),
+				tostring(big ~= nil),
+				big and big:GetExtentsSize().Y or -1,
+				size0 and size0.Y * 2 or -1,
+				big and big:GetPivot().LookVector:Dot(look0) or -2
+			)
+		)
+		check("and the copies round it stay where they were", changed(before, after, key) == 0, changed(before, after, key) .. " came or went")
+
+		-- a second change is a change to its pin: a quarter turn
+		local pose2 = big and E.copyPose(a, big)
+		local samePin = pose2 ~= nil and pose2.pin == pin and math.abs(pose2.k - pose.k * 2) < 0.01
+		if big then
+			E.pinCopy(a, big, { yaw = pose2.yaw + math.pi / 2 })
+		end
+		E.generate(a, an, 1, templates, {})
+		local turned = spots()[key]
+		check(
+			"changing it again changes its pin: a quarter turn, the size kept",
+			samePin
+				and #a.layers[1].pins == 1
+				and turned ~= nil
+				and math.abs(turned:GetPivot().LookVector:Dot(look0)) < 0.01
+				and math.abs(turned:GetExtentsSize().Y - size0.Y * 2) < size0.Y * 0.05,
+			string.format(
+				"same pin %s, %d pins, facing %.3f",
+				tostring(samePin),
+				#(a.layers[1].pins or {}),
+				turned and turned:GetPivot().LookVector:Dot(look0) or -2
+			)
+		)
+
+		-- given back to the rules: the pin goes, the spot is free again, and the rules' own copy is back as it was
+		local can = turned ~= nil and E.canUnpinCopy(a, turned)
+		local did = turned ~= nil and E.unpinCopy(a, turned)
+		E.generate(a, an, 1, templates, {})
+		local back = spots()
+		local orig = back[key]
+		check(
+			"given back to its rules, the copy the rules place is there again, as it was",
+			can
+				and did
+				and a.layers[1].pins == nil
+				and E.removedCount(a) == 0
+				and orig ~= nil
+				and not orig:GetAttribute("SS_Stamp")
+				and math.abs(orig:GetExtentsSize().Y - size0.Y) < size0.Y * 0.05
+				and changed(before, back) == 0,
+			string.format(
+				"can %s, did %s, pins %s, %d removed, copy %s, %d came or went",
+				tostring(can),
+				tostring(did),
+				tostring(a.layers[1].pins ~= nil),
+				E.removedCount(a),
+				tostring(orig ~= nil),
+				changed(before, back)
+			)
+		)
+
+		-- moved: it stands at the new spot, its old one stays empty, and it can't go back to the rules (only be removed)
+		local mx, mz = orig:GetAttribute("SS_X") + 1.5, orig:GetAttribute("SS_Z")
+		local moved = E.pinCopy(a, orig, { x = mx, z = mz })
+		E.generate(a, an, 1, templates, {})
+		local now = spots()
+		local there
+		for _, m in placed(a.folder) do
+			if m:GetAttribute("SS_Stamp") then
+				there = m
+			end
+		end
+		local stays = there ~= nil and not E.canUnpinCopy(a, there)
+		local h = there and E.removeCopy(a, there)
+		E.generate(a, an, 1, templates, {})
+		local gone = true
+		for _, m in placed(a.folder) do
+			gone = gone and not m:GetAttribute("SS_Stamp")
+		end
+		check(
+			"a copy moved stands at its new spot, leaves its old one empty, and removing it takes its pin",
+			moved ~= nil
+				and there ~= nil
+				and math.abs(there:GetAttribute("SS_X") - mx) < 0.02
+				and now[key] == nil
+				and stays
+				and h ~= nil
+				and gone
+				and a.layers[1].pins == nil
+				and spots()[key] == nil,
+			string.format(
+				"moved %s, at %s, old spot empty %s, stays %s, gone %s",
+				tostring(moved ~= nil),
+				there and spot(there) or "nowhere",
+				tostring(now[key] == nil),
+				tostring(stays),
+				tostring(gone)
+			)
+		)
+	end
+
 	-- erasing ground takes its copies away at once (Live off: nothing regenerates); a stamp stands on its own and stays
 	do
 		local a = newArea("SS_Test_EraseNow", { E.makeLayer(rock, "Rock") })

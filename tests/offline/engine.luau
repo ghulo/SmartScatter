@@ -546,6 +546,21 @@ do
 		#back .. " pins"
 	)
 	check("a stamp's size stays sensible", E.stampPin(0, 0, 0, 0, 1, 1)[5] == 0.05 and E.stampPin(0, 0, 0, 99, 1, 1)[5] == 20)
+	local marked = E.readPins({ { 1, 2, 3, 0, 1, 1, 1 }, { 1, 2, 3, 0, 1, 1, 5 }, { 1, 2, 3, nil, nil, nil, 1 } })
+	check(
+		"a stamp standing in for a rules' copy keeps its mark when read back, and only a stamp has one",
+		marked ~= nil and marked[1][7] == 1 and marked[2][7] == nil and marked[3][7] == nil and #marked[3] == 3
+	)
+	local changedPin = E.changePin({ variants = { {}, {} } }, { 1, 2, 3, 0, 1, 1, 1 }, { yaw = math.pi, vi = 2, k = 99 })
+	check(
+		"a pin changed in place keeps its spot, seed and mark, and takes the change",
+		changedPin[1] == 1
+			and changedPin[3] == 3
+			and changedPin[7] == 1
+			and changedPin[6] == 2
+			and changedPin[5] == 20
+			and near(changedPin[4], 3.142, 1e-3)
+	)
 end
 
 -- ── arrays ──────────────────────────────────────────────────────────────────────────
@@ -557,7 +572,10 @@ do
 		#line .. " copies, last at " .. tostring(line[4] and line[4].pos)
 	)
 	local grid = E.arrayCopies({ shape = "Grid", rows = 2, cols = 3, spacingX = 4, spacingZ = 6 })
-	check("a grid array: rows × columns, columns to the right, rows down the front", #grid == 6 and near(grid[6].pos.X, 8) and near(grid[6].pos.Z, -6))
+	check(
+		"a grid array: rows × columns, columns to the right, rows down the front",
+		#grid == 6 and near(grid[6].pos.X, 8) and near(grid[6].pos.Z, -6)
+	)
 	local ring = E.arrayCopies({ shape = "Circle", count = 4, radius = 10, face = "Out" })
 	local ok = #ring == 4
 	for _, c in ring do
@@ -603,7 +621,11 @@ do
 	check("align to max: every one ends where the highest does", near(mx[1].X, 20) and near(mx[2].X, 13) and near(mx[3].X, 0))
 	local mid = E.alignMoves(boxes, "X", "Center")
 	check("align to centre: every one centred on the selection's middle", near(mid[1].X, 10) and near(mid[2].X, 4) and near(mid[3].X, -10))
-	local ys = E.alignMoves({ { min = Vector3.new(0, 3, 0), max = Vector3.new(1, 5, 1) }, { min = Vector3.new(0, -1, 0), max = Vector3.new(1, 0, 1) } }, "Y", "Min")
+	local ys = E.alignMoves(
+		{ { min = Vector3.new(0, 3, 0), max = Vector3.new(1, 5, 1) }, { min = Vector3.new(0, -1, 0), max = Vector3.new(1, 0, 1) } },
+		"Y",
+		"Min"
+	)
 	check("align works on any axis", near(ys[1].Y, -4) and near(ys[2].Y, 0) and near(ys[1].X, 0))
 	-- distribute: the outer two stay; the middle one moves to even centres, or to even gaps
 	local c = E.distributeMoves({ box(0, 2), box(3, 5), box(20, 22) }, "X", "Centers")

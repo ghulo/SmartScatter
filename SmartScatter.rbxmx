@@ -25,8 +25,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 154
-local BUNDLED_VERSION = "9.90"
+local BUNDLED_BUILD = 155
+local BUNDLED_VERSION = "9.91"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -1009,7 +1009,8 @@ return function(App)
 
 	-- region: the patch a stroke changed (live only). A run that gets cancelled leaves its patch (or, for a full run,
 	-- everything: lostPatch = true) out of date, so the next run covers it too; a completed run clears it.
-	local lostPatch
+	-- lostPins: that patch was only ever a copy changed by hand's (pins), so the run covering it places pins alone.
+	local lostPatch, lostPins = nil, false
 	local function joinBoxes(a, b)
 		if not (a and b) then
 			return a or b
@@ -1038,7 +1039,8 @@ return function(App)
 	-- real: this run places the real models (the Generate button, a change applied at once). Any other run while Live
 	-- is on places the real models too when that's quick (a patch, a light area); a heavier one is a preview: a
 	-- see-through box per copy (Settings › Live previews as boxes), quick to redo, until Generate places the models.
-	local function runGenerate(recorded, from, region, real)
+	-- pins (with a region): only the stamps' pins in the patch are placed again, every other copy there stays.
+	local function runGenerate(recorded, from, region, real, pins)
 		if not canGenerate() then -- the Generate button shows why
 			return
 		end
@@ -1058,8 +1060,10 @@ return function(App)
 		if lostPatch then
 			from = nil
 			region = lostPatch ~= true and region and joinBoxes(region, lostPatch) or nil
+			pins = pins and lostPins
 		end
 		me.from, me.region = from, not recorded and region or nil
+		me.pins = me.region ~= nil and pins == true
 		App.heavyWarning = nil
 		local area = App.area
 		local t0, slice = os.clock(), os.clock()
@@ -1120,13 +1124,14 @@ return function(App)
 			local counts, total, parts = Engine.generate(area, App.lastAnalysis, G.density, templates(), {
 				from = from,
 				region = me.region,
+				pins = me.pins,
 				output = { walk = G.walk, shadows = G.shadows, query = G.query, chunks = G.chunks, ghost = preview },
 				tick = tick,
 			})
 			if counts then
 				App.lastCounts, App.lastTotal, App.lastParts = counts, total, parts
 				me.done = true
-				lostPatch = nil
+				lostPatch, lostPins = nil, false
 				if not preview and from == nil and me.region == nil then -- everything is as saved now
 					pendingFor[area.folder] = nil
 				end
@@ -1137,6 +1142,7 @@ return function(App)
 		end)
 		job = nil
 		if not me.done and App.area == area then
+			lostPins = me.pins and (lostPatch == nil or lostPins)
 			lostPatch = (me.region and lostPatch ~= true) and joinBoxes(lostPatch, me.region) or true
 		end
 		if App.showProgress then
@@ -1262,7 +1268,8 @@ return function(App)
 	-- A change to one object that you do by hand or by a button on it (New look, Swap, taking back what was done by
 	-- hand): saved as one undo step, then its real copies rebuilt at once, Live on or off, as a stamp is. from: the
 	-- object (it and the objects after it are rebuilt; nil: all of them). region: only that patch (a brush stroke).
-	local function applyNow(from, what, region)
+	-- pins (with a region): only the stamps' pins in the patch (a copy changed by hand); the rest of it stays.
+	local function applyNow(from, what, region, pins)
 		if what then
 			local rec = beginRec("Smart Scatter: " .. what)
 			saveArea()
@@ -1274,7 +1281,7 @@ return function(App)
 		liveFrom = nil -- (this run covers a preview still waiting)
 		task.spawn(function()
 			if region then -- (a patch is a quick run of its own: a newer stroke may take over from it)
-				runGenerate(false, from, region, true)
+				runGenerate(false, from, region, true, pins)
 			else
 				runGenerate(true, from, nil, true)
 			end
@@ -12348,7 +12355,9 @@ return function(App)
 		App.keyChips(parent, {
 			{ key("turn"), "turn" },
 			{ "Shift", "turn freely" },
+			{ "Shift + wheel", "turn" },
 			{ key("shrink") .. " " .. key("grow"), "size" },
+			{ "Alt + wheel", "size" },
 			{ key("model"), "model" },
 			{ key("shuffle"), "random" },
 			{ key("cancel"), "stop" },
@@ -15226,6 +15235,9 @@ return function(App)
 		if App.mode == "Stamp" and App.stampKey(name) then -- the stamp's own keys (turn, size, model, a random one)
 			return
 		end
+		if App.mode == "Select" and App.selectKey and App.selectKey(name) then -- the picked copy's (the stamp's, Delete)
+			return
+		end
 		-- anywhere while working (painting, erasing, drawing a path)
 		if name == "shuffle" then
 			if App.area and not App.area.locked and App.shuffle then
@@ -15396,7 +15408,7 @@ return function(App)
 		Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} or right-click deletes, {close} to finish.",
 		Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
 		Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-		Select = "Click a zone's ground, a path or a placed copy to work on it.",
+		Select = "Click a zone's ground, a path or a placed copy. On a copy: Shift + wheel turns it, Alt + wheel sizes it, right-click has more.",
 		Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
 		More = "Brush where you want more of it. Shift brushes less.",
 		Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
@@ -15581,13 +15593,18 @@ end
 	  a placed copy     its zone, with its object active
 	  a path            the path (its curve, or a point of it, within a few pixels on screen)
 	  painted ground    the zone painted there (a keep-clear zone if no zone is)
+	A click on a placed copy also picks that one copy: it's outlined, Shift + the wheel turns it and Alt + the wheel
+	sizes it (as the stamp's), the stamp's keys work on it, and a right-click on a copy has the rest (another model,
+	moving it, giving it back to the rules, removing it). A copy changed this way becomes a stamp's pin of its object
+	(Engine/Pins), so generating puts it back just as it was left.
 	Studio's own selection is left as it was. Paint hands the viewport's mouse to it while the mode is "Select".
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
 
 return function(App)
 	local Engine, HttpService = App.Engine, game:GetService("HttpService")
-	local rawMouse = App.rawMouse
+	local rawMouse, P = App.rawMouse, App.P
+	local STEP = math.rad(15) -- a turn's step (the stamp's)
 	local NEAR_PX = 10 -- how close on screen a path has to be to the mouse
 
 	-- each area's painted cells and path points, read from its saved attributes and kept until they change
@@ -15652,7 +15669,7 @@ return function(App)
 		return (m - (pa + ab * t)).Magnitude
 	end
 
-	-- what's under the mouse: thing, object (a layer key), and a word for it; nil when nothing of ours
+	-- what's under the mouse: thing, object (a layer key), and the placed copy itself; nil when nothing of ours
 	App.pickAt = function()
 		local out = workspace:FindFirstChild(Engine.OUT)
 		if not out then
@@ -15665,9 +15682,10 @@ return function(App)
 		rp.FilterDescendantsInstances = { out }
 		local hit = workspace:Raycast(ray.Origin, ray.Direction * 5000, rp)
 		if hit then
-			local key, area
+			local key, area, copy
 			local cur = hit.Instance
 			while cur and cur ~= out do
+				copy = copy or (cur:GetAttribute("SS_Type") and cur or nil)
 				key = key or cur:GetAttribute("SS_Key")
 				if cur.Parent == out then
 					area = cur
@@ -15675,7 +15693,7 @@ return function(App)
 				cur = cur.Parent
 			end
 			if area then
-				return App.thingOf(area), key
+				return App.thingOf(area), key, key and copy or nil
 			end
 		end
 		-- 2. a path near the mouse
@@ -15714,9 +15732,290 @@ return function(App)
 		return nil
 	end
 
-	-- the mouse moved with Select on: name what a click would select
+	--------------------------------------------------------------------------------
+	-- One placed copy, picked
+	--------------------------------------------------------------------------------
+	-- picked: { folder = its area's, key = its object's, x, z = where it stands, copy = the instance (another one
+	-- after its spot is rebuilt), l, pin = its object and pin once it was changed }; moving: the next click on the
+	-- ground puts it there
+	local picked, moving = nil, false
+
+	-- an outline round a copy (name: which of the two, the picked one's or the one under the mouse)
+	local function light(name, copy, fill)
+		App.gizmoFolder()
+		local h = App.gz[name]
+		if not (h and h.Parent) then
+			if not copy then
+				return
+			end
+			h = Instance.new("Highlight")
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.OutlineTransparency = 0
+			h.Parent = App.gz.folder
+			App.gz[name] = h
+		end
+		h.FillColor, h.OutlineColor = P.accent, P.accent
+		h.FillTransparency = fill
+		h.Adornee = copy
+	end
+	-- the picked copy's instance now: the one picked, or (its spot rebuilt since) the one standing there
+	local function pickedCopy()
+		if not picked then
+			return nil
+		end
+		if picked.copy and picked.copy.Parent then
+			return picked.copy
+		end
+		picked.copy = nil
+		local a = App.area
+		if not (a and a.folder == picked.folder) then
+			return nil
+		end
+		for _, f in a.folder:GetChildren() do
+			if f:GetAttribute("SS_Key") == picked.key then
+				for _, d in f:GetDescendants() do
+					local x, z = d:GetAttribute("SS_X"), d:GetAttribute("SS_Z")
+					if x and z and d:GetAttribute("SS_Type") and math.abs(x - picked.x) < 0.05 and math.abs(z - picked.z) < 0.05 then
+						picked.copy = d
+						return d
+					end
+				end
+			end
+		end
+		return nil
+	end
+	-- "Rock · 45° · 1.20×"
+	local function describe(copy)
+		local pose = App.area and Engine.copyPose(App.area, copy)
+		if not pose then
+			return copy.Name
+		end
+		return string.format("%s · %d° · %.2f×", copy.Name, math.floor(math.deg(pose.yaw) + 0.5) % 360, pose.k)
+	end
+	local function showPicked()
+		local copy = pickedCopy()
+		light("copySel", copy, 0.8)
+		if copy then
+			App.gz.anchor.CFrame = CFrame.new(copy:GetPivot().Position)
+			App.setLabel(moving and "Click where it should stand" or (describe(copy) .. "  ·  right-click for more"))
+		end
+	end
+	local function unpick()
+		picked, moving = nil, false
+		light("copySel", nil, 0.8)
+		light("copyHover", nil, 1)
+		if App.closeViewMenu then
+			App.closeViewMenu()
+		end
+	end
+	-- after a change its spot is rebuilt a moment later: the outline goes to the copy that comes back
+	local function follow()
+		local mine = picked
+		task.spawn(function()
+			for _ = 1, 60 do
+				task.wait(0.05)
+				if picked ~= mine or App.mode ~= "Select" then
+					return
+				end
+				if pickedCopy() then
+					showPicked()
+					return
+				end
+			end
+		end)
+	end
+
+	-- One change to the picked copy: change(pose) -> { x, z, yaw, k, vi } (what it leaves out stays). The copy becomes
+	-- (or already is) a stamp's pin of its object, and its spot is rebuilt at once, Live on or off. One undo step.
+	local function edit(what, change)
+		local a = App.area
+		if not (picked and a and a.folder == picked.folder) then
+			return false
+		end
+		if a.locked then
+			App.status("This area is locked. Unlock it to change its copies.")
+			return false
+		end
+		if not App.canGenerate() then
+			App.status("The area can't be rebuilt right now: the Generate button says why.")
+			return false
+		end
+		local copy = pickedCopy()
+		local pose = copy and Engine.copyPose(a, copy)
+		if not pose and not copy and picked.pin and picked.l.pins and table.find(picked.l.pins, picked.pin) then
+			-- (changed again before its spot was rebuilt: the pin is changed, there's no copy to read)
+			local q = picked.pin
+			pose = { l = picked.l, vi = q[6], x = q[1], z = q[2], yaw = q[4], k = q[5], pin = q }
+		end
+		if not pose then
+			App.status(copy and "This copy can't be changed by itself (a piece of a line, or a preview box)." or "That copy is gone.")
+			return false
+		end
+		local l = pose.l
+		local fromX, fromZ = pose.x, pose.z
+		local c = change(pose)
+		local pin
+		if copy then
+			pin = Engine.pinCopy(a, copy, c)
+		else
+			pin = Engine.changePin(l, pose.pin, c)
+		end
+		if not pin then
+			return false
+		end
+		local v = l.variants[pin[6]] or l.variants[1]
+		local r = v.m.radius * pin[5] * v.size * 2 + 6 -- (the patch rebuilt: where it stood and where it stands)
+		local box = { math.min(fromX, pin[1]) - r, math.min(fromZ, pin[2]) - r, math.max(fromX, pin[1]) + r, math.max(fromZ, pin[2]) + r }
+		picked.copy, picked.x, picked.z, picked.l, picked.pin = nil, pin[1], pin[2], l, pin
+		light("copySel", nil, 0.8)
+		App.applyNow(l, what, box, true) -- (its pin alone: every other copy there stays as it is)
+		follow()
+		return true
+	end
+	local function turn(dir)
+		return edit("Turn a copy", function(pose)
+			return { yaw = (math.floor(pose.yaw / STEP + 0.5) + dir) * STEP }
+		end)
+	end
+	local function size(dir)
+		return edit("Size a copy", function(pose)
+			return { k = math.clamp(pose.k * 1.1 ^ dir, 0.05, 20) }
+		end)
+	end
+	local function nextModel()
+		return edit("Change a copy's model", function(pose)
+			return { vi = pose.vi % #pose.l.variants + 1 }
+		end)
+	end
+	local function moveTo(pos)
+		local a = App.area
+		if not (a and Engine.hasCell(a, math.floor(pos.X / a.cell), math.floor(pos.Z / a.cell))) then
+			App.status("Click on this zone's painted ground to move it there.")
+			return false
+		end
+		return edit("Move a copy", function()
+			return { x = pos.X, z = pos.Z }
+		end)
+	end
+	-- takes it out for good (as the Remove copies tool does)
+	local function remove()
+		local a, copy = App.area, pickedCopy()
+		if not (a and copy) or a.locked then
+			return false
+		end
+		local rec = App.beginRec("Smart Scatter: Remove copy")
+		local h = Engine.removeCopy(a, copy)
+		for _, l in a.layers do
+			if l._h == h and App.lastCounts[l] then
+				App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
+			end
+		end
+		App.saveArea()
+		App.endRec(rec)
+		unpick()
+		App.setLabel("")
+		App.refreshCounts()
+		App.status("Removed. Ctrl+Z brings it back.")
+		return true
+	end
+	-- gives a changed copy back to the rules: the one they place there comes back
+	local function backToRules()
+		local a, copy = App.area, pickedCopy()
+		if not (a and copy) or a.locked or not App.canGenerate() then
+			return false
+		end
+		local pose = Engine.copyPose(a, copy)
+		if not (pose and Engine.unpinCopy(a, copy)) then
+			return false
+		end
+		picked.copy, picked.pin = nil, nil
+		light("copySel", nil, 0.8)
+		-- (its object is placed again in full: the rules put every copy back exactly where it was, this one too)
+		App.applyNow(pose.l, "Give a copy back to its rules")
+		follow()
+		return true
+	end
+
+	-- picks one copy (its zone selected, its object active)
+	local function pick(thing, key, copy)
+		local object
+		App.select(thing)
+		for _, l in App.area and App.area.layers or {} do
+			if Engine.layerKey(l) == key then
+				object = l
+			end
+		end
+		App.select(thing, object)
+		if App.mode ~= "Select" then -- (selecting a thing may put the tool away: a picked copy is the Select tool's)
+			return object
+		end
+		picked = { folder = thing.folder, key = key, copy = copy, x = copy:GetAttribute("SS_X") or 0, z = copy:GetAttribute("SS_Z") or 0 }
+		moving = false
+		light("copyHover", nil, 1)
+		showPicked()
+		return object
+	end
+	-- what can be done to the picked copy (a right-click on it)
+	local function menu()
+		local a, copy = App.area, pickedCopy()
+		local pose = a and copy and Engine.copyPose(a, copy)
+		local items = {}
+		if pose then
+			table.insert(items, {
+				"Turn 15°",
+				function()
+					turn(1)
+				end,
+			})
+			table.insert(items, {
+				"Turn 15° back",
+				function()
+					turn(-1)
+				end,
+			})
+			table.insert(items, {
+				"Bigger",
+				function()
+					size(1)
+				end,
+			})
+			table.insert(items, {
+				"Smaller",
+				function()
+					size(-1)
+				end,
+			})
+			if #pose.l.variants > 1 then
+				table.insert(items, { "Another of its models", nextModel })
+			end
+			table.insert(items, {
+				"Move it…",
+				function()
+					moving = true
+					showPicked()
+					App.status("Click this zone's painted ground where it should stand. Esc leaves it where it is.")
+				end,
+			})
+			table.insert(items, "-")
+			if Engine.canUnpinCopy(a, copy) then
+				table.insert(items, { "Back to its rules", backToRules, P.dim })
+			end
+		end
+		table.insert(items, {
+			"Its object's settings",
+			function()
+				App.openTab("object")
+			end,
+			P.dim,
+		})
+		table.insert(items, "-")
+		table.insert(items, { "Remove", remove, P.danger })
+		return items
+	end
+
+	-- the mouse moved with Select on: name what a click would select; the picked copy keeps its outline
 	App.selectMove = function()
-		local thing, key = App.pickAt()
+		local thing, key, copy = App.pickAt()
 		local g = App.mouseHit()
 		App.gizmoFolder()
 		for _, k in { "ring", "disc", "halo", "sq", "dot" } do
@@ -15724,7 +16023,12 @@ return function(App)
 				App.gz[k].Visible = false
 			end
 		end
-		if thing and g then
+		local mine = pickedCopy()
+		light("copySel", mine, 0.8)
+		light("copyHover", not moving and copy ~= mine and copy or nil, 1)
+		if moving or (mine and (copy == mine or not thing)) then
+			showPicked()
+		elseif thing and g then
 			App.gz.anchor.CFrame = CFrame.new(g.Position)
 			local what = thing.folder and thing.folder.Name or "?"
 			if key then
@@ -15737,24 +16041,111 @@ return function(App)
 	end
 	-- a click with Select on
 	App.selectDown = function()
-		local thing, key = App.pickAt()
+		if moving then -- the picked copy goes where the click lands
+			local g = App.mouseHit()
+			if g and moveTo(g.Position) then
+				moving = false
+			end
+			return
+		end
+		local thing, key, copy = App.pickAt()
 		if not thing then
+			unpick()
 			return
 		end
 		local object
-		if key then
+		if copy then
+			object = pick(thing, key, copy)
+		else
+			unpick()
 			App.select(thing)
-			for _, l in App.area and App.area.layers or {} do
-				if Engine.layerKey(l) == key then
-					object = l
-				end
-			end
 		end
-		App.select(thing, object)
-		App.status("Selected " .. (thing.folder and thing.folder.Name or thing.kind) .. (object and (" · " .. object.inst.Name) or "") .. ".")
+		App.status(
+			"Selected "
+				.. (thing.folder and thing.folder.Name or thing.kind)
+				.. (object and (" · " .. object.inst.Name) or "")
+				.. (copy and ". Shift + wheel turns this copy, Alt + wheel sizes it, right-click has more." or ".")
+		)
 	end
+	-- a right-click on a copy: it's picked, and its menu opens by the mouse
+	App.onRightClick(function()
+		if App.mode ~= "Select" or moving then
+			return
+		end
+		local thing, key, copy = App.pickAt()
+		if not copy then
+			return
+		end
+		if copy ~= pickedCopy() then
+			pick(thing, key, copy)
+		end
+		if picked then
+			App.viewMenu(menu(), string.upper(copy.Name))
+		end
+	end)
+	-- the wheel on the picked copy: Shift turns it, Alt sizes it (a plain notch zooms, as ever)
+	local function wheel(dir)
+		if App.mode ~= "Select" or not picked then
+			return
+		end
+		local does = App.wheelDoes()
+		if not does then
+			return
+		end
+		App.holdCamera()
+		if does == "turn" then
+			turn(dir)
+		else
+			size(dir)
+		end
+	end
+	App.track(rawMouse.WheelForward:Connect(function()
+		wheel(1)
+	end))
+	App.track(rawMouse.WheelBackward:Connect(function()
+		wheel(-1)
+	end))
+	-- the picked copy's keys (the stamp's, and Delete); true when the key was one of them
+	App.selectKey = function(name)
+		if name == "cancel" and (moving or picked) then -- first the move is dropped, then the copy let go
+			if moving then
+				moving = false
+				showPicked()
+			else
+				unpick()
+				App.setLabel("")
+			end
+			return true
+		end
+		if not picked then
+			return false
+		end
+		if name == "turn" then
+			turn(App.shiftHeld() and -1 or 1)
+		elseif name == "grow" or name == "shrink" then
+			size(name == "grow" and 1 or -1)
+		elseif name == "model" then
+			nextModel()
+		elseif name == "delete" then
+			remove()
+		else
+			return false
+		end
+		return true
+	end
+	-- (for the search menu, the suite and other tools)
+	App.pickedCopy = pickedCopy
+	App.pickCopy = pick
+	App.copyMenu = menu
+	App.copyEdit = { turn = turn, size = size, model = nextModel, move = moveTo, remove = remove, back = backToRules }
+	-- another thing selected: the picked copy was the last one's
+	App.onSelect(function(thing)
+		if picked and not (thing and thing.folder == picked.folder) then
+			unpick()
+		end
+	end)
 
-	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, noArea = true })
+	App.registerMode("Select", { move = App.selectMove, down = App.selectDown, stop = unpick, noArea = true })
 
 	App.registerTool({
 		id = "select",
@@ -17116,8 +17507,8 @@ end
 	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
 	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
 	The model floats under the mouse, see-through, standing just as it will; a click puts it down, a drag from where
-	you pressed turns it to face the mouse (15° steps; Shift turns freely). Keys turn it, size it, pick the model or
-	roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
+	you pressed turns it to face the mouse (15° steps; Shift turns freely). Shift + the wheel turns it and Alt + the
+	wheel sizes it before it's put down. Keys turn it, size it, pick the model or roll a random one; the Stamp card and the viewport's bar have the same. Stamped copies are plain models in
 	Workspace › Stamps: Generate, Erase and the areas never touch them; Ctrl+Z takes one back, Delete removes one.
 	Paint hands the viewport's mouse and keys to it while the mode is "Stamp".
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -17125,6 +17516,7 @@ end
 
 return function(App)
 	local Engine, G, beginRec, endRec, rawMouse = App.Engine, App.G, App.beginRec, App.endRec, App.rawMouse
+	local UIS = game:GetService("UserInputService")
 	local STEP = math.rad(15) -- the turn's steps (keys, and dragging without Shift)
 	local DRAG_PX = 6 -- a press that moves further than this turns the stamp instead of just placing it
 	local FOLDER = "Stamps" -- where stamped copies go, in Workspace
@@ -17462,6 +17854,63 @@ return function(App)
 		refresh()
 		return true
 	end
+
+	-- The mouse wheel while aiming: with Shift it turns the stamp, with Alt it sizes it, a notch at a time (the steps
+	-- the keys take). Studio zooms its camera on every notch and a plugin can't take the notch for itself, so the
+	-- camera is held where it was for a moment after each one.
+	local HOLD = 0.2 -- seconds the camera is held after a notch
+	local camAt, holdUntil = nil, 0
+	-- what a notch of the wheel does with the keys held now: "turn" (Shift), "size" (Alt), or nil (it zooms, as ever).
+	-- Select's picked copy takes the wheel the same way.
+	App.wheelDoes = function()
+		if App.shiftHeld() then
+			return "turn"
+		elseif UIS:IsKeyDown(Enum.KeyCode.LeftAlt) or UIS:IsKeyDown(Enum.KeyCode.RightAlt) then
+			return "size"
+		end
+		return nil
+	end
+	App.holdCamera = function()
+		holdUntil = os.clock() + HOLD
+	end
+	local function wheel(dir)
+		if App.mode ~= "Stamp" or not current() then
+			return
+		end
+		local does = App.wheelDoes()
+		if does == "turn" then
+			stamp.yaw = (math.floor(stamp.yaw / STEP + 0.5) + dir) * STEP % (math.pi * 2)
+		elseif does == "size" then
+			stamp.k = math.clamp(stamp.k * 1.1 ^ dir, 0.05, 20)
+			stamp.base = stamp.k
+		else
+			return
+		end
+		App.holdCamera()
+		refresh()
+	end
+	App.stampWheel = wheel
+	App.track(rawMouse.WheelForward:Connect(function()
+		wheel(1)
+	end))
+	App.track(rawMouse.WheelBackward:Connect(function()
+		wheel(-1)
+	end))
+	App.track(App.RunService.Heartbeat:Connect(function()
+		if App.mode == "Off" then
+			camAt = nil
+			return
+		end
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		if camAt and os.clock() < holdUntil then
+			cam.CFrame, cam.Focus = camAt.cf, camAt.focus
+		else
+			camAt = { cf = cam.CFrame, focus = cam.Focus }
+		end
+	end))
 
 	-- the panel's and the bar's controls change the stamp through these
 	App.setStamp = function(yaw, k, vi)
@@ -17930,6 +18379,82 @@ return function(App)
 			end
 		end
 		return false
+	end
+
+	-- A small menu in the viewport, at the mouse: items { { text, run, color? } } or "-" for a line, a title first if
+	-- given (the panel's App.popupMenu, in the 3D view). A click on an item runs it; any click closes the menu. Where
+	-- Studio won't show the strip (no CoreGui), the panel's menu opens instead.
+	local menu
+	App.closeViewMenu = function()
+		if menu then
+			menu:Destroy()
+			menu = nil
+		end
+	end
+	App.viewMenu = function(items, title)
+		App.closeViewMenu()
+		if not App.toolbarAvailable() then
+			App.popupMenu(App.ui.outliner or App.root, items, title)
+			return
+		end
+		local at = Vector2.new(App.rawMouse.X, App.rawMouse.Y) -- (where it was opened: the mouse moves on)
+		local catcher = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 20, Parent = gui })
+		menu = catcher
+		catcher.MouseButton1Click:Connect(App.closeViewMenu)
+		catcher.MouseButton2Click:Connect(App.closeViewMenu)
+		local W = 210
+		local list = box({
+			BackgroundTransparency = SEE,
+			BackgroundColor3 = P.card,
+			Position = UDim2.fromOffset(at.X + 4, at.Y + 4),
+			Size = UDim2.fromOffset(W, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			ZIndex = 21,
+			Parent = catcher,
+		}, { corner(8), stroke(P.line), pad(4, 4, 4, 4), App.vlist(1) })
+		if title then
+			local head = label(title, 11, P.faint, SANS_B, { Size = UDim2.new(1, 0, 0, 22), ZIndex = 22, Parent = list })
+			pad(8, 8, 0, 0).Parent = head
+		end
+		for _, it in items do
+			if it == "-" then
+				box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), ZIndex = 22, Parent = list })
+				continue
+			end
+			local b = new("TextButton", {
+				Text = it[1],
+				Font = SANS,
+				TextSize = 13,
+				TextColor3 = it[3] or P.text,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				BackgroundColor3 = P.hover,
+				BackgroundTransparency = 1,
+				AutoButtonColor = false,
+				Size = UDim2.new(1, 0, 0, 26),
+				ZIndex = 22,
+				Parent = list,
+			}, { corner(5), pad(8, 8, 0, 0) })
+			b.MouseEnter:Connect(function()
+				b.BackgroundTransparency = 0
+			end)
+			b.MouseLeave:Connect(function()
+				b.BackgroundTransparency = 1
+			end)
+			b.MouseButton1Click:Connect(function()
+				App.closeViewMenu()
+				it[2]()
+			end)
+		end
+		-- kept on the screen: a menu opened near the right or the bottom edge moves in (once it knows its height)
+		local function keepOn()
+			local screen = gui.AbsoluteSize
+			list.Position = UDim2.fromOffset(
+				math.max(4, math.min(at.X + 4, screen.X - W - 8)),
+				math.max(4, math.min(at.Y + 4, screen.Y - list.AbsoluteSize.Y - 8))
+			)
+		end
+		list:GetPropertyChangedSignal("AbsoluteSize"):Connect(keepOn)
+		keepOn()
 	end
 
 	-- false when Studio won't show the strip (no CoreGui here): the panel then shows App.buildToolRow
@@ -20060,7 +20585,9 @@ return function(E, I)
 	-- Regenerates the area. Each layer has its own seeded randomness, so changing one layer never reshuffles
 	-- another. opts.from = a layer: keep every layer placed before it untouched and only rebuild it + later ones.
 	-- Locked layers are always kept. opts.region = { x0, z0, x1, z1 } (world studs): only that patch changed (a brush
-	-- stroke), so every other layer keeps its copies outside it and only the patch is placed again.
+	-- stroke), so every other layer keeps its copies outside it and only the patch is placed again. opts.pins (with a
+	-- region): only the stamps' pins in the patch are placed again (one copy changed by hand, Engine/Pins); every other
+	-- copy in it stays exactly as it is.
 	-- Returns { [layer] = count }, total.
 	local function itemOf(inst)
 		local fp = inst:GetAttribute("SS_Fp") -- a long copy's outline: half sizes and turn (see Placement's footprint)
@@ -20251,7 +20778,7 @@ return function(E, I)
 						continue
 					end
 					local it = itemOf(inst)
-					if inPatch(it.x, it.z) then
+					if inPatch(it.x, it.z) and (not opts.pins or inst:GetAttribute("SS_Stamp")) then
 						table.insert(cut, inst)
 					else
 						if not inst:GetAttribute("SS_Stacked") then
@@ -20378,7 +20905,11 @@ return function(E, I)
 				end
 				local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
 				-- copies pinned by hand first, on their own random numbers: the rest of the layout draws as before
-				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
+				local pinsOnly = opts.pins and partial[l] ~= nil
+				if pinsOnly then
+					n = 0 -- (the rules' copies in the patch were kept)
+				end
+				local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil, false, pinsOnly)
 				local got, t = 0, 0
 				if p.line then
 					got = placeLine(ctx, l, rng)
@@ -20410,6 +20941,11 @@ return function(E, I)
 						end
 					end
 				end
+				-- then the pins standing in for a rules' copy changed by hand (Engine/Pins): after the rules placed
+				-- theirs, so nothing round them moves (the copy they stand in for is taken out below, with the removed)
+				if not p.line then
+					pinned += placePins(ctx, l, partial[l] and inPatch or nil, true, pinsOnly)
+				end
 				counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 				total += counts[l]
 				base += p.line and 40 or math.max(p.n, 1)
@@ -20434,7 +20970,12 @@ return function(E, I)
 			for _, f in staged do
 				for _, inst in f:GetDescendants() do
 					local h = inst:GetAttribute("SS_L")
-					if h and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0) then
+					-- (a stamp stands where it's put: a copy changed by hand is one, on the spot its original left)
+					if
+						h
+						and not inst:GetAttribute("SS_Stamp")
+						and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0)
+					then
 						for l, n in counts do
 							if l._h == h then
 								counts[l] = n - 1
@@ -23502,6 +24043,8 @@ end
 	A pin's seed picks its model, size and turn, so it looks the same every time.
 	A stamp (from 9.70 to 9.77, when stamps belonged to an area) is a pin that also says its turn, size and model
 	({ x, z, seed, yaw, size, model }): it's put exactly so, no rule moves or refuses it; only the ground sets its height.
+	A seventh number, 1, marks a stamp standing in for a copy the rules placed (one changed by hand, below): those go
+	down after the rules' own copies, so the layout round them is what it was.
 	Saved ones keep coming back; the stamp tool now makes plain models of its own (App's Viewport/Stamp).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -23588,6 +24131,7 @@ return function(E, I)
 				local pin = { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) }
 				if tonumber(p[4]) and tonumber(p[5]) and tonumber(p[6]) then
 					pin[4], pin[5], pin[6] = tonumber(p[4]), tonumber(p[5]), tonumber(p[6])
+					pin[7] = tonumber(p[7]) == 1 and 1 or nil
 				end
 				table.insert(out, pin)
 			end
@@ -23603,6 +24147,126 @@ return function(E, I)
 		end
 		return { r(x, 100), r(z, 100), seed, r(yaw % (math.pi * 2), 1000), r(math.clamp(k, 0.05, 20), 1000), vi }
 	end
+	--------------------------------------------------------------------------------
+	-- One placed copy, changed by hand. A copy the rules placed has nothing of its own to change, so the first change
+	-- makes it a stamp's pin standing as it stood (its spot is remembered as removed, so the rules don't put theirs
+	-- back beside it), and changes after that are changes to the pin. Generating puts it back exactly so.
+	--------------------------------------------------------------------------------
+	local function near(p, x, z)
+		return math.abs(p[1] - x) < 0.05 and math.abs(p[2] - z) < 0.05
+	end
+	-- the object a placed copy is of (by its output folder), or nil
+	local function layerOfCopy(a, copy)
+		local cur = copy.Parent
+		while cur and cur ~= a.folder do
+			local key = cur:GetAttribute("SS_Key")
+			if key then
+				for _, l in a.layers do
+					if E.layerKey(l) == key then
+						return l
+					end
+				end
+				return nil
+			end
+			cur = cur.Parent
+		end
+		return nil
+	end
+	-- How a placed copy stands, as a stamp's pin would say it: { l = its object, vi = which of its models, x, z,
+	-- yaw (radians), k (size, 1 = the model's own), pin = its pin when it's a stamp already }. nil for a copy that
+	-- can't be one (a piece of a line, one stacked on another, a preview box).
+	function E.copyPose(a, copy)
+		local l = layerOfCopy(a, copy)
+		local x, z = copy:GetAttribute("SS_X"), copy:GetAttribute("SS_Z")
+		if not (l and x and z) or E.isLine(l) or copy:GetAttribute("SS_Stacked") or copy:GetAttribute("SS_Ghost") then
+			return nil
+		end
+		if copy:GetAttribute("SS_Stamp") then
+			for _, p in l.pins or {} do
+				if p[4] and near(p, x, z) then
+					return { l = l, vi = l.variants[p[6]] and p[6] or 1, x = p[1], z = p[2], yaw = p[4], k = p[5], pin = p }
+				end
+			end
+		end
+		local vi = 1
+		for i, v in l.variants do
+			if v.inst.Name == copy.Name then
+				vi = i
+				break
+			end
+		end
+		local v = l.variants[vi]
+		local from = v.src or v.inst
+		local sc
+		if copy:IsA("Model") and from:IsA("Model") then
+			sc = copy:GetScale() / from:GetScale()
+		elseif copy:IsA("BasePart") and from:IsA("BasePart") then
+			sc = copy.Size.X / math.max(from.Size.X, 1e-3)
+		else
+			return nil
+		end
+		local _, yaw = (copy:GetPivot() * v.m.rel:Inverse()):ToOrientation()
+		return { l = l, vi = vi, x = x, z = z, yaw = yaw % (math.pi * 2), k = math.clamp(sc / v.size, 0.05, 20) }
+	end
+	-- a stamp's pin changed in place: change = { x, z, yaw, k, vi }, each optional
+	function E.changePin(l, pin, change)
+		local vi = l.variants[change.vi or 0] and change.vi or pin[6]
+		local new = E.stampPin(change.x or pin[1], change.z or pin[2], change.yaw or pin[4], change.k or pin[5], vi, pin[3])
+		pin[1], pin[2], pin[4], pin[5], pin[6] = new[1], new[2], new[4], new[5], new[6]
+		return pin
+	end
+	-- Changes one placed copy: change = { x, z, yaw, k, vi }, each optional (what's left out stays as it stands). The
+	-- copy itself is taken out (the caller rebuilds the spot, which puts the pin's copy there); returns the pin and
+	-- the pose it had, or nil for a copy that can't be changed.
+	function E.pinCopy(a, copy, change)
+		local was = E.copyPose(a, copy)
+		if not was then
+			return nil
+		end
+		local l = was.l
+		local pin = was.pin
+		if pin then
+			E.changePin(l, pin, change)
+			E.dropOutput(copy)
+		else
+			local vi = l.variants[change.vi or 0] and change.vi or was.vi
+			local new = E.stampPin(change.x or was.x, change.z or was.z, change.yaw or was.yaw, change.k or was.k, vi, 0)
+			-- (its seed: its colour variation, from where it stood, so the same copy changed twice looks the same)
+			new[3] = math.floor(math.abs(was.x * 7919 + was.z * 104729)) % 2 ^ 30 + 1
+			if not copy:GetAttribute("SS_Pin") then
+				new[7] = 1 -- (it stands in for a rules' copy)
+			end
+			E.removeCopy(a, copy) -- a rules' copy: its spot stays empty · one sprayed by hand: its plain pin goes
+			l.pins = l.pins or {}
+			table.insert(l.pins, new)
+			pin = new
+		end
+		return pin, was
+	end
+	-- A changed copy given back to the rules: its pin goes, and the spot it was first taken from is free again (the
+	-- rules' own copy comes back there on the next rebuild). false for one that was never the rules' (or was moved).
+	function E.canUnpinCopy(a, copy)
+		local pose = E.copyPose(a, copy)
+		return pose ~= nil and pose.pin ~= nil and E.removedAt(a, copy:GetAttribute("SS_L") or 0, pose.x, pose.z)
+	end
+	function E.unpinCopy(a, copy)
+		if not E.canUnpinCopy(a, copy) then
+			return false
+		end
+		local pose = E.copyPose(a, copy)
+		local h = copy:GetAttribute("SS_L")
+		local keep = {}
+		for _, p in a.removed[h] do
+			if not (math.abs(p[1] - pose.x) < 0.3 and math.abs(p[2] - pose.z) < 0.3) then
+				table.insert(keep, p)
+			end
+		end
+		a.removed[h] = #keep > 0 and keep or nil
+		E.unpin(pose.l, pose.x, pose.z)
+		E.dropOutput(copy)
+		return true
+	end
+
 	-- how placing treats a pin: a stamp exactly as given
 	local function pinG(l, p)
 		if not p[4] then
@@ -23614,11 +24278,13 @@ return function(E, I)
 
 	-- Places the object's pins (those `wanted(x, z)` accepts: all of them, or the ones in a rebuilt patch). Each
 	-- uses its own random numbers, so the object's other copies draw theirs exactly as they would without pins.
-	-- Returns how many were placed.
-	function I.placePins(ctx, l, wanted)
+	-- late: false for the pins put down by hand (before the rules' copies, which keep their distance from them), true
+	-- for the ones standing in for a rules' copy (after them). stampsOnly: the plain pins are left out (their copies
+	-- were kept). Returns how many were placed.
+	function I.placePins(ctx, l, wanted, late, stampsOnly)
 		local n = 0
 		for _, p in l.pins or {} do
-			if not wanted or wanted(p[1], p[2]) then
+			if (p[7] == 1) == late and (p[4] or not stampsOnly) and (not wanted or wanted(p[1], p[2])) then
 				if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p)) then
 					n += 1
 				end

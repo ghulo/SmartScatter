@@ -5233,6 +5233,8 @@ first, on their exact spots, under the object's rules (surfaces, slope, spacing)
 A pin's seed picks its model, size and turn, so it looks the same every time.
 A stamp (from 9.70 to 9.77, when stamps belonged to an area) is a pin that also says its turn, size and model
 ({ x, z, seed, yaw, size, model }): it's put exactly so, no rule moves or refuses it; only the ground sets its height.
+A seventh number, 1, marks a stamp standing in for a copy the rules placed (one changed by hand, below): those go
+down after the rules' own copies, so the layout round them is what it was.
 Saved ones keep coming back; the stamp tool now makes plain models of its own (App's Viewport/Stamp).
 Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -5305,6 +5307,7 @@ if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) t
 local pin = { tonumber(p[1]), tonumber(p[2]), tonumber(p[3]) }
 if tonumber(p[4]) and tonumber(p[5]) and tonumber(p[6]) then
 pin[4], pin[5], pin[6] = tonumber(p[4]), tonumber(p[5]), tonumber(p[6])
+pin[7] = tonumber(p[7]) == 1 and 1 or nil
 end
 table.insert(out, pin)
 end
@@ -5317,6 +5320,109 @@ return math.floor(n * q + 0.5) / q
 end
 return { r(x, 100), r(z, 100), seed, r(yaw % (math.pi * 2), 1000), r(math.clamp(k, 0.05, 20), 1000), vi }
 end
+local function near(p, x, z)
+return math.abs(p[1] - x) < 0.05 and math.abs(p[2] - z) < 0.05
+end
+local function layerOfCopy(a, copy)
+local cur = copy.Parent
+while cur and cur ~= a.folder do
+local key = cur:GetAttribute("SS_Key")
+if key then
+for _, l in a.layers do
+if E.layerKey(l) == key then
+return l
+end
+end
+return nil
+end
+cur = cur.Parent
+end
+return nil
+end
+function E.copyPose(a, copy)
+local l = layerOfCopy(a, copy)
+local x, z = copy:GetAttribute("SS_X"), copy:GetAttribute("SS_Z")
+if not (l and x and z) or E.isLine(l) or copy:GetAttribute("SS_Stacked") or copy:GetAttribute("SS_Ghost") then
+return nil
+end
+if copy:GetAttribute("SS_Stamp") then
+for _, p in l.pins or {} do
+if p[4] and near(p, x, z) then
+return { l = l, vi = l.variants[p[6]] and p[6] or 1, x = p[1], z = p[2], yaw = p[4], k = p[5], pin = p }
+end
+end
+end
+local vi = 1
+for i, v in l.variants do
+if v.inst.Name == copy.Name then
+vi = i
+break
+end
+end
+local v = l.variants[vi]
+local from = v.src or v.inst
+local sc
+if copy:IsA("Model") and from:IsA("Model") then
+sc = copy:GetScale() / from:GetScale()
+elseif copy:IsA("BasePart") and from:IsA("BasePart") then
+sc = copy.Size.X / math.max(from.Size.X, 1e-3)
+else
+return nil
+end
+local _, yaw = (copy:GetPivot() * v.m.rel:Inverse()):ToOrientation()
+return { l = l, vi = vi, x = x, z = z, yaw = yaw % (math.pi * 2), k = math.clamp(sc / v.size, 0.05, 20) }
+end
+function E.changePin(l, pin, change)
+local vi = l.variants[change.vi or 0] and change.vi or pin[6]
+local new = E.stampPin(change.x or pin[1], change.z or pin[2], change.yaw or pin[4], change.k or pin[5], vi, pin[3])
+pin[1], pin[2], pin[4], pin[5], pin[6] = new[1], new[2], new[4], new[5], new[6]
+return pin
+end
+function E.pinCopy(a, copy, change)
+local was = E.copyPose(a, copy)
+if not was then
+return nil
+end
+local l = was.l
+local pin = was.pin
+if pin then
+E.changePin(l, pin, change)
+E.dropOutput(copy)
+else
+local vi = l.variants[change.vi or 0] and change.vi or was.vi
+local new = E.stampPin(change.x or was.x, change.z or was.z, change.yaw or was.yaw, change.k or was.k, vi, 0)
+new[3] = math.floor(math.abs(was.x * 7919 + was.z * 104729)) % 2 ^ 30 + 1
+if not copy:GetAttribute("SS_Pin") then
+new[7] = 1
+end
+E.removeCopy(a, copy)
+l.pins = l.pins or {}
+table.insert(l.pins, new)
+pin = new
+end
+return pin, was
+end
+function E.canUnpinCopy(a, copy)
+local pose = E.copyPose(a, copy)
+return pose ~= nil and pose.pin ~= nil and E.removedAt(a, copy:GetAttribute("SS_L") or 0, pose.x, pose.z)
+end
+function E.unpinCopy(a, copy)
+if not E.canUnpinCopy(a, copy) then
+return false
+end
+local pose = E.copyPose(a, copy)
+local h = copy:GetAttribute("SS_L")
+local keep = {}
+for _, p in a.removed[h] do
+if not (math.abs(p[1] - pose.x) < 0.3 and math.abs(p[2] - pose.z) < 0.3) then
+table.insert(keep, p)
+end
+end
+a.removed[h] = #keep > 0 and keep or nil
+E.unpin(pose.l, pose.x, pose.z)
+E.dropOutput(copy)
+return true
+end
 local function pinG(l, p)
 if not p[4] then
 return { pin = true }
@@ -5324,10 +5430,10 @@ end
 local v = l.variants[p[6]] or l.variants[1]
 return { pin = true, exact = true, yaw = p[4], v = v, sc = p[5] * v.size }
 end
-function I.placePins(ctx, l, wanted)
+function I.placePins(ctx, l, wanted, late, stampsOnly)
 local n = 0
 for _, p in l.pins or {} do
-if not wanted or wanted(p[1], p[2]) then
+if (p[7] == 1) == late and (p[4] or not stampsOnly) and (not wanted or wanted(p[1], p[2])) then
 if placeAt(ctx, l, nil, p[1], p[2], Random.new(p[3]), pinG(l, p)) then
 n += 1
 end
@@ -5524,7 +5630,7 @@ if not CORE[inst:GetAttribute("SS_Type")] then
 continue
 end
 local it = itemOf(inst)
-if inPatch(it.x, it.z) then
+if inPatch(it.x, it.z) and (not opts.pins or inst:GetAttribute("SS_Stamp")) then
 table.insert(cut, inst)
 else
 if not inst:GetAttribute("SS_Stacked") then
@@ -5644,7 +5750,11 @@ end
 p = { layer = l, cand = cand, scores = scores, n = all > 0 and p.n * part / all or 0 }
 end
 local n = p.line and 0 or math.floor(p.n) + ((rng:NextNumber() < p.n % 1) and 1 or 0)
-local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil)
+local pinsOnly = opts.pins and partial[l] ~= nil
+if pinsOnly then
+n = 0
+end
+local pinned = p.line and 0 or placePins(ctx, l, partial[l] and inPatch or nil, false, pinsOnly)
 local got, t = 0, 0
 if p.line then
 got = placeLine(ctx, l, rng)
@@ -5676,6 +5786,9 @@ end
 end
 end
 end
+if not p.line then
+pinned += placePins(ctx, l, partial[l] and inPatch or nil, true, pinsOnly)
+end
 counts[l] = (partial[l] and counts[l] or 0) + got + pinned
 total += counts[l]
 base += p.line and 40 or math.max(p.n, 1)
@@ -5698,7 +5811,11 @@ if next(a.removed or {}) then
 for _, f in staged do
 for _, inst in f:GetDescendants() do
 local h = inst:GetAttribute("SS_L")
-if h and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0) then
+if
+h
+and not inst:GetAttribute("SS_Stamp")
+and E.removedAt(a, h, inst:GetAttribute("SS_X") or 0, inst:GetAttribute("SS_Z") or 0)
+then
 for l, n in counts do
 if l._h == h then
 counts[l] = n - 1

@@ -62,7 +62,9 @@ return function(App)
 		App.keyChips(parent, {
 			{ key("turn"), "turn" },
 			{ "Shift", "turn freely" },
+			{ "Shift + wheel", "turn" },
 			{ key("shrink") .. " " .. key("grow"), "size" },
+			{ "Alt + wheel", "size" },
 			{ key("model"), "model" },
 			{ key("shuffle"), "random" },
 			{ key("cancel"), "stop" },
