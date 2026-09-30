@@ -1,14 +1,14 @@
 {
- "version": "9.96",
- "build": 160,
+ "version": "9.97",
+ "build": 161,
  "modules": {
   "App": {
    "path": "modules/App.lua",
-   "sum": 528504303
+   "sum": 225065549
   },
   "App/Core/Cards": {
    "path": "modules/App/Core/Cards.lua",
-   "sum": 717148855
+   "sum": 884289878
   },
   "App/Core/Generation": {
    "path": "modules/App/Core/Generation.lua",
@@ -20,7 +20,7 @@
   },
   "App/Core/Kit": {
    "path": "modules/App/Core/Kit.lua",
-   "sum": 642987562
+   "sum": 899518915
   },
   "App/Core/Lifecycle": {
    "path": "modules/App/Core/Lifecycle.lua",
@@ -36,7 +36,7 @@
   },
   "App/Core/State": {
    "path": "modules/App/Core/State.lua",
-   "sum": 143461205
+   "sum": 685796563
   },
   "App/Panel/AreaTools": {
    "path": "modules/App/Panel/AreaTools.lua",
@@ -45,10 +45,6 @@
   "App/Panel/ArrayTools": {
    "path": "modules/App/Panel/ArrayTools.lua",
    "sum": 657761755
-  },
-  "App/Panel/Backdrop": {
-   "path": "modules/App/Panel/Backdrop.lua",
-   "sum": 462893838
   },
   "App/Panel/EditTools": {
    "path": "modules/App/Panel/EditTools.lua",
@@ -60,7 +56,7 @@
   },
   "App/Panel/Header": {
    "path": "modules/App/Panel/Header.lua",
-   "sum": 526105827
+   "sum": 396200781
   },
   "App/Panel/MapTools": {
    "path": "modules/App/Panel/MapTools.lua",
@@ -68,11 +64,11 @@
   },
   "App/Panel/ObjectTools": {
    "path": "modules/App/Panel/ObjectTools.lua",
-   "sum": 748276973
+   "sum": 100233500
   },
   "App/Panel/Outliner": {
    "path": "modules/App/Panel/Outliner.lua",
-   "sum": 432406713
+   "sum": 135069520
   },
   "App/Panel/Palette": {
    "path": "modules/App/Panel/Palette.lua",
@@ -80,11 +76,11 @@
   },
   "App/Panel/Properties": {
    "path": "modules/App/Panel/Properties.lua",
-   "sum": 199843302
+   "sum": 21478713
   },
   "App/Panel/Shell": {
    "path": "modules/App/Panel/Shell.lua",
-   "sum": 645997197
+   "sum": 574349438
   },
   "App/Panel/StampTools": {
    "path": "modules/App/Panel/StampTools.lua",
@@ -104,7 +100,7 @@
   },
   "App/Panel/Tabs/Settings": {
    "path": "modules/App/Panel/Tabs/Settings.lua",
-   "sum": 537488192
+   "sum": 104354785
   },
   "App/Panel/Tabs/Stamp": {
    "path": "modules/App/Panel/Tabs/Stamp.lua",

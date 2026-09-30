@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX60"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX59"><Properties><string name="Name">SmartScatter</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — loader (the plugin's Script). Installed once; the code it runs updates live.
 
 	The code is two module trees, App (the panel and tools) and Engine (placement), carried as
@@ -25,8 +25,8 @@ end
 local ServerStorage = game:GetService("ServerStorage")
 local HttpService = game:GetService("HttpService")
 
-local BUNDLED_BUILD = 160
-local BUNDLED_VERSION = "9.96"
+local BUNDLED_BUILD = 161
+local BUNDLED_VERSION = "9.97"
 local UPDATE_URL = "https://raw.githubusercontent.com/ghulo/SmartScatter/main/dist" -- where releases are published ("" turns online updates off)
 local ICON = "rbxassetid://117898410132206" -- the Smart Scatter mark
 local MIRROR = "SmartScatterSource"
@@ -500,7 +500,7 @@ plugin.Unloading:Connect(function()
 		f:Destroy()
 	end
 end)
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX43"><Properties><string name="Name">App</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — App: the plugin's panel and viewport tools, built on the Engine.
 
 	Each module below is `return function(App) … end` and runs once, in ORDER, against one shared App table: a module
@@ -537,7 +537,6 @@ local ORDER = {
 	"Panel/Tabs/Stamp",
 	"Panel/Tabs/World",
 	"Panel/Tabs/Settings",
-	"Panel/Backdrop",
 	"Panel/Outliner",
 	"Panel/Properties",
 	"Panel/Shell",
@@ -673,41 +672,65 @@ return function(App)
 	App.cardCount = 0 -- cards built since the panel was last built (the search tells empty tabs from ones with hits)
 
 	-- One feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
-	-- A card is a section of the page, flat on it, with a hairline under it: the page is one surface beside the tab
-	-- column (boxes inside a box would crowd it). Its edge is only drawn for a moment, when a search jumps to it.
-	local function card(parent, spec)
+	-- A card is a section of the page, flat on it, under a bar with its name, as a panel in Blender's properties: a
+	-- click on the bar folds the section away, and it stays folded (G.groups, by the tab's cards id and its own) until
+	-- it's clicked again. A search shows every match unfolded. Its edge is only drawn for a moment, when a search
+	-- jumps to it.
+	local function card(parent, spec, group)
 		App.cardCount += 1
-		local c = col({ Parent = parent }, { corner(8), pad(8, 8, 8, 0), vlist(8) })
+		local key = "fold:" .. group .. ":" .. spec.id
+		local open = App.searching() or G.groups[key] ~= true
+		local c = col({ Parent = parent }, { corner(6), vlist(6) })
 		local edge = stroke(P.accent)
 		edge.Transparency = 1
 		edge.Parent = c
-		local head = col({ Parent = c })
-		local txt = col({ Parent = head }, { vlist(2) })
-		-- the title, with its icon small and quiet before it (no badge)
-		local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
+		local head = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = P.strip,
+			Size = UDim2.new(1, 0, 0, 28),
+			Parent = c,
+		}, { corner(5), pad(9, 9, 0, 0), hlist(7) })
+		App.shade(head, 0.12)
+		-- (two arrows, one shown: an icon turned inside a list layout isn't drawn turned)
+		local shut, unfolded = icon("right", 9, P.dim), icon("down", 9, P.dim)
+		shut.Visible, unfolded.Visible = not open, open
+		shut.Parent, unfolded.Parent = head, head
 		local badgeIcon = spec.icon or ICON[spec.id]
 		if badgeIcon then
-			local ic = icon(badgeIcon, 14, P.accent)
-			ic.Parent = titleRow
+			local ic = icon(badgeIcon, 13, P.accent)
+			ic.Parent = head
 		end
-		label(spec.title, 15, P.text, SANS_B, { Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
+		label(spec.title, 13, P.text, SANS_B, { Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, Parent = head })
 		if spec.tag then -- a small tag after the title ("Optional")
 			local tag = label(spec.tag, 11, P.faint, App.SANS_M, {
-				Size = UDim2.fromOffset(0, 20),
+				Size = UDim2.fromOffset(0, 28),
 				AutomaticSize = Enum.AutomaticSize.X,
-				Parent = titleRow,
+				Parent = head,
 			})
 			tag.TextYAlignment = Enum.TextYAlignment.Center
 		end
+		local inner = col({ Visible = open, Parent = c }, { pad(9, 9, 2, 8), vlist(8) })
 		local sub = spec.sub or SUB[spec.id]
 		if sub and sub ~= "" then
-			local s = App.para(sub, { Parent = txt })
-			s.TextColor3 = P.dim
+			local t = App.para(sub, { Parent = inner })
+			t.TextColor3 = P.dim
 		end
-		local body = col({ Parent = c }, { vlist(6) })
+		local body = col({ Parent = inner }, { vlist(6) })
 		spec.build(body, c)
-		box({ Size = UDim2.new(1, 0, 0, 6), Parent = c })
-		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = c }) -- the hairline under it
+		head.MouseEnter:Connect(function()
+			head.BackgroundColor3 = P.hover
+		end)
+		head.MouseLeave:Connect(function()
+			head.BackgroundColor3 = P.strip
+		end)
+		head.MouseButton1Click:Connect(function()
+			open = not open
+			G.groups[key] = not open or nil
+			saveG()
+			inner.Visible = open
+			shut.Visible, unfolded.Visible = not open, open
+		end)
 		c:SetAttribute("SS_Card", spec.id) -- (App.openCard finds it by this)
 		return c
 	end
@@ -802,9 +825,9 @@ return function(App)
 				if foldCount then
 					foldCount.Text = string.format("More options  ·  %d", nMore)
 				end
-				return card(into, spec)
+				return card(into, spec, id)
 			end
-			return card(parent, spec)
+			return card(parent, spec, id)
 		end
 		return cs
 	end
@@ -816,6 +839,11 @@ return function(App)
 		if fold then
 			G.groups["more:" .. fold] = true
 			saveG()
+		end
+		for k in G.groups do -- (a section folded away is unfolded: it's being asked for)
+			if string.sub(k, 1, 5) == "fold:" and string.sub(k, -#id - 1) == ":" .. id then
+				G.groups[k] = nil
+			end
 		end
 		if tab == "settings" then
 			App.openSettings(true)
@@ -1658,7 +1686,6 @@ return function(App)
 	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
-	local G = App.G
 
 	--------------------------------------------------------------------------------
 	-- UI kit
@@ -1759,71 +1786,9 @@ return function(App)
 		return o
 	end
 	--------------------------------------------------------------------------------
-	-- Surface effects from the design: a fine halftone grain, a soft sheen from the top, lines that fade out at
-	-- both ends, and a light-to-dark shade on raised things. The grain is a tiny dot texture drawn in code
-	-- (EditableImage) and tiled, so nothing has to be uploaded; where that's unavailable the panel is just plain.
+	-- Surface effects: lines that fade out at both ends, a light-to-dark shade on raised things (the soft gradient
+	-- every button, bar and strip carries) and a faint light along a top edge. All solid: nothing is see-through.
 	--------------------------------------------------------------------------------
-	local grain -- Content of a 4×4 tile with one white dot (false: not available here)
-	local function grainContent()
-		if grain == nil then
-			local ok, c = pcall(function()
-				local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(4, 4) })
-				local buf = buffer.create(4 * 4 * 4) -- RGBA, all clear
-				local i = (1 * 4 + 1) * 4 -- the dot at (1, 1)
-				buffer.writeu8(buf, i, 255)
-				buffer.writeu8(buf, i + 1, 255)
-				buffer.writeu8(buf, i + 2, 255)
-				buffer.writeu8(buf, i + 3, 255)
-				img:WritePixelsBuffer(Vector2.zero, Vector2.new(4, 4), buf)
-				return Content.fromObject(img)
-			end)
-			grain = ok and c or false
-		end
-		return grain or nil
-	end
-	-- halftone dots over `parent` (strength 0–1; they never take clicks)
-	local function halftone(parent, strength, spacing, z)
-		local c = grainContent()
-		if not c then
-			return nil
-		end
-		local l = new("ImageLabel", {
-			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(1, 1),
-			ScaleType = Enum.ScaleType.Tile,
-			TileSize = UDim2.fromOffset(spacing or 4, spacing or 4),
-			ResampleMode = Enum.ResamplerMode.Pixelated,
-			ImageTransparency = 1 - (strength or 0.04),
-			ImageColor3 = settings().Studio.Theme.Name == "Light" and Color3.new(0, 0, 0) or Color3.new(1, 1, 1),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		if not pcall(function()
-			l.ImageContent = c
-		end) then
-			l:Destroy()
-			return nil
-		end
-		return l
-	end
-	-- a soft light from the top of `parent`, fading out over `height` px
-	local function sheen(parent, strength, height, z)
-		local f = new("Frame", {
-			BackgroundColor3 = Color3.new(1, 1, 1),
-			BackgroundTransparency = 0,
-			Size = UDim2.new(1, 0, 0, height or 120),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		new("UIGradient", {
-			Rotation = 90,
-			Transparency = NumberSequence.new(1 - (strength or 0.04), 1),
-			Parent = f,
-		})
-		return f
-	end
 	-- a 1 px line that fades in and out at the ends (edge "left": strong on the left, fading right)
 	local function fadeLine(parent, edge, strength)
 		local f = new("Frame", {
@@ -1866,45 +1831,9 @@ return function(App)
 		return f
 	end
 
-	-- glass: obj turns see-through, more toward the bottom, with a lighter tint at the top (a sheen), and its border
-	-- catches the light along the top edge and fades down the sides. The colour blobs behind show through it. Plain
-	-- when the blobs are off. (Gradients only: nothing is added inside obj, so its layout is untouched.)
-	local function glass(obj)
-		if G.blobs == false then
-			return
-		end
-		local light = settings().Studio.Theme.Name == "Light"
-		local base = obj.BackgroundColor3
-		obj.BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), light and 0.3 or 0.07)
-		obj.BackgroundTransparency = 0
-		local k = light and 0.97 or 0.86
-		new("UIGradient", {
-			Rotation = 90,
-			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(k, k, k)),
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, light and 0.1 or 0.12),
-				NumberSequenceKeypoint.new(1, light and 0.2 or 0.32),
-			}),
-			Parent = obj,
-		})
-		local st = obj:FindFirstChildOfClass("UIStroke") or stroke(P.line)
-		st.Color = Color3.new(1, 1, 1)
-		st.Transparency = 0
-		st.Parent = obj
-		new("UIGradient", {
-			Rotation = 90,
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, light and 0.1 or 0.7),
-				NumberSequenceKeypoint.new(0.35, light and 0.5 or 0.88),
-				NumberSequenceKeypoint.new(1, light and 0.6 or 0.93),
-			}),
-			Parent = st,
-		})
-	end
-
 	--------------------------------------------------------------------------------
 	-- Light and motion: neon glow, depth, press-in and a moving sheen. Every control uses these, so the whole
-	-- panel lights and moves the same way. Plugin UI can't blur, so glass is layers: a shade, a top light, a glow.
+	-- panel lights and moves the same way: a shade, a top light, a glow.
 	--------------------------------------------------------------------------------
 	-- a ring just outside obj's edge (a child frame, so it moves and hides with obj; it never takes clicks).
 	-- obj's own padding is undone, so the ring hugs its real edge.
@@ -2060,12 +1989,12 @@ return function(App)
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(0, 30),
 			AutomaticSize = Enum.AutomaticSize.X,
-		}, { corner(8), pad(kind == "danger" and 4 or 13, kind == "danger" and 4 or 13, 0, 0) })
+		}, { corner(5), pad(kind == "danger" and 4 or 13, kind == "danger" and 4 or 13, 0, 0) })
 		if kind ~= "danger" and not filled then
 			stroke(P.line).Parent = b
 		end
 		if not flat then
-			shade(b, filled and 0.1 or 0.06)
+			shade(b, filled and 0.16 or 0.12)
 			topLight(b, filled and 0.3 or 0.06, 6)
 		end
 		if filled then
@@ -2784,7 +2713,7 @@ return function(App)
 	local function segmented(options, get, set, onChange, height, toggleable, icons, hints)
 		local n = #options
 		height = math.max(height or 30, 30)
-		local f = new("Frame", { BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, height) }, { corner(9), stroke(P.line) })
+		local f = new("Frame", { BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, height) }, { corner(6), stroke(P.line) })
 		local inner = box({ Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), Parent = f })
 		local pill = box({
 			BackgroundTransparency = 1,
@@ -2930,7 +2859,7 @@ return function(App)
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.accent:Lerp(P.bg, 0.9),
 			Parent = parent,
-		}, { corner(10), stroke(P.accent:Lerp(P.bg, 0.72)), pad(12, 12, 10, 10) })
+		}, { corner(6), stroke(P.accent:Lerp(P.bg, 0.72)), pad(12, 12, 10, 10) })
 		local ic = icon("info", 15, P.accent)
 		ic.Position = UDim2.fromOffset(0, 1)
 		ic.Parent = f
@@ -2974,7 +2903,7 @@ return function(App)
 			BackgroundColor3 = on and P.accentSoft or P.raised,
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(size, size),
-		}, { corner(9), stroke(on and P.accentLine or P.line) })
+		}, { corner(6), stroke(on and P.accentLine or P.line) })
 		pressable(b, 0.94)
 		local ic = icon(iconName, math.floor(size * 0.44), on and P.accent or P.dim)
 		ic.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -3126,7 +3055,7 @@ return function(App)
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			AutoButtonColor = false,
 			Parent = parent,
-		}, { corner(8), pad(swatch and 22 or 8, 8, 0, 0) })
+		}, { corner(5), pad(swatch and 22 or 8, 8, 0, 0) })
 		local st = stroke(P.line)
 		st.Parent = b
 		if swatch then -- a colour dot before the name
@@ -3189,7 +3118,7 @@ return function(App)
 		local tiles = { cells = {} }
 		function tiles.add(spec)
 			local color = spec.color or P.accent
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
+			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(5) })
 			local st = stroke(P.line)
 			st.Parent = b
 			local inner = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
@@ -3311,7 +3240,7 @@ return function(App)
 			AutoButtonColor = false,
 			Size = opts.full and UDim2.new(1, 0, 0, 32) or UDim2.fromOffset(0, 30),
 			AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
-		}, { corner(8) })
+		}, { corner(5) })
 		-- the trash can and the text in a row of their own: the glow's frames sit on the button itself, and must
 		-- never be laid out with them (they'd push the row off the button's edge)
 		local content = box({
@@ -3498,9 +3427,6 @@ return function(App)
 	App.para = para
 	App.explain = explain
 	App.hoverable = hoverable
-	App.halftone = halftone
-	App.glass = glass
-	App.sheen = sheen
 	App.fadeLine = fadeLine
 	App.shade = shade
 	App.glow = glow
@@ -4331,7 +4257,6 @@ return function(App)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
-		blobs = true, -- soft colour blobs behind the panel (Settings › Look)
 		groups = {},
 		walk = true,
 		shadows = true,
@@ -4648,8 +4573,8 @@ return function(App)
 				raised = hex("32302B"), -- buttons, pickers, value pills
 				header = hex("201F1C"), -- footer strip
 				field = hex("1F1E1B"), -- inputs
-				well = hex("131211"), -- the outliner's well, the tab rail: a step below the panel
-				strip = hex("24221F"), -- the strip across the top of the workbench: a step above it
+				well = hex("100F0E"), -- the outliner's well, the tab rail: a clear step below the panel
+				strip = hex("2A2825"), -- the strip over the page and a section's head: a step above it
 				hover = hex("3B3934"),
 				line = hex("33312D"), -- borders and hairlines
 				text = hex("F2EFEA"),
@@ -4747,7 +4672,7 @@ return function(App)
 	App.SANS_M = SANS_M
 	App.SANS_B = SANS_B
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX32"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX31"><Properties><string name="Name">Panel</string></Properties><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">AreaTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — AreaTools: what an area is made of, as the controls the tabs put in their cards: the ground's
 	paint tools and clean-up, its pattern, colour zones and wind, the path with its curve and road, fixing the scan,
 	and the welcome shown before there are any areas. Each builder fills the body it's given.
@@ -6085,191 +6010,7 @@ return function(App)
 
 	App.registerTab({ id = "array", icon = "grid", title = "Array", order = 10, kinds = { Array = true }, build = buildTab })
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">Backdrop</string><ProtectedString name="Source"><![CDATA[--[[
-	Smart Scatter — Backdrop: a few big, soft blobs of colour behind the panel (the accent and two neighbouring
-	shades of it, so they follow the colour theme), wandering slowly round their spots and gently changing shape.
-	They sit under everything, the page scrolls over them and they carry on across panel rebuilds; cards let a
-	little of them through. The soft round shape is drawn in code once (EditableImage), so nothing is uploaded; where
-	that's unavailable each blob is a few stacked see-through circles instead. Settings › Look turns them off.
-	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-
-return function(App)
-	local G, P, new = App.G, App.P, App.new
-	local TweenService = game:GetService("TweenService")
-
-	-- where each blob sits (its centre, as a share of the panel), how wide (a share of the panel's width), its colour
-	-- (the accent turned round the colour wheel by `hue`, a little richer or brighter), and how far and how slowly
-	-- it wanders. So the blobs are always the accent's own family: sage gives greens and teals, rose gives pinks.
-	local BLOBS = {
-		{ at = Vector2.new(0.95, 0.06), size = 1.15, hue = 0, sat = 1.15, val = 1.0, drift = Vector2.new(-0.08, 0.05), secs = 17 },
-		{ at = Vector2.new(0.02, 0.48), size = 1.0, hue = 0.08, sat = 1.25, val = 0.95, drift = Vector2.new(0.07, -0.06), secs = 21 },
-		{ at = Vector2.new(0.9, 0.92), size = 1.1, hue = -0.07, sat = 1.1, val = 1.05, drift = Vector2.new(-0.06, -0.05), secs = 19 },
-	}
-	local function shadeOf(b)
-		local h, sa, v = P.accent:ToHSV()
-		return Color3.fromHSV((h + b.hue) % 1, math.clamp(sa * b.sat, 0, 1), math.clamp(v * b.val, 0, 1))
-	end
-	local SIDE = 96 -- the soft circle's texture, in pixels
-
-	-- a white disc whose edge fades out smoothly (false when EditableImage isn't available here)
-	local soft
-	local function softContent()
-		if soft == nil then
-			local ok, c = pcall(function()
-				local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(SIDE, SIDE) })
-				local buf = buffer.create(SIDE * SIDE * 4)
-				local mid = (SIDE - 1) / 2
-				for y = 0, SIDE - 1 do
-					for x = 0, SIDE - 1 do
-						local d = math.min(math.sqrt((x - mid) ^ 2 + (y - mid) ^ 2) / mid, 1)
-						local a = (1 - d * d) ^ 2 -- full in the middle, gone at the rim, no hard edge anywhere
-						local i = (y * SIDE + x) * 4
-						buffer.writeu8(buf, i, 255)
-						buffer.writeu8(buf, i + 1, 255)
-						buffer.writeu8(buf, i + 2, 255)
-						buffer.writeu8(buf, i + 3, math.floor(a * 255 + 0.5))
-					end
-				end
-				img:WritePixelsBuffer(Vector2.zero, Vector2.new(SIDE, SIDE), buf)
-				return Content.fromObject(img)
-			end)
-			soft = ok and c or false
-		end
-		return soft or nil
-	end
-
-	-- one blob: a soft disc, or (without the texture) five stacked circles that add up to about the same falloff
-	local function blob(parent, color, strength)
-		local holder = new("Frame", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5), Active = false, Parent = parent }, {
-			new("UIAspectRatioConstraint", { AspectRatio = 1, DominantAxis = Enum.DominantAxis.Width }),
-		})
-		local c = softContent()
-		local img = c
-			and new("ImageLabel", {
-				BackgroundTransparency = 1,
-				Size = UDim2.fromScale(1, 1),
-				ImageColor3 = color,
-				ImageTransparency = 1 - strength,
-				Active = false,
-				Parent = holder,
-			})
-		if img and pcall(function()
-			img.ImageContent = c
-		end) then
-			return holder
-		elseif img then
-			img:Destroy()
-		end
-		for k = 1, 5 do
-			local s = 1 - (k - 1) * 0.18
-			new("Frame", {
-				BackgroundColor3 = color,
-				BackgroundTransparency = 1 - strength / 3.2,
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.fromScale(s, s),
-				Active = false,
-				Parent = holder,
-			}, { App.corner(9999) })
-		end
-		return holder
-	end
-
-	-- one blob wandering round its home: every few seconds it heads for a new spot near home, stretching a little
-	-- one way or the other and turning as it goes, so it looks alive rather than sliding back and forth. It stops by
-	-- itself when the blob is gone.
-	local rng = Random.new()
-	local function wander(h, b)
-		local shape = h:FindFirstChildOfClass("UIAspectRatioConstraint")
-		local reach = math.sqrt(b.drift.X ^ 2 + b.drift.Y ^ 2) * 1.5
-		local function go()
-			if not h.Parent then
-				return
-			end
-			local a = rng:NextNumber(0, math.pi * 2)
-			local r = reach * rng:NextNumber(0.35, 1)
-			local toX, toY = b.at.X + math.cos(a) * r, b.at.Y + math.sin(a) * r
-			local k = b.size * rng:NextNumber(0.92, 1.08)
-			local info = TweenInfo.new(b.secs * rng:NextNumber(0.25, 0.45), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-			local tw = TweenService:Create(h, info, {
-				Position = UDim2.fromScale(toX, toY),
-				Size = UDim2.fromScale(k, k),
-				Rotation = h.Rotation + rng:NextNumber(-40, 40),
-			})
-			if shape then
-				TweenService:Create(shape, info, { AspectRatio = rng:NextNumber(0.8, 1.25) }):Play()
-			end
-			tw.Completed:Connect(function(state)
-				if state == Enum.PlaybackState.Completed then
-					go()
-				end
-			end)
-			tw:Play()
-		end
-		go()
-	end
-
-	-- the backdrop: the panel's background colour with the blobs on it, under everything in `widget`. It stays across
-	-- panel rebuilds (so the blobs keep drifting rather than jumping back), and is made again only when the accent,
-	-- the Studio theme or the switch changes. Returns true when it's there (the panel's own background then goes).
-	local layer, made
-	App.backdrop = function(widget)
-		local light = settings().Studio.Theme.Name == "Light"
-		local key = G.blobs ~= false and (P.accent:ToHex() .. (light and "L" or "D")) or "off"
-		if layer and layer.Parent == widget and made == key then
-			return key ~= "off"
-		end
-		if layer then
-			layer:Destroy()
-			layer = nil
-		end
-		for _, old in widget:GetChildren() do -- (one left by the plugin before it updated)
-			if old.Name == "SS_Backdrop" then
-				old:Destroy()
-			end
-		end
-		made = key
-		if key == "off" then
-			return false
-		end
-		layer = new("Frame", {
-			BackgroundTransparency = 0,
-			BackgroundColor3 = P.bg,
-			Size = UDim2.fromScale(1, 1),
-			ClipsDescendants = true,
-			Active = false,
-			ZIndex = 0,
-			Name = "SS_Backdrop",
-			Parent = widget,
-		})
-		for _, b in BLOBS do
-			local h = blob(layer, shadeOf(b), light and 0.2 or 0.3)
-			h.Size = UDim2.fromScale(b.size, b.size)
-			h.Position = UDim2.fromScale(b.at.X, b.at.Y)
-			wander(h, b)
-		end
-		-- fading in when it's (re)made: a new accent washes over instead of snapping. Everything in it sits at ZIndex 0,
-		-- under the panel whichever way the widget stacks its children.
-		for _, d in layer:GetDescendants() do
-			if d:IsA("GuiObject") then
-				d.ZIndex = 0
-			end
-			if d:IsA("ImageLabel") then
-				local t = d.ImageTransparency
-				d.ImageTransparency = 1
-				App.tween(d, TweenInfo.new(0.8, Enum.EasingStyle.Quad), { ImageTransparency = t })
-			end
-		end
-		return true
-	end
-
-	-- whether the panel's surfaces let the blobs through a little
-	App.blobsOn = function()
-		return G.blobs ~= false
-	end
-end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">EditTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">EditTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — EditTools: helpers for the models selected in Studio (the Explorer or the viewport), whatever made
 	them: drop them onto the ground, line them up, space them evenly, give them random turns and sizes, or replace
 	them with another model. Each is one undo step. The Edit tab has them (it's there whatever is selected in the
@@ -6956,7 +6697,7 @@ return function(App)
 		run = App.replaceSelection,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">HandTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — HandTools: one object, by hand, as its Object tab shows it. The tools themselves (Spray, More,
 	Less, Erase, Reset) are in the viewport's strip and act on the active object; here: what they do, what was done
 	to this object by hand, and taking it back.
@@ -7056,7 +6797,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Header</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Header: what's done to areas (lock, clear, bake, delete, copy settings), the three area kinds as the
 	outliner lists them (Zone, Path, Keep-clear zone) with their menus, the + New menu, a small popup menu, marking
 	surfaces, dialogs, and helpers the panel shares.
@@ -7161,7 +6902,7 @@ return function(App)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 51,
 			Parent = catcher,
-		}, { corner(10), stroke(P.line), pad(5), vlist(2) })
+		}, { corner(6), stroke(P.line), pad(5), vlist(2) })
 		if title then
 			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
 			label(title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
@@ -7405,7 +7146,7 @@ return function(App)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 51,
 			Parent = catcher,
-		}, { corner(10), stroke(P.line), pad(5), vlist(2) })
+		}, { corner(6), stroke(P.line), pad(5), vlist(2) })
 		local function item(iconName, title, sub, onClick, color)
 			local b = new("TextButton", {
 				Text = "",
@@ -7514,7 +7255,7 @@ return function(App)
 			BackgroundColor3 = P.accent,
 			AutoButtonColor = false,
 			Size = UDim2.new(1, 0, 0, 42),
-		}, { corner(10) })
+		}, { corner(6) })
 		App.shade(b, 0.12) -- lit from the top, like the design's glossy button
 		App.topLight(b, 0.35, 8)
 		App.pressable(b, 0.98) -- (no glow: it runs the card's full width, and the gap to the card's edge stays clean)
@@ -7603,7 +7344,7 @@ return function(App)
 	App.maskOp = maskOp
 	App.primaryButton = primaryButton
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX15"><Properties><string name="Name">MapTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — MapTools: working on a finished map, as the controls the Map tab puts in its cards. The map scan
 	(every repeated model, grouped into kinds by shape), swapping a kind for other models (tried on a few copies
 	first), improving a kind's layout (re-spacing crowded and empty spots, previewed in the viewport), seasons
@@ -8657,7 +8398,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX16"><Properties><string name="Name">ObjectTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ObjectTools: the area's objects (each one model or a mix of models, with its rules) as the
 	controls the tabs put in their cards: the list with adding and objects whose model went missing, one object's
 	settings (a card per rule), biomes, presets, the performance report and removing single copies.
@@ -9533,7 +9274,7 @@ return function(App)
 			BackgroundColor3 = P.card,
 			Size = UDim2.new(1, 0, 0, 60),
 			Parent = parent,
-		}, { corner(8), stroke(P.line) }) -- (flat, like the page it's on: an edge and no more)
+		}, { corner(6), stroke(P.line) }) -- (flat, like the page it's on: an edge and no more)
 		App.pressable(r, 0.985)
 		r.MouseEnter:Connect(function()
 			r.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
@@ -9623,7 +9364,7 @@ return function(App)
 			BackgroundColor3 = P.card,
 			LayoutOrder = index,
 			Parent = parent,
-		}, { corner(8), stroke(P.line) })
+		}, { corner(6), stroke(P.line) })
 		c.MouseEnter:Connect(function()
 			c.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
 		end)
@@ -10307,7 +10048,7 @@ return function(App)
 		return liveBox(parent, fillRemoveCopies)
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Outliner</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Outliner</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Outliner: everything Smart Scatter made in this place, a row per thing, by kind (the kinds the
 	features registered: zones, paths, keep-clear zones, stamps). Click one to select it; the selected zone or path
 	opens to its objects (each with its picture), and a click on one makes it the active object. Double-click a name
@@ -10662,7 +10403,7 @@ return function(App)
 		-- (a well: darker than the panel round it, so the list reads as one thing apart from the search above and
 		-- the workbench below)
 		local wrap = col({ BackgroundTransparency = 0, BackgroundColor3 = P.well, Parent = parent }, {
-			corner(10),
+			corner(6),
 			App.stroke(P.line),
 			pad(8, 8, 5, 7),
 			vlist(4),
@@ -10794,7 +10535,7 @@ return function(App)
 		return wrap
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Palette</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Palette: the search menu, like Blender's F3 (Space here, or whatever Settings › Shortcuts says).
 	Pressed anywhere in the viewport while the panel is open, it opens at the mouse: type a few letters of anything the
 	plugin can do, pick it with the arrow keys and Enter (or a click), and it's done. Actions that take things away
@@ -11750,7 +11491,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Properties</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">Properties</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Properties: the tabs for what's selected (Core/Selection), from the tabs the features registered
 	(Core/Registry), and the page of the open one. Like Blender's properties editor: pick a thing and its settings are
 	here; pick one of its objects and its Object tab opens. The tabs are a column of icons beside the page; the line
@@ -11873,7 +11614,7 @@ return function(App)
 				LayoutOrder = i,
 				ZIndex = 2,
 				Parent = column,
-			}, { App.corner(8) })
+			}, { App.corner(5) })
 			local ic = App.icon(t.icon, 15, on and P.accent or P.dim)
 			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 			ic.ZIndex = 3
@@ -12039,7 +11780,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">Shell</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shell: the panel's frame. At the top the name with + New and Settings, the search box, the
 	outliner (Panel/Outliner) and the selection's tabs (Panel/Properties); under them the page that scrolls; the bar
 	pinned to the bottom (Generate, Live update, Shuffle, Undo, the history) and toasts; and the whole-panel rebuild,
@@ -12231,7 +11972,6 @@ return function(App)
 			Parent = parent,
 		})
 		App.ui.foot = foot
-		App.glass(foot)
 		App.fadeLine(foot, nil, 0.16)
 		-- progress of a running job: the accent filling along the top edge, with light sweeping through it
 		local line = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 4, Parent = foot })
@@ -12244,7 +11984,6 @@ return function(App)
 			Parent = line,
 		})
 		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
-		App.sheen(foot, 0.025, 40)
 		if G.history then
 			buildTimeline(foot)
 		end
@@ -12268,7 +12007,7 @@ return function(App)
 			Size = UDim2.new(1, -162, 1, 0),
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			Parent = inner,
-		}, { corner(10), pad(8, 8, 0, 0) })
+		}, { corner(6), pad(8, 8, 0, 0) })
 		App.shade(App.ui.genBtn, 0.12)
 		App.topLight(App.ui.genBtn, 0.35, 8)
 		App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
@@ -12279,7 +12018,7 @@ return function(App)
 			Size = UDim2.fromScale(0, 1),
 			Visible = false,
 			Parent = App.ui.genBtn,
-		}, { corner(10) })
+		}, { corner(6) })
 		App.ui.genBtn.MouseEnter:Connect(function()
 			if canGenerate() then
 				tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
@@ -12322,7 +12061,7 @@ return function(App)
 			Size = UDim2.fromOffset(66, 38),
 			LayoutOrder = 1,
 			Parent = right,
-		}, { corner(10) })
+		}, { corner(6) })
 		local liveStroke = App.stroke(P.line)
 		liveStroke.Parent = live
 		local dot = box({
@@ -12569,10 +12308,9 @@ return function(App)
 
 	local buildPage, enterCards -- (below)
 	local function buildSearch(parent)
-		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
+		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(6) })
 		local st = App.stroke(P.line)
 		st.Parent = row
-		App.glass(row)
 		local ic = App.icon("search", 13, P.faint)
 		ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
 		ic.Parent = row
@@ -12601,7 +12339,7 @@ return function(App)
 			st.Color = P.accentLine
 		end)
 		tb.FocusLost:Connect(function()
-			st.Color = App.blobsOn() and Color3.new(1, 1, 1) or P.line -- (back to its glass edge)
+			st.Color = P.line
 		end)
 		-- the results follow the typing, a moment after it pauses
 		local token = 0
@@ -12742,10 +12480,14 @@ return function(App)
 			App.root:Destroy()
 		end
 		App.ui = {}
-		local blobs = App.backdrop(App.widget) -- (the colour blobs, under everything; it outlives rebuilds)
+		for _, old in App.widget:GetChildren() do -- (the colour blobs of versions before 9.97, left in the widget)
+			if old.Name == "SS_Backdrop" then
+				old:Destroy()
+			end
+		end
 		App.root = box({
 			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = blobs and 1 or 0,
+			BackgroundTransparency = 0,
 			BackgroundColor3 = P.bg,
 			ZIndex = 1,
 			Parent = App.widget,
@@ -12760,14 +12502,22 @@ return function(App)
 				App.releaseMouse()
 			end
 		end)
-		-- fixed top: title, search, the outliner and the selection's tabs; only the page below scrolls (see-through
-		-- over the blobs)
+		-- Fixed top: title, search and the outliner; only the page below scrolls. Its ground is the panel's colour
+		-- with a wash of the accent at the very top, fading out by the outliner: the one place the theme's colour
+		-- shows as colour and not as a mark on something.
 		local head = col({
-			BackgroundTransparency = App.blobsOn() and 1 or 0,
-			BackgroundColor3 = P.bg,
+			BackgroundTransparency = 0,
+			BackgroundColor3 = Color3.new(1, 1, 1),
 			ZIndex = 2,
 			Parent = App.root,
-		}, { pad(14, 14, 12, 8), vlist(0) })
+		}, {
+			pad(14, 14, 12, 8),
+			vlist(0),
+			new("UIGradient", {
+				Rotation = 90,
+				Color = ColorSequence.new(P.bg:Lerp(P.accent, 0.18), P.bg),
+			}),
+		})
 		App.scroll = new("ScrollingFrame", {
 			Size = UDim2.new(1, 0, 1, -barH()),
 			CanvasSize = UDim2.new(),
@@ -12801,10 +12551,7 @@ return function(App)
 			end
 		end
 		box({ Size = UDim2.new(1, 0, 0, 2), Parent = head })
-		App.sheen(App.root, 0.04, 140, 150)
-		App.halftone(App.root, 0.07, 4, 150)
-		-- The workbench, under the head: one solid sheet (the backdrop's colours stay behind the title and the
-		-- outliner), with a strip across its top naming what's open, the tabs as a rail down its left on a darker
+		-- The workbench, under the head: one solid sheet, with a strip across its top naming what's open, the tabs as a rail down its left on a darker
 		-- ground, and the page. The settings page has the sheet alone.
 		local bench = box({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 0, Parent = App.root })
 		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = bench })
@@ -12813,6 +12560,7 @@ return function(App)
 			strip = box({ BackgroundTransparency = 0, BackgroundColor3 = P.strip, Size = UDim2.new(1, 0, 0, CRUMB_H), Parent = bench }, {
 				pad(PAGE_PAD, PAGE_PAD, 4, 4),
 			})
+			App.shade(strip, 0.14) -- (lit from the top, as a header bar is)
 			App.buildCrumb(strip)
 			box({
 				BackgroundTransparency = 0,
@@ -12904,7 +12652,7 @@ return function(App)
 	end)
 	track(settings().Studio.ThemeChanged:Connect(applyTheme))
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX21"><Properties><string name="Name">StampTools</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — StampTools: the Stamp card (Brush tab), for putting single models down by hand anywhere, no area
 	needed (Viewport/Stamp does the stamping). Before stamping: stamp what's selected in the Explorer, or one of the
 	area's objects. While stamping: which model, its turn and size, standing along the surface, a random one after
@@ -13035,7 +12783,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX30"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Object</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="Folder" referent="RBX29"><Properties><string name="Name">Tabs</string></Properties><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Object</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Object tab: the active object (the one picked in the outliner or the Objects list). Its name and
 	actions, then its rules, a card each; what was done to it by hand is one of them. Only there while an object is
 	active.
@@ -13057,7 +12805,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Objects</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX23"><Properties><string name="Name">Objects</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Objects tab (a zone or a path): what it places. The list (click one to open it in the Object tab),
 	adding models from the Explorer, how much and how big everything is; a biome, presets and the cost report under
 	More options, and bringing back copies taken out one by one.
@@ -13116,7 +12864,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Path</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX24"><Properties><string name="Name">Path</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Curve and Road tabs: a path's own settings, for a Path or a zone that has one drawn. Curve: the
 	path itself (length, points, Subdivide, Clear, the selected point), its strip and what it sticks to. Road: a solid
 	road or dirt path down the middle.
@@ -13181,7 +12929,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX25"><Properties><string name="Name">Settings</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Settings page (the ⚙ at the top): the plugin's own settings, the same in every area. Look and text
 	size, the viewport overlay, game-ready output and the tour; shortcuts under More options.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -13206,14 +12954,6 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(b, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		switchRow("Colour blobs in the background", function()
-			return G.blobs ~= false
-		end, function(v)
-			G.blobs = v
-			saveG()
-			task.defer(App.rebuildAll) -- (after this click: the whole panel is rebuilt)
-		end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
-			b
 		switchRow(
 			"Compact panel",
 			function()
@@ -13472,7 +13212,7 @@ return function(App)
 			id = "look",
 			title = "Look",
 			sub = "Accent colour and text size",
-			keys = "theme accent colour color text size font blobs background",
+			keys = "theme accent colour color text size font compact",
 			build = buildLook,
 		})
 		cs.add({ id = "viewport", title = "Viewport", sub = "What's drawn over the 3D view", keys = "overlay", build = buildViewport })
@@ -13499,7 +13239,7 @@ return function(App)
 		})
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX26"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamps: the one outliner entry for everything stamped (Workspace › Stamps, plain models no area
 	owns), and its Stamp tab: what the stamp puts down and how (Panel/StampTools). The tool itself is the strip's.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
@@ -13536,7 +13276,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX27"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — World tab (always there, whatever is selected): the finished map as a whole. Scanning it for
 	repeated models and keeping the originals, swapping models, re-spacing a layout, seasons; and telling the scan
 	what a part is when it guesses wrong.
@@ -13600,7 +13340,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX29"><Properties><string name="Name">Zone</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX28"><Properties><string name="Name">Zone</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Zone tab (a zone or a keep-clear zone): the ground itself. What's painted and the overlay's colours;
 	then, for a zone, the look of the whole zone (pattern, colour zones, edges and wind); under More options, which
 	surfaces painting sticks to and tidying the painted edge.
@@ -13684,7 +13424,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX31"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="ModuleScript" referent="RBX30"><Properties><string name="Name">Tour</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Tour: a guided tour of everything, shown once to each new user (and on demand from Settings).
 	Dims the panel except the part being explained, with a card next to it. Seen-state is a plugin setting, so every
 	person who installs the plugin gets it once on their own machine.
@@ -14145,7 +13885,7 @@ return function(App)
 		end)
 	end
 end
-]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX43"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">ArrayTool</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item><Item class="Folder" referent="RBX42"><Properties><string name="Name">Viewport</string></Properties><Item class="ModuleScript" referent="RBX32"><Properties><string name="Name">ArrayTool</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — ArrayTool: the strip's Array tool. With a model selected in the Explorer (or an array selected: its
 	model), press on the ground and drag: a line runs from the press to the mouse, and on letting go an array of the
 	model lines up along it, as many as fit at the model's own spacing. A plain click makes a row of six running the
@@ -14298,7 +14038,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX33"><Properties><string name="Name">Focus</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Focus: while a tool of the plugin is on in the viewport (painting, erasing, drawing the path,
 	brushing one object, removing copies), the world steps back a touch so the tool stands out: it loses a little
 	colour (a colour correction on the camera, never saved with the place). Settings › Viewport can turn it off.
@@ -14408,7 +14148,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX34"><Properties><string name="Name">Grid</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
 	ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
 	toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
@@ -14539,7 +14279,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX35"><Properties><string name="Name">Overlay</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Overlay: the widget and the painted-area overlay in the viewport.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -14890,7 +14630,7 @@ return function(App)
 	App.rebuildOverlay = rebuildOverlay
 	App.recolorOverlay = recolorOverlay
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX36"><Properties><string name="Name">Paint</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -16180,7 +15920,7 @@ return function(App)
 	App.setLabel = setLabel
 	App.mouseHit = mouseHit
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Select</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX37"><Properties><string name="Name">Select</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Select: the strip's Select tool. Point at something Smart Scatter made and it's named by the mouse;
 	a click selects it (Core/Selection), so the panel shows it:
 	  a placed copy     its zone, with its object active
@@ -17086,7 +16826,7 @@ return function(App)
 		end,
 	})
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX38"><Properties><string name="Name">Shapes</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Shapes: path shape presets (square, rectangle, triangle, hexagon, octagon, circle), for a fence
 	round a field, a ring road or a plaza in one drag. Pick one on the Path card, then drag in the viewport: from the
 	centre out (a corner follows the mouse and the turn snaps to 15°; Shift turns it freely), or corner to corner for the
@@ -17274,7 +17014,7 @@ return function(App)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX39"><Properties><string name="Name">Spline</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Spline: the spline editor: points, branches, welding, viewport preview.
 	Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
 ]]
@@ -18424,7 +18164,7 @@ return function(App)
 	-- used by later modules
 	App.removeSplineViz = removeSplineViz
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX40"><Properties><string name="Name">Stamp</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Stamp: one model, put down exactly where and how you want it, anywhere on the ground. No area,
 	painting or object needed: it's its own tool. What it stamps: the models selected in the Explorer when it starts (a
 	folder counts as the models in it), or an object's models (its Stamp button), or the last ones again.
@@ -18927,7 +18667,7 @@ return function(App)
 		clearGhost()
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX42"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX41"><Properties><string name="Name">Toolbar</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Toolbar: the viewport's tools, like Blender's; the one place tools live. Down the left edge, a strip
 	of small square tool buttons in groups (the tools the features registered: Core/Registry), the one in use lit.
 	Along the top, while a tool is on, a bar with what it acts on and its settings (the brush's size and shape, the
@@ -19482,7 +19222,7 @@ return function(App)
 		end
 	end)
 end
-]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX59"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ModuleScript" referent="RBX58"><Properties><string name="Name">Engine</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine: the placement engine, with no UI. The plugin (App) drives it; the test suite too.
 	Area mask → scan (surface classes + distance fields) → plan (rules → counts) → place → lines along edges and paths.
 	Kinds reads a finished map: repeated models grouped by shape, and the snapshot that keeps their originals;
@@ -19527,7 +19267,7 @@ for _, name in ORDER do
 	module(name)(E, I)
 end
 return E
-]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties><Item class="ModuleScript" referent="RBX44"><Properties><string name="Name">Areas</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Areas: saving and loading (attributes on the area folder), the painted mask, removed copies, outputs.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -20531,7 +20271,7 @@ return function(E, I)
 		end
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX46"><Properties><string name="Name">Arrays</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX45"><Properties><string name="Name">Arrays</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Arrays: one model repeated in a pattern, like Blender's Array modifier (and its Curve one).
 	Plain maths: from an array's settings, where each copy stands (a position and a heading, relative to the array's
 	origin, or in the world along a path) and how big it is. The plugin makes the copies (App's Panel/ArrayTools); nothing here touches
@@ -20672,7 +20412,7 @@ return function(E)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX47"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX46"><Properties><string name="Name">Assets</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Assets: Asset types and smart defaults (the "brain"), layers and their settings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -21472,7 +21212,7 @@ return function(E, I)
 	I.partsOf = partsOf
 	I.FOLLOW_FIELD = FOLLOW_FIELD
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX48"><Properties><string name="Name">Edit</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX47"><Properties><string name="Name">Edit</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Edit: the maths of the editing helpers (App's Panel/EditTools): lining things up, spacing
 	them evenly, and random turns and sizes. Plain numbers in, plain moves out; nothing here touches the world, so the
 	offline tests check it.
@@ -21558,7 +21298,7 @@ return function(E)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX49"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX48"><Properties><string name="Name">Generate</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Generate: rebuilds an area's objects (whole, from a layer on, or one painted patch).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -22025,7 +21765,7 @@ return function(E, I)
 		return counts, total, ctx.parts
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX50"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX49"><Properties><string name="Name">Kinds</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Kinds: reading a finished map. Every repeated model is found and grouped into kinds by its
 	shape, not its name, so renamed, turned and scaled copies still match; and the snapshot that keeps the originals
 	of what later tools change (swapping models, seasons), so they can be put back.
@@ -22540,7 +22280,7 @@ return function(E, I)
 		return out
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX51"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX50"><Properties><string name="Name">Layout</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Layout: improving a finished map's layout, one kind at a time. Copies that crowd each
 	other, or break the kind's placement rules (a tree on a road), move into the empty holes of the kind's
 	territory; holes left over can get new copies, extras that can't move can go. Copies marked hand-placed never
@@ -23176,7 +22916,7 @@ return function(E, I)
 		return added
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX52"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX51"><Properties><string name="Name">Lines</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Lines: copies following an edge or a path (roads, water, houses, fences end to end).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -24254,7 +23994,7 @@ return function(E, I)
 	-- shared with the modules after this one
 	I.placeLine = placeLine
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX53"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX52"><Properties><string name="Name">Paths</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Paths: splines (smooth curves through clicked points) and the road surfaces laid along them.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -25028,7 +24768,7 @@ return function(E, I)
 	I.triangle = triangle
 	I.project = project
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX54"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX53"><Properties><string name="Name">Pins</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Pins: copies put down by hand with the object brush. Each is a pin on its object
 	(l.pins = { { x, z, seed }, … }, saved with the area like the object's painting): generating places the pins
 	first, on their exact spots, under the object's rules (surfaces, slope, spacing), then fills in the rest as usual.
@@ -25285,7 +25025,7 @@ return function(E, I)
 		return n
 	end
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX55"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX54"><Properties><string name="Name">Placement</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Placement: putting one copy down (spacing, footing, orientation, variation).
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -26311,7 +26051,7 @@ return function(E, I)
 	I.place = place
 	I.growGroup = growGroup
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX56"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX55"><Properties><string name="Name">Planning</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Planning: rules -> suitability per cell -> how many copies of each object.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -26636,7 +26376,7 @@ return function(E, I)
 	I.before = before
 	I.scaleRange = scaleRange
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX57"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX56"><Properties><string name="Name">Scan</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Scan: Surface classes and the scan: what each ground cell is, and distance fields to roads, water and buildings.
 	Adds to E (the engine API); shares internals with the other engine modules through I.
 ]]
@@ -27148,7 +26888,7 @@ return function(E, I)
 	I.hasKeyword = hasKeyword
 	I.chamfer = chamfer
 end
-]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX58"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX57"><Properties><string name="Name">Seasons</string><ProtectedString name="Source"><![CDATA[--[[
 	Smart Scatter — Engine/Seasons: turning a finished map snowy, autumn or dry, fully or in patches. Part colours,
 	SurfaceAppearance tints and decals change; optionally the terrain's grass colours, or its grass itself. Every
 	change keeps what it replaced (an attribute on the part, a copy of the terrain), so a season can be switched or

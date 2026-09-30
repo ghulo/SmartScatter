@@ -23,14 +23,6 @@ return function(App)
 			end, Color3.fromHex(a.dark))
 		end
 		App.explain(b, "The accent the whole plugin wears: buttons, glow, the brush, painted ground and paths.")
-		switchRow("Colour blobs in the background", function()
-			return G.blobs ~= false
-		end, function(v)
-			G.blobs = v
-			saveG()
-			task.defer(App.rebuildAll) -- (after this click: the whole panel is rebuilt)
-		end, nil, "Soft blobs of colour behind the panel, drifting slowly. Off: a plain background.").Parent =
-			b
 		switchRow(
 			"Compact panel",
 			function()
@@ -289,7 +281,7 @@ return function(App)
 			id = "look",
 			title = "Look",
 			sub = "Accent colour and text size",
-			keys = "theme accent colour color text size font blobs background",
+			keys = "theme accent colour color text size font compact",
 			build = buildLook,
 		})
 		cs.add({ id = "viewport", title = "Viewport", sub = "What's drawn over the 3D view", keys = "overlay", build = buildViewport })

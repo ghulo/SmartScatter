@@ -121,7 +121,7 @@ return function(App)
 				LayoutOrder = i,
 				ZIndex = 2,
 				Parent = column,
-			}, { App.corner(8) })
+			}, { App.corner(5) })
 			local ic = App.icon(t.icon, 15, on and P.accent or P.dim)
 			ic.AnchorPoint, ic.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
 			ic.ZIndex = 3

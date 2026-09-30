@@ -78,7 +78,6 @@ return function(App)
 		live = false, -- off: painting and settings wait for Generate (the Live pill turns rebuild-as-you-go on)
 		liveAsked = false, -- (settings from before 9.67 had Live on by default, not by choice: it's turned off once)
 		overlay = true,
-		blobs = true, -- soft colour blobs behind the panel (Settings › Look)
 		groups = {},
 		walk = true,
 		shadows = true,
@@ -395,8 +394,8 @@ return function(App)
 				raised = hex("32302B"), -- buttons, pickers, value pills
 				header = hex("201F1C"), -- footer strip
 				field = hex("1F1E1B"), -- inputs
-				well = hex("131211"), -- the outliner's well, the tab rail: a step below the panel
-				strip = hex("24221F"), -- the strip across the top of the workbench: a step above it
+				well = hex("100F0E"), -- the outliner's well, the tab rail: a clear step below the panel
+				strip = hex("2A2825"), -- the strip over the page and a section's head: a step above it
 				hover = hex("3B3934"),
 				line = hex("33312D"), -- borders and hairlines
 				text = hex("F2EFEA"),

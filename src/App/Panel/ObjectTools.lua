@@ -874,7 +874,7 @@ return function(App)
 			BackgroundColor3 = P.card,
 			Size = UDim2.new(1, 0, 0, 60),
 			Parent = parent,
-		}, { corner(8), stroke(P.line) }) -- (flat, like the page it's on: an edge and no more)
+		}, { corner(6), stroke(P.line) }) -- (flat, like the page it's on: an edge and no more)
 		App.pressable(r, 0.985)
 		r.MouseEnter:Connect(function()
 			r.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
@@ -964,7 +964,7 @@ return function(App)
 			BackgroundColor3 = P.card,
 			LayoutOrder = index,
 			Parent = parent,
-		}, { corner(8), stroke(P.line) })
+		}, { corner(6), stroke(P.line) })
 		c.MouseEnter:Connect(function()
 			c.BackgroundColor3 = P.card:Lerp(P.hover, 0.45)
 		end)

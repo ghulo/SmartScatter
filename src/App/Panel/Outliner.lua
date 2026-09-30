@@ -353,7 +353,7 @@ return function(App)
 		-- (a well: darker than the panel round it, so the list reads as one thing apart from the search above and
 		-- the workbench below)
 		local wrap = col({ BackgroundTransparency = 0, BackgroundColor3 = P.well, Parent = parent }, {
-			corner(10),
+			corner(6),
 			App.stroke(P.line),
 			pad(8, 8, 5, 7),
 			vlist(4),

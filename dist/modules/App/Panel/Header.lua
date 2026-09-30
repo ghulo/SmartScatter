@@ -103,7 +103,7 @@ return function(App)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 51,
 			Parent = catcher,
-		}, { corner(10), stroke(P.line), pad(5), vlist(2) })
+		}, { corner(6), stroke(P.line), pad(5), vlist(2) })
 		if title then
 			local head = box({ Size = UDim2.new(1, 0, 0, 24), ZIndex = 52, Parent = menu }, { pad(10, 10, 0, 0) })
 			label(title, 11, P.faint, SANS_B, { Size = UDim2.fromScale(1, 1), ZIndex = 52, Parent = head })
@@ -347,7 +347,7 @@ return function(App)
 			AutomaticSize = Enum.AutomaticSize.Y,
 			ZIndex = 51,
 			Parent = catcher,
-		}, { corner(10), stroke(P.line), pad(5), vlist(2) })
+		}, { corner(6), stroke(P.line), pad(5), vlist(2) })
 		local function item(iconName, title, sub, onClick, color)
 			local b = new("TextButton", {
 				Text = "",
@@ -456,7 +456,7 @@ return function(App)
 			BackgroundColor3 = P.accent,
 			AutoButtonColor = false,
 			Size = UDim2.new(1, 0, 0, 42),
-		}, { corner(10) })
+		}, { corner(6) })
 		App.shade(b, 0.12) -- lit from the top, like the design's glossy button
 		App.topLight(b, 0.35, 8)
 		App.pressable(b, 0.98) -- (no glow: it runs the card's full width, and the gap to the card's edge stays clean)

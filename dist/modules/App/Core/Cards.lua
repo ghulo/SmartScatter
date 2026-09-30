@@ -96,41 +96,65 @@ return function(App)
 	App.cardCount = 0 -- cards built since the panel was last built (the search tells empty tabs from ones with hits)
 
 	-- One feature's card: a title, a line under it, and its controls. spec: { id, title, sub?, icon?, tag?, keys?, build }
-	-- A card is a section of the page, flat on it, with a hairline under it: the page is one surface beside the tab
-	-- column (boxes inside a box would crowd it). Its edge is only drawn for a moment, when a search jumps to it.
-	local function card(parent, spec)
+	-- A card is a section of the page, flat on it, under a bar with its name, as a panel in Blender's properties: a
+	-- click on the bar folds the section away, and it stays folded (G.groups, by the tab's cards id and its own) until
+	-- it's clicked again. A search shows every match unfolded. Its edge is only drawn for a moment, when a search
+	-- jumps to it.
+	local function card(parent, spec, group)
 		App.cardCount += 1
-		local c = col({ Parent = parent }, { corner(8), pad(8, 8, 8, 0), vlist(8) })
+		local key = "fold:" .. group .. ":" .. spec.id
+		local open = App.searching() or G.groups[key] ~= true
+		local c = col({ Parent = parent }, { corner(6), vlist(6) })
 		local edge = stroke(P.accent)
 		edge.Transparency = 1
 		edge.Parent = c
-		local head = col({ Parent = c })
-		local txt = col({ Parent = head }, { vlist(2) })
-		-- the title, with its icon small and quiet before it (no badge)
-		local titleRow = box({ Size = UDim2.new(1, 0, 0, 20), Parent = txt }, { hlist(7) })
+		local head = new("TextButton", {
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = P.strip,
+			Size = UDim2.new(1, 0, 0, 28),
+			Parent = c,
+		}, { corner(5), pad(9, 9, 0, 0), hlist(7) })
+		App.shade(head, 0.12)
+		-- (two arrows, one shown: an icon turned inside a list layout isn't drawn turned)
+		local shut, unfolded = icon("right", 9, P.dim), icon("down", 9, P.dim)
+		shut.Visible, unfolded.Visible = not open, open
+		shut.Parent, unfolded.Parent = head, head
 		local badgeIcon = spec.icon or ICON[spec.id]
 		if badgeIcon then
-			local ic = icon(badgeIcon, 14, P.accent)
-			ic.Parent = titleRow
+			local ic = icon(badgeIcon, 13, P.accent)
+			ic.Parent = head
 		end
-		label(spec.title, 15, P.text, SANS_B, { Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Parent = titleRow })
+		label(spec.title, 13, P.text, SANS_B, { Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X, Parent = head })
 		if spec.tag then -- a small tag after the title ("Optional")
 			local tag = label(spec.tag, 11, P.faint, App.SANS_M, {
-				Size = UDim2.fromOffset(0, 20),
+				Size = UDim2.fromOffset(0, 28),
 				AutomaticSize = Enum.AutomaticSize.X,
-				Parent = titleRow,
+				Parent = head,
 			})
 			tag.TextYAlignment = Enum.TextYAlignment.Center
 		end
+		local inner = col({ Visible = open, Parent = c }, { pad(9, 9, 2, 8), vlist(8) })
 		local sub = spec.sub or SUB[spec.id]
 		if sub and sub ~= "" then
-			local s = App.para(sub, { Parent = txt })
-			s.TextColor3 = P.dim
+			local t = App.para(sub, { Parent = inner })
+			t.TextColor3 = P.dim
 		end
-		local body = col({ Parent = c }, { vlist(6) })
+		local body = col({ Parent = inner }, { vlist(6) })
 		spec.build(body, c)
-		box({ Size = UDim2.new(1, 0, 0, 6), Parent = c })
-		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = c }) -- the hairline under it
+		head.MouseEnter:Connect(function()
+			head.BackgroundColor3 = P.hover
+		end)
+		head.MouseLeave:Connect(function()
+			head.BackgroundColor3 = P.strip
+		end)
+		head.MouseButton1Click:Connect(function()
+			open = not open
+			G.groups[key] = not open or nil
+			saveG()
+			inner.Visible = open
+			shut.Visible, unfolded.Visible = not open, open
+		end)
 		c:SetAttribute("SS_Card", spec.id) -- (App.openCard finds it by this)
 		return c
 	end
@@ -225,9 +249,9 @@ return function(App)
 				if foldCount then
 					foldCount.Text = string.format("More options  ·  %d", nMore)
 				end
-				return card(into, spec)
+				return card(into, spec, id)
 			end
-			return card(parent, spec)
+			return card(parent, spec, id)
 		end
 		return cs
 	end
@@ -239,6 +263,11 @@ return function(App)
 		if fold then
 			G.groups["more:" .. fold] = true
 			saveG()
+		end
+		for k in G.groups do -- (a section folded away is unfolded: it's being asked for)
+			if string.sub(k, 1, 5) == "fold:" and string.sub(k, -#id - 1) == ":" .. id then
+				G.groups[k] = nil
+			end
 		end
 		if tab == "settings" then
 			App.openSettings(true)

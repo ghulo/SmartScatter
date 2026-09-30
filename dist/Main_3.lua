@@ -1,2127 +1,6 @@
 -- GENERATED part 3 of the flattened release by tools/tree.py: edit the modules, not this.
 local MODULES = {}
 
--- #module App/Panel/Shell
-MODULES["App/Panel/Shell"] = (function()
---[[
-Smart Scatter — Shell: the panel's frame. At the top the name with + New and Settings, the search box, the
-outliner (Panel/Outliner) and the selection's tabs (Panel/Properties); under them the page that scrolls; the bar
-pinned to the bottom (Generate, Live update, Shuffle, Undo, the history) and toasts; and the whole-panel rebuild,
-which follows the selection.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local FAST, MED, tween, beginRec, endRec, track = App.FAST, App.MED, App.tween, App.beginRec, App.endRec, App.track
-local G, saveG, num, P, makePalette, SANS, SANS_B = App.G, App.saveG, App.num, App.P, App.makePalette, App.SANS, App.SANS_B
-local new, corner, pad, vlist, hlist, box, col, label = App.new, App.corner, App.pad, App.vlist, App.hlist, App.box, App.col, App.label
-local para, hintOn, rebuildOverlay, saveArea, canGenerate = App.para, App.hintOn, App.rebuildOverlay, App.saveArea, App.canGenerate
-local runGenerate, commit = App.runGenerate, App.commit
-local PAGE_PAD = 14
-local CRUMB_H = 30
-App.perfNote = function()
-if App.area and App.area.folder.Parent and App.Engine.isPreview(App.area) then
-return "Some are still a preview (boxes): press Generate to place the real models.", false
-end
-local heavy = App.lastParts > 20000
-return heavy and "That's heavy. Lower the amount or use simpler models." or App.lastParts > 8000 and "Getting heavy for phones." or "", heavy
-end
-App.refreshPerf = function()
-if not App.ui.perf then
-return
-end
-local note, heavy = App.perfNote()
-App.ui.perf.Text = string.format("This area: %s objects, %s parts.  %s", num(App.lastTotal), num(App.lastParts), note)
-App.ui.perf.TextColor3 = heavy and P.danger or P.dim
-end
-App.shuffle = function()
-if not App.area then
-return
-end
-local rec = beginRec("Smart Scatter: Shuffle")
-App.area.seed = math.random(1, 999999)
-saveArea()
-endRec(rec)
-runGenerate(true)
-end
-App.generateNow = function()
-if App.busy() then
-App.cancelJob()
-App.status("Stopped. Nothing was changed.")
-return
-end
-local ok, why = canGenerate()
-if not ok then
-App.status(why or "Nothing to generate yet.")
-return
-end
-if App.worldChanged() then
-App.analysisDirty = true
-end
-runGenerate(true, nil, nil, true)
-end
-App.toggleLive = function()
-G.live = not G.live
-saveG()
-if App.ui.liveLook then
-App.ui.liveLook()
-end
-if G.live then
-commit()
-end
-App.status(
-G.live
-and (G.liveBoxes and "Live on: changes show as you make them (a big area as see-through boxes until Generate)." or "Live update on: every change rebuilds as you make it.")
-or "Live off: changes wait for Generate."
-)
-end
-App.undoStep = function(redo)
-local chs = App.ChangeHistoryService
-local ok, can = pcall(redo and chs.GetCanRedo or chs.GetCanUndo, chs)
-if ok and can == false then
-App.status(redo and "Nothing to redo." or "Nothing to undo.")
-return
-end
-pcall(redo and chs.Redo or chs.Undo, chs)
-end
-local buildTimeline
-local STRIP_H = 22
-local function barH()
-return 60 + (G.history and STRIP_H or 0)
-end
-local SHOWN_STEPS = 60
-local function ago(t)
-local d = os.time() - t
-return d < 60 and "just now" or d < 3600 and (math.floor(d / 60) .. " min ago") or (math.floor(d / 3600) .. " h ago")
-end
-function buildTimeline(foot)
-local strip = box({ Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, -24, 0, STRIP_H - 6), Parent = foot })
-App.ui.history = strip
-local function draw()
-strip:ClearAllChildren()
-local H = App.history
-local n = #H.list
-if n == 0 then
-label("History · your steps show up here", 11, P.faint, SANS, { Size = UDim2.fromScale(1, 1), Parent = strip })
-return
-end
-local first = math.max(0, n - SHOWN_STEPS)
-local count = n - first + 1
-box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.line,
-AnchorPoint = Vector2.new(0, 1),
-Position = UDim2.fromScale(0, 1),
-Size = UDim2.new(1, 0, 0, 1),
-Parent = strip,
-})
-for i = first, n do
-local x = count > 1 and (i - first) / (count - 1) or 0
-local here, done = i == H.pos, i < H.pos
-local hit = new("TextButton", {
-Text = "",
-AutoButtonColor = false,
-BackgroundTransparency = 1,
-AnchorPoint = Vector2.new(0.5, 0),
-Position = UDim2.new(x, 0, 0, 0),
-Size = UDim2.new(0, 10, 1, 0),
-Parent = strip,
-})
-local line = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = here and P.accent or done and P.dim or P.line,
-AnchorPoint = Vector2.new(0.5, 1),
-Position = UDim2.new(0.5, 0, 1, 0),
-Size = UDim2.fromOffset(here and 3 or 2, here and 16 or (i == 0 and 6 or 10)),
-Parent = hit,
-}, { corner(1) })
-hit.MouseEnter:Connect(function()
-if not here then
-line.BackgroundColor3 = P.text
-end
-end)
-hit.MouseLeave:Connect(function()
-line.BackgroundColor3 = here and P.accent or done and P.dim or P.line
-end)
-hintOn(hit, function()
-local what = i == 0 and "Before your first step" or string.gsub(H.list[i].name, "^Smart Scatter: ", "")
-local when = i > 0 and ("  ·  " .. ago(H.list[i].time)) or ""
-return what .. when .. (here and "  ·  you're here" or "  ·  click to go here (Studio edits in between go with it)")
-end)
-hit.MouseButton1Click:Connect(function()
-if i ~= App.history.pos then
-local from = App.history.pos
-App.historyJump(i)
-App.status(
-i < from and string.format("Went back %d step%s.", from - i, from - i == 1 and "" or "s")
-or string.format("Went forward %d step%s.", i - from, i - from == 1 and "" or "s")
-)
-end
-end)
-end
-end
-draw()
-App.onHistoryChanged = function()
-if App.ui.history == strip and strip.Parent then
-draw()
-end
-end
-end
-local function buildBar(parent)
-local foot = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.header,
-AnchorPoint = Vector2.new(0, 1),
-Position = UDim2.fromScale(0, 1),
-Size = UDim2.new(1, 0, 0, barH()),
-ZIndex = 3,
-Parent = parent,
-})
-App.ui.foot = foot
-App.glass(foot)
-App.fadeLine(foot, nil, 0.16)
-local line = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 4, Parent = foot })
-App.ui.progress = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.accent,
-Size = UDim2.fromScale(0, 1),
-Visible = false,
-ZIndex = 4,
-Parent = line,
-})
-App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
-App.sheen(foot, 0.025, 40)
-if G.history then
-buildTimeline(foot)
-end
-local inner = box({ Position = UDim2.fromOffset(12, 11 + (G.history and STRIP_H or 0)), Size = UDim2.new(1, -24, 0, 38), Parent = foot })
-local right = box({
-AnchorPoint = Vector2.new(1, 0),
-Position = UDim2.fromScale(1, 0),
-Size = UDim2.fromOffset(0, 38),
-AutomaticSize = Enum.AutomaticSize.X,
-Parent = inner,
-}, { hlist(6) })
-App.ui.genBtn = new("TextButton", {
-Text = "Generate",
-Font = SANS_B,
-TextSize = 14,
-TextColor3 = P.onAccent,
-BackgroundColor3 = P.accent,
-AutoButtonColor = false,
-Size = UDim2.new(1, -162, 1, 0),
-TextTruncate = Enum.TextTruncate.AtEnd,
-Parent = inner,
-}, { corner(10), pad(8, 8, 0, 0) })
-App.shade(App.ui.genBtn, 0.12)
-App.topLight(App.ui.genBtn, 0.35, 8)
-App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
-local press = new("UIScale", { Parent = App.ui.genBtn })
-App.ui.genBar = box({
-BackgroundTransparency = 0.82,
-BackgroundColor3 = Color3.new(1, 1, 1),
-Size = UDim2.fromScale(0, 1),
-Visible = false,
-Parent = App.ui.genBtn,
-}, { corner(10) })
-App.ui.genBtn.MouseEnter:Connect(function()
-if canGenerate() then
-tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
-end
-end)
-App.ui.genBtn.MouseLeave:Connect(function()
-tween(press, FAST, { Scale = 1 })
-App.refreshCounts()
-end)
-App.ui.genBtn.MouseButton1Down:Connect(function()
-if canGenerate() then
-tween(press, FAST, { Scale = 0.98 })
-end
-end)
-App.ui.genBtn.MouseButton1Up:Connect(function()
-tween(press, MED, { Scale = 1 })
-end)
-App.ui.genBtn.MouseButton1Click:Connect(App.generateNow)
-hintOn(App.ui.genBtn, function()
-if App.busy() then
-return "Click to stop. Nothing changes until it's done."
-end
-local ok, why = canGenerate()
-if not ok then
-return (why or "Nothing to generate yet.") .. " Then this places everything."
-end
-if App.failure then
-return "The last Generate failed: " .. tostring(App.failure) .. ". Click to try again."
-end
-if App.hasPending() then
-return "You've changed settings, ground or the path since the last Generate. Click to place them."
-end
-return "Places the real models now. With Live on, a big area's changes show as see-through boxes first; this turns them into the models."
-end)
-local live = new("TextButton", {
-Text = "",
-AutoButtonColor = false,
-Size = UDim2.fromOffset(66, 38),
-LayoutOrder = 1,
-Parent = right,
-}, { corner(10) })
-local liveStroke = App.stroke(P.line)
-liveStroke.Parent = live
-local dot = box({
-BackgroundTransparency = 0,
-AnchorPoint = Vector2.new(0, 0.5),
-Position = UDim2.new(0, 12, 0.5, 0),
-Size = UDim2.fromOffset(8, 8),
-Parent = live,
-}, { corner(4) })
-local liveText = label("Live", 13, P.dim, App.SANS_M, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -30, 1, 0), Parent = live })
-App.ui.liveGlow = App.glow(live, 10, 0.6)
-App.pressable(live, 0.95)
-local function liveLook()
-live.BackgroundColor3 = G.live and P.accentSoft or P.raised
-liveStroke.Color = G.live and P.accentLine or P.line
-dot.BackgroundColor3 = G.live and P.accent or P.faint
-liveText.TextColor3 = G.live and P.accent or P.dim
-end
-liveLook()
-App.ui.liveLook = liveLook
-live.MouseButton1Click:Connect(App.toggleLive)
-hintOn(
-live,
-"On: every change shows right away (a big area as see-through boxes until Generate). Off: changes wait for Generate; brushing one object and its buttons always show at once."
-)
-local shuffle = App.iconButton("refresh", "Shuffle: a new random layout with the same settings. Ctrl+Z goes back.", App.shuffle, false, 38)
-shuffle.LayoutOrder = 2
-shuffle.Parent = right
-local undo = App.iconButton("undo", "Undo the last step (Ctrl+Z)", function()
-App.undoStep()
-end, false, 38)
-undo.LayoutOrder = 3
-undo.Parent = right
-end
-local running = false
-App.showProgress = function(phase, progress)
-local bar, btn = App.ui.progress, App.ui.genBtn
-local on = phase ~= nil
-if on ~= running then
-running = on
-if bar then
-bar.Visible = on
-App.ui.progressSweep:play(on)
-end
-if App.ui.liveGlow then
-App.ui.liveGlow:pulse(on)
-end
-if App.ui.genSweep then
-App.ui.genSweep:play(on)
-end
-if btn and App.ui.genBar then
-App.ui.genBar.Visible = on
-end
-end
-if not on then
-App.refreshCounts()
-return
-end
-local p = math.clamp(progress or 0, 0.02, 1)
-if bar then
-bar.Size = UDim2.fromScale(p, 1)
-end
-if btn and App.ui.genBar then
-App.ui.genBar.Size = UDim2.fromScale(p, 1)
-btn.Text = string.format("%s…  %d%%   ·   click to stop", phase, math.floor(p * 100 + 0.5))
-btn.Font = SANS_B
-btn.BackgroundColor3 = P.accent
-btn.TextColor3 = P.onAccent
-end
-end
-local flashToken = 0
-App.flashDone = function(text)
-local btn = App.ui.genBtn
-if not btn then
-return
-end
-flashToken += 1
-local my = flashToken
-btn.Text = text
-task.delay(1.5, function()
-if my == flashToken and not App.busy() then
-App.refreshCounts()
-end
-end)
-end
-local toastToken = 0
-local function hideToast(t, speed)
-toastToken += 1
-local my = toastToken
-tween(t.group, speed or MED, { GroupTransparency = 1 })
-task.delay(0.3, function()
-if my == toastToken then
-t.group.Visible = false
-end
-end)
-end
-App.status = function(msg, tone)
-local t = App.ui.toast
-if not t then
-return
-end
-if msg == "" then
-hideToast(t, FAST)
-return
-end
-toastToken += 1
-local my = toastToken
-t.group.Visible = true
-local err = tone == "error"
-t.text.Text = msg
-t.dot.BackgroundColor3 = err and P.danger or P.accent
-t.glow:set(err)
-if t.group.GroupTransparency > 0.5 then
-t.group.Position = UDim2.new(0.5, 0, 1, -barH() - 2)
-tween(t.group, MED, { GroupTransparency = 0, Position = UDim2.new(0.5, 0, 1, -barH() - 10) })
-end
-task.delay(err and 6 + #msg * 0.02 or math.min(2.2 + #msg * 0.012, 5), function()
-if my == toastToken and App.ui.toast == t then
-hideToast(t)
-end
-end)
-end
-local hinted = {}
-App.hint = function(key, msg)
-hinted[key] = (hinted[key] or 0) + 1
-if hinted[key] <= 2 then
-App.status(msg)
-end
-end
-local function buildToast(parent)
-local group = new("CanvasGroup", {
-BackgroundTransparency = 1,
-GroupTransparency = 1,
-AnchorPoint = Vector2.new(0.5, 1),
-Position = UDim2.new(0.5, 0, 1, -barH() - 10),
-Size = UDim2.new(1, -24, 0, 0),
-AutomaticSize = Enum.AutomaticSize.Y,
-ZIndex = 60,
-Parent = parent,
-})
-local pill = col({
-BackgroundTransparency = 0.04,
-BackgroundColor3 = P.card,
-AnchorPoint = Vector2.new(0.5, 0),
-Position = UDim2.fromScale(0.5, 0),
-Size = UDim2.new(1, -8, 0, 0),
-ZIndex = 60,
-Parent = group,
-}, { corner(12), App.stroke(P.line), pad(34, 14, 9, 9) })
-App.shade(pill, 0.06)
-App.topLight(pill, 0.1, 12)
-local dot = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.accent,
-AnchorPoint = Vector2.new(0, 0.5),
-Position = UDim2.new(0, -20, 0.5, 0),
-Size = UDim2.fromOffset(8, 8),
-ZIndex = 61,
-Parent = pill,
-}, { corner(4) })
-local text = para("", { ZIndex = 61, Parent = pill })
-text.TextColor3 = P.text
-local t = { group = group, text = text, dot = dot, glow = App.glow(pill, 12, 0.6, P.danger) }
-new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 62, Parent = group }).MouseButton1Click:Connect(
-function()
-hideToast(t, FAST)
-end
-)
-group.Visible = false
-App.ui.toast = t
-end
-local searchText = ""
-local function clearSearch()
-searchText = ""
-App.setSearch("")
-end
-App.clearSearch = clearSearch
-App.settingsOpen = false
-App.openSettings = function(on)
-App.settingsOpen = on
-clearSearch()
-App.rebuildAll()
-end
-local function buildTitle(parent)
-local row = box({ Size = UDim2.new(1, 0, 0, 30), Parent = parent })
-if App.settingsOpen then
-App.pageHead(row, "Settings", nil, function()
-App.openSettings(false)
-end)
-else
-new("ImageLabel", {
-Image = App.LOGO.mark,
-BackgroundTransparency = 1,
-AnchorPoint = Vector2.new(0, 0.5),
-Position = UDim2.new(0, 0, 0.5, 0),
-Size = UDim2.fromOffset(20, 20),
-Parent = row,
-})
-label("Smart Scatter", 14, P.text, SANS_B, { Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -110, 1, 0), Parent = row })
-end
-local right = box({
-AnchorPoint = Vector2.new(1, 0),
-Position = UDim2.fromScale(1, 0),
-Size = UDim2.fromOffset(0, 30),
-AutomaticSize = Enum.AutomaticSize.X,
-Parent = row,
-}, { hlist(6) })
-if not App.settingsOpen then
-local plus = App.iconButton("plus", "New: a zone, a path or a keep-clear zone", function(b)
-App.openNewMenu(b)
-end, false, 30)
-plus.LayoutOrder = 1
-plus.Parent = right
-App.ui.plusBtn = plus
-end
-local gear = App.iconButton("settings", App.settingsOpen and "Back to your things" or "Settings", function()
-App.openSettings(not App.settingsOpen)
-end, App.settingsOpen, 30)
-gear.LayoutOrder = 2
-gear.Parent = right
-App.ui.gearBtn = gear
-end
-local buildPage, enterCards
-local function buildSearch(parent)
-local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
-local st = App.stroke(P.line)
-st.Parent = row
-App.glass(row)
-local ic = App.icon("search", 13, P.faint)
-ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
-ic.Parent = row
-local tb = new("TextBox", {
-Text = searchText,
-PlaceholderText = "Search settings  ·  " .. App.keyText("palette") .. " for any action",
-Font = SANS,
-TextSize = 13,
-TextColor3 = P.text,
-PlaceholderColor3 = P.faint,
-BackgroundTransparency = 1,
-ClearTextOnFocus = false,
-TextXAlignment = Enum.TextXAlignment.Left,
-Position = UDim2.fromOffset(30, 0),
-Size = UDim2.new(1, -62, 1, 0),
-Parent = row,
-})
-App.ui.search = tb
-local x = App.iconButton("close", "Clear the search", function()
-tb.Text = ""
-end, false, 24)
-x.AnchorPoint, x.Position = Vector2.new(1, 0.5), UDim2.new(1, -4, 0.5, 0)
-x.Visible = searchText ~= ""
-x.Parent = row
-tb.Focused:Connect(function()
-st.Color = P.accentLine
-end)
-tb.FocusLost:Connect(function()
-st.Color = App.blobsOn() and Color3.new(1, 1, 1) or P.line
-end)
-local token = 0
-tb:GetPropertyChangedSignal("Text"):Connect(function()
-if tb.Text == searchText then
-return
-end
-searchText = tb.Text
-x.Visible = searchText ~= ""
-token += 1
-local my = token
-task.delay(0.2, function()
-if my ~= token or App.ui.search ~= tb then
-return
-end
-App.setSearch(searchText)
-buildPage()
-end)
-end)
-end
-local SHELL = {
-"plusBtn",
-"gearBtn",
-"outliner",
-"outlinerCount",
-"outlinerFilter",
-"tabs",
-"tabRow",
-"crumb",
-"search",
-"foot",
-"progress",
-"progressSweep",
-"genBtn",
-"genSweep",
-"genBar",
-"liveGlow",
-"history",
-"toast",
-"popup",
-}
-function buildPage()
-local sc = App.scroll
-if not sc then
-return
-end
-local keep = {}
-for _, k in SHELL do
-keep[k] = App.ui[k]
-end
-App.ui = keep
-App.hideTip()
-App.pruneThumbs(false, sc)
-for _, ch in sc:GetChildren() do
-if ch:IsA("GuiObject") then
-ch:Destroy()
-end
-end
-App.ui.builtShape = App.shapeKey()
-local page = col({ Parent = sc }, { vlist(10) })
-if App.settingsOpen and not App.searching() then
-App.buildSettingsPage(page)
-else
-App.buildProperties(page)
-end
-App.refreshScan()
-App.refreshObjects()
-end
-App.scrollIntoView = function(obj)
-task.defer(function()
-task.defer(function()
-local sc = App.scroll
-if not (sc and obj.Parent and obj:IsDescendantOf(sc)) then
-return
-end
-local top = obj.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
-tween(sc, MED, { CanvasPosition = Vector2.new(0, math.max(top - 10, 0)) })
-end)
-end)
-end
-local ENTER = TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-function enterCards()
-local k = 0
-for _, c in App.scroll:GetDescendants() do
-if k >= 8 then
-break
-end
-if c:IsA("GuiObject") and c:GetAttribute("SS_Card") then
-local sc = new("UIScale", { Scale = 0.97, Parent = c })
-local rest = c.BackgroundTransparency
-c.BackgroundTransparency = 1
-task.delay(k * 0.045, function()
-if c.Parent then
-tween(sc, ENTER, { Scale = 1 })
-tween(c, MED, { BackgroundTransparency = rest })
-end
-end)
-k += 1
-end
-end
-end
-local builtPage
-local firstBuild = true
-local function pageKey()
-if App.settingsOpen then
-return "settings"
-end
-local t = App.currentTab()
-local sel = App.selected
-local what = "none"
-if sel then
-what = sel.kind .. ":" .. (sel.folder and sel.folder:GetFullName() or "")
-end
-return what .. "|" .. (t and t.id or "")
-end
-App.rebuildAll = function()
-local key = pageKey()
-local keepScroll = builtPage == key and App.scroll and App.scroll.Parent and App.scroll.CanvasPosition
-local turned = builtPage ~= nil and builtPage ~= key
-builtPage = key
-if App.root then
-App.pruneThumbs()
-App.root:Destroy()
-end
-App.ui = {}
-local blobs = App.backdrop(App.widget)
-App.root = box({
-Size = UDim2.fromScale(1, 1),
-BackgroundTransparency = blobs and 1 or 0,
-BackgroundColor3 = P.bg,
-ZIndex = 1,
-Parent = App.widget,
-})
-App.root.InputBegan:Connect(function(input)
-if App.panelKey then
-App.panelKey(input)
-end
-end)
-App.root.InputEnded:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 and App.releaseMouse then
-App.releaseMouse()
-end
-end)
-local head = col({
-BackgroundTransparency = App.blobsOn() and 1 or 0,
-BackgroundColor3 = P.bg,
-ZIndex = 2,
-Parent = App.root,
-}, { pad(14, 14, 12, 8), vlist(0) })
-App.scroll = new("ScrollingFrame", {
-Size = UDim2.new(1, 0, 1, -barH()),
-CanvasSize = UDim2.new(),
-BackgroundTransparency = 1,
-AutomaticCanvasSize = Enum.AutomaticSize.Y,
-ScrollBarThickness = 4,
-ScrollBarImageColor3 = P.faint,
-ScrollBarImageTransparency = 0.5,
-VerticalScrollBarInset = Enum.ScrollBarInset.Always,
-ScrollingDirection = Enum.ScrollingDirection.Y,
-Parent = App.root,
-}, { pad(PAGE_PAD, 12, 10, 24), vlist(2) })
-local scrollPad = App.scroll:FindFirstChildOfClass("UIPadding")
-App.scroll.MouseEnter:Connect(function()
-tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.15 })
-end)
-App.scroll.MouseLeave:Connect(function()
-tween(App.scroll, FAST, { ScrollBarImageTransparency = 0.5 })
-end)
-buildTitle(head)
-if App.settingsOpen or not G.compact then
-box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
-buildSearch(head)
-end
-if not App.settingsOpen then
-box({ Size = UDim2.new(1, 0, 0, 8), Parent = head })
-App.buildOutliner(head)
-if App.toolbarAvailable and not App.toolbarAvailable() then
-box({ Size = UDim2.new(1, 0, 0, 6), Parent = head })
-App.buildToolRow(head)
-end
-end
-box({ Size = UDim2.new(1, 0, 0, 2), Parent = head })
-App.sheen(App.root, 0.04, 140, 150)
-App.halftone(App.root, 0.07, 4, 150)
-local bench = box({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 0, Parent = App.root })
-box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = bench })
-local strip, column, rail
-if not App.settingsOpen then
-strip = box({ BackgroundTransparency = 0, BackgroundColor3 = P.strip, Size = UDim2.new(1, 0, 0, CRUMB_H), Parent = bench }, {
-pad(PAGE_PAD, PAGE_PAD, 4, 4),
-})
-App.buildCrumb(strip)
-box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.line,
-AnchorPoint = Vector2.new(0, 1),
-Position = UDim2.new(0, -PAGE_PAD, 1, 4),
-Size = UDim2.new(1, PAGE_PAD * 2, 0, 1),
-Parent = strip,
-})
-rail = box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.well,
-Position = UDim2.fromOffset(0, CRUMB_H),
-Size = UDim2.new(0, App.TAB_COL, 1, -CRUMB_H),
-Parent = bench,
-})
-box({
-BackgroundTransparency = 0,
-BackgroundColor3 = P.line,
-AnchorPoint = Vector2.new(1, 0),
-Position = UDim2.fromScale(1, 0),
-Size = UDim2.new(0, 1, 1, 0),
-Parent = rail,
-})
-column = App.buildTabColumn(rail)
-column.Size = UDim2.fromScale(1, 1)
-scrollPad.PaddingLeft = UDim.new(0, PAGE_PAD - 8)
-end
-local left = column and App.TAB_COL or 0
-local top = strip and CRUMB_H or 0
-local function fit()
-local h = head.AbsoluteSize.Y
-bench.Position = UDim2.fromOffset(0, h)
-bench.Size = UDim2.new(1, 0, 1, -h - barH())
-App.scroll.Position = UDim2.fromOffset(left, h + top)
-App.scroll.Size = UDim2.new(1, -left, 1, -h - top - barH())
-end
-head:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-fit()
-buildBar(App.root)
-buildToast(App.root)
-buildPage()
-if turned then
-local rest = scrollPad.PaddingLeft.Offset
-scrollPad.PaddingLeft, scrollPad.PaddingRight = UDim.new(0, rest + 24), UDim.new(0, -12)
-tween(scrollPad, MED, { PaddingLeft = UDim.new(0, rest), PaddingRight = UDim.new(0, 12) })
-end
-if turned or firstBuild then
-enterCards()
-end
-firstBuild = false
-if App.tour and App.renderTour then
-App.renderTour()
-end
-if keepScroll then
-task.defer(function()
-if App.scroll then
-App.scroll.CanvasPosition = keepScroll
-end
-end)
-end
-end
-local function applyTheme()
-makePalette()
-App.pruneThumbs(true)
-App.rebuildAll()
-rebuildOverlay()
-if App.removeSplineViz then
-App.removeSplineViz()
-App.drawSpline()
-end
-end
-App.applyTheme = applyTheme
-local rebuildQueued = false
-App.onSelect(function()
-if rebuildQueued then
-return
-end
-rebuildQueued = true
-task.defer(function()
-rebuildQueued = false
-App.rebuildAll()
-end)
-end)
-track(settings().Studio.ThemeChanged:Connect(applyTheme))
-end
-end)()
--- #module App/Viewport/Paint
-MODULES["App/Viewport/Paint"] = (function()
---[[
-Smart Scatter — Paint: painting the area in the viewport: brush, lasso, box, polygon, smart fill, gizmos, keys.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local beginRec, endRec, plugin, Engine, track, G, saveG = App.beginRec, App.endRec, App.plugin, App.Engine, App.track, App.G, App.saveG
-local LAYER_MODES, P, SANS_M, new, corner, stroke, pad = App.LAYER_MODES, App.P, App.SANS_M, App.new, App.corner, App.stroke, App.pad
-local refreshSliders, VIEW, refreshParams, probe = App.refreshSliders, App.VIEW, App.refreshParams, App.probe
-local flushRows, rebuildOverlay, saveArea = App.flushRows, App.rebuildOverlay, App.saveArea
-local canGenerate, runGenerate, newArea = App.canGenerate, App.runGenerate, App.newArea
-local UIS = game:GetService("UserInputService")
-local rawMouse = plugin:GetMouse()
-local mouse = setmetatable({}, {
-__index = function(_, k)
-local v = rawMouse[k]
-if typeof(v) == "RBXScriptSignal" then
-return {
-Connect = function(_, fn)
-return track(v:Connect(fn))
-end,
-}
-end
-return v
-end,
-})
-local down, lastPos, strokeRec, strokeChanged = false, nil, nil, false
-local strokeTouched = {}
-local strokeErased = {}
-local strokeWiped = {}
-local function cellKey(cx, cz)
-return cx * 1000003 + cz
-end
-App.cellKey = cellKey
-local strokeBox
-local function touched(cx, cz)
-local c = App.area.cell
-local x0, z0, x1, z1 = cx * c, cz * c, (cx + 1) * c, (cz + 1) * c
-local b = strokeBox
-strokeBox = b and { math.min(b[1], x0), math.min(b[2], z0), math.max(b[3], x1), math.max(b[4], z1) } or { x0, z0, x1, z1 }
-end
-local gestureOn = true
-local gestureAction
-local shapePts, boxStart
-local lastClick = 0
-local function shiftHeld()
-local ok, v = pcall(function()
-return UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)
-end)
-return ok and v
-end
-local function erasing()
-return (App.mode == "Erase") ~= (shiftHeld() == true)
-end
-local function layerAction()
-return shiftHeld() and App.LAYER_OPPOSITE[App.mode] or App.mode
-end
-local function activeTool()
-return LAYER_MODES[App.mode] and "Brush" or G.tool
-end
-App.gz = {}
-local function gizmoFolder()
-if App.gz.folder and App.gz.folder.Parent then
-return App.gz.folder
-end
-App.gz = {}
-App.gz.folder = new("Folder", { Name = "SmartScatterBrush", Archivable = false, Parent = workspace.CurrentCamera })
-local T = workspace.Terrain
-App.gz.ring =
-new("CylinderHandleAdornment", { Adornee = T, Height = 0.1, Transparency = 0.1, AlwaysOnTop = true, ZIndex = 2, Parent = App.gz.folder })
-App.gz.disc = new(
-"CylinderHandleAdornment",
-{ Adornee = T, Height = 0.05, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
-)
-App.gz.halo = new(
-"CylinderHandleAdornment",
-{ Adornee = T, Height = 0.06, Transparency = 0.86, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder }
-)
-App.gz.sq = new("BoxHandleAdornment", { Adornee = T, Transparency = 0.84, AlwaysOnTop = true, ZIndex = 1, Parent = App.gz.folder })
-App.gz.dot =
-new("SphereHandleAdornment", { Adornee = T, Radius = 0.3, Transparency = 0, AlwaysOnTop = true, ZIndex = 3, Parent = App.gz.folder })
-App.gz.anchor = new("Part", {
-Anchored = true,
-CanCollide = false,
-CanQuery = false,
-CanTouch = false,
-Transparency = 1,
-Locked = true,
-Archivable = false,
-Size = Vector3.one * 0.2,
-Parent = App.gz.folder,
-})
-App.gz.bb = new("BillboardGui", {
-Adornee = App.gz.anchor,
-Size = UDim2.fromOffset(240, 26),
-StudsOffsetWorldSpace = Vector3.new(0, 1.5, 0),
-SizeOffset = Vector2.new(0, 0.9),
-AlwaysOnTop = true,
-LightInfluence = 0,
-ResetOnSpawn = false,
-Parent = App.gz.folder,
-})
-local pill = new("Frame", {
-BackgroundColor3 = P.bg,
-BackgroundTransparency = 0.08,
-AnchorPoint = Vector2.new(0.5, 0.5),
-Position = UDim2.fromScale(0.5, 0.5),
-Size = UDim2.fromOffset(0, 24),
-AutomaticSize = Enum.AutomaticSize.X,
-Parent = App.gz.bb,
-}, { corner(12), stroke(P.line), pad(10, 10, 0, 0) })
-App.gz.text = new("TextLabel", {
-BackgroundTransparency = 1,
-Font = SANS_M,
-TextSize = 13,
-TextColor3 = P.text,
-Text = "",
-Size = UDim2.fromOffset(0, 24),
-AutomaticSize = Enum.AutomaticSize.X,
-Parent = pill,
-})
-App.gz.lines = {}
-return App.gz.folder
-end
-local function removeGizmo()
-if App.gz.folder then
-App.gz.folder:Destroy()
-end
-App.gz = {}
-end
-local function toolColor()
-if LAYER_MODES[App.mode] then
-local act = layerAction()
-return (act == "None" or act == "Less") and P.danger or act == "Clear" and VIEW.muted or VIEW.accent
-end
-return erasing() and VIEW.blocked or VIEW.accent
-end
-local function drawPath(pts, closed, color)
-gizmoFolder()
-local n = #pts
-local segs = closed and n or n - 1
-for i = 1, math.max(segs, #App.gz.lines) do
-local seg = App.gz.lines[i]
-if i <= segs and n >= 2 then
-if not seg then
-seg = new(
-"BoxHandleAdornment",
-{ Adornee = workspace.Terrain, AlwaysOnTop = true, ZIndex = 4, Transparency = 0.05, Parent = App.gz.folder }
-)
-App.gz.lines[i] = seg
-end
-local a, b = pts[i], pts[i % n + 1]
-local len = (b - a).Magnitude
-seg.Visible = len > 1e-3
-if len > 1e-3 then
-seg.Size = Vector3.new(0.35, 0.2, len + 0.35)
-seg.CFrame = CFrame.lookAt((a + b) / 2 + Vector3.new(0, 0.3, 0), b + Vector3.new(0, 0.3, 0))
-seg.Color3 = color
-end
-elseif seg then
-seg.Visible = false
-end
-end
-end
-local function clearPath()
-if App.gz.lines then
-for _, s in App.gz.lines do
-s.Visible = false
-end
-end
-end
-local NICE_SURF = { Dirt = "Path", Generic = "Other", None = "Nothing" }
-local function setLabel(t)
-if App.gz.text then
-App.gz.text.Text = t
-App.gz.bb.Enabled = t ~= ""
-end
-end
-local function mouseHit()
-if not App.probeParams then
-refreshParams()
-end
-local ray = mouse.UnitRay
-return Engine.cast(ray.Origin, ray.Direction * 5000, App.probeParams)
-end
-App.modeHandlers = {}
-App.registerMode = function(mode, spec)
-App.modeHandlers[mode] = spec
-if spec.noArea then
-App.NO_AREA_MODES[mode] = true
-end
-end
-local sizing
-local smoothUp, lastRingAt
-local function updateGizmo(hit)
-if App.modeHandlers[App.mode] then
-gizmoFolder()
-for _, k in { "ring", "disc", "halo", "sq", "dot" } do
-if App.gz[k] then
-App.gz[k].Visible = false
-end
-end
-end
-if App.mode == "Spline" or App.mode == "Remove" or App.modeHandlers[App.mode] then
-if App.clearGrid then
-App.clearGrid()
-end
-return
-end
-gizmoFolder()
-if App.gz.pick then
-App.gz.pick.Adornee = nil
-end
-local tool = activeTool()
-local show = hit ~= nil
-local R = G.radius
-local brush = show and tool == "Brush"
-local col = toolColor()
-App.gz.ring.Visible = brush and G.shape == "Circle"
-App.gz.disc.Visible = App.gz.ring.Visible
-App.gz.halo.Visible = App.gz.ring.Visible
-App.gz.sq.Visible = brush and G.shape == "Square"
-App.gz.dot.Visible = show
-App.gz.bb.Enabled = show
-if App.drawGrid then
-App.drawGrid(show and hit.Position or nil)
-end
-if not show then
-return
-end
-local p = hit.Position
-if not smoothUp or not lastRingAt or (p - lastRingAt).Magnitude > R * 1.5 then
-smoothUp = hit.Normal
-else
-smoothUp = smoothUp:Lerp(hit.Normal, 0.3).Unit
-end
-lastRingAt = p
-local up = Engine.rotateUp(smoothUp)
-local flat = CFrame.new(p) * up
-App.gz.ring.Radius, App.gz.ring.InnerRadius = R, math.max(R - math.max(0.3, R * 0.025), 0)
-App.gz.ring.CFrame = flat * CFrame.Angles(math.pi / 2, 0, 0)
-App.gz.disc.Radius = R
-App.gz.disc.CFrame = App.gz.ring.CFrame
-local glowW = math.max(0.5, R * 0.05)
-App.gz.halo.Radius, App.gz.halo.InnerRadius = R + glowW, R
-App.gz.halo.CFrame = App.gz.ring.CFrame
-App.gz.sq.Size = Vector3.new(R * 2, 0.08, R * 2)
-App.gz.sq.CFrame = CFrame.new(p)
-for _, a in { App.gz.ring, App.gz.disc, App.gz.halo, App.gz.sq, App.gz.dot } do
-a.Color3 = col
-end
-App.gz.dot.CFrame = CFrame.new(p)
-App.gz.anchor.CFrame = CFrame.new(p)
-local surf = Engine.surfaceOf(hit.Instance, hit.Material)
-local what = LAYER_MODES[App.mode] and (App.LAYER_LABEL[layerAction()] .. (App.paintLayer and (" · " .. App.paintLayer.inst.Name) or ""))
-or ((erasing() and "Erase" or "Paint") .. " · " .. (NICE_SURF[surf] or surf))
-if not LAYER_MODES[App.mode] and App.groundNote then
-local note = App.groundNote(p.X, p.Z)
-if note ~= "" then
-what ..= "  ·  " .. note
-end
-end
-if tool == "Polygon" and App.polyPts then
-what ..= string.format("  ·  %d points · Enter or click the first to close", #App.polyPts)
-elseif tool == "Box" and down and boxStart then
-what = string.format("%.0f × %.0f studs", math.abs(p.X - boxStart.X), math.abs(p.Z - boxStart.Z))
-elseif tool == "Lasso" and down then
-what ..= "  ·  release to fill"
-elseif tool == "Fill" then
-what ..= "  ·  click to fill connected " .. string.lower(NICE_SURF[surf] or surf)
-end
-setLabel(sizing and string.format("Brush size %d  ·  click to keep, Esc to cancel", R) or what)
-end
-local function allow(cx, cz)
-if not App.paintFilterOn then
-return true
-end
-return G.paintOn[probe(cx, cz).cls] == true
-end
-local function applyCell(cx, cz, on, yHint)
-if Engine.hasCell(App.area, cx, cz) == on then
-return false
-end
-local info = probe(cx, cz, yHint)
-if on and not allow(cx, cz) then
-return false
-end
-Engine.setCell(App.area, cx, cz, on)
-if not on then
-strokeErased[cellKey(cx, cz)] = true
-end
-touched(cx, cz)
-if on then
-App.area.topY = (App.area.count <= 1) and info.y or math.max(App.area.topY, info.y)
-end
-App.dirtyRows[cz] = true
-strokeChanged = true
-return true
-end
-local pinRng = Random.new(os.time())
-local function placeStamp(pos, erase)
-local l, R = App.paintLayer, G.radius
-if not l then
-return
-end
-local changed
-if erase then
-changed = Engine.erasePins(l, pos.X, pos.Z, R) > 0
-else
-changed = #Engine.brushPins(App.area, l, pos.X, pos.Z, R, pinRng) > 0
-end
-if changed then
-local c = App.area.cell
-touched(math.floor((pos.X - R) / c), math.floor((pos.Z - R) / c))
-touched(math.floor((pos.X + R) / c), math.floor((pos.Z + R) / c))
-strokeChanged = true
-end
-end
-local function stamp(pos)
-local act = LAYER_MODES[App.mode] and gestureAction
-if act == "Place" then
-placeStamp(pos)
-return
-elseif act == "None" then
-placeStamp(pos, true)
-table.insert(strokeWiped, { pos.X, pos.Z, G.radius, G.shape == "Square" })
-end
-local c, R = App.area.cell, G.radius
-local sq = G.shape == "Square"
-for cx = math.floor((pos.X - R) / c), math.floor((pos.X + R) / c) do
-for cz = math.floor((pos.Z - R) / c), math.floor((pos.Z + R) / c) do
-local dx, dz = (cx + 0.5) * c - pos.X, (cz + 0.5) * c - pos.Z
-local inside
-if sq then
-inside = math.abs(dx) <= R and math.abs(dz) <= R
-else
-inside = dx * dx + dz * dz <= R * R
-end
-if inside then
-if LAYER_MODES[App.mode] then
-local key = cx * 1000003 + cz
-if App.paintLayer and Engine.hasCell(App.area, cx, cz) and not strokeTouched[key] then
-strokeTouched[key] = true
-local v = Engine.paintValue(App.paintLayer, cx, cz)
-local nv = 1
-if act == "More" then
-nv = v + 0.5
-elseif act == "Less" then
-nv = v - 0.5
-elseif act == "None" then
-nv = 0
-end
-if nv ~= v then
-Engine.setPaint(App.paintLayer, cx, cz, nv)
-touched(cx, cz)
-strokeChanged = true
-App.dirtyRows[cz] = true
-end
-end
-else
-applyCell(cx, cz, gestureOn, pos.Y)
-end
-end
-end
-end
-end
-local function strokeTo(pos)
-local step = math.max(G.radius * 0.3, App.area.cell * 0.75)
-if not lastPos then
-stamp(pos)
-lastPos = pos
-return
-end
-local d = pos - lastPos
-local len = math.sqrt(d.X * d.X + d.Z * d.Z)
-if len < step then
-return
-end
-local n = math.ceil(len / step)
-for i = 1, n do
-stamp(lastPos:Lerp(pos, i / n))
-end
-lastPos = pos
-end
-local function fillShape(pts)
-if #pts < 3 then
-return
-end
-local poly, ysum = {}, 0
-for _, p in pts do
-table.insert(poly, { p.X, p.Z })
-ysum += p.Y
-end
-local yHint = ysum / #pts
-local changed = Engine.fillPolygon(App.area, poly, gestureOn, function(cx, cz)
-if not gestureOn then
-return true
-end
-probe(cx, cz, yHint)
-return allow(cx, cz)
-end)
-for _, cc in changed do
-App.dirtyRows[cc[2]] = true
-if gestureOn then
-App.area.topY = math.max(App.area.topY, probe(cc[1], cc[2]).y)
-else
-strokeErased[cellKey(cc[1], cc[2])] = true
-end
-end
-if #changed > 0 then
-strokeChanged = true
-end
-end
-local function smartFill(hit)
-local c = App.area.cell
-local sx, sz = math.floor(hit.Position.X / c), math.floor(hit.Position.Z / c)
-local start = probe(sx, sz, hit.Position.Y)
-local R2 = (G.fillReach / c) ^ 2
-local seen = { [sx * 1000003 + sz] = true }
-local queue, qi = { sx, sz, start.y }, 1
-local count, cap = 0, 60000
-while qi < #queue and count < cap do
-local cx, cz, py = queue[qi], queue[qi + 1], queue[qi + 2]
-qi += 3
-local ok, info
-if gestureOn then
-info = probe(cx, cz, py)
-ok = info.cls == start.cls and math.abs(info.y - py) < 2.5
-else
-ok = Engine.hasCell(App.area, cx, cz)
-info = ok and probe(cx, cz, py)
-end
-if ok then
-applyCell(cx, cz, gestureOn, py)
-count += 1
-for d = 1, 4 do
-local nx = cx + (d == 1 and 1 or d == 2 and -1 or 0)
-local nz = cz + (d == 3 and 1 or d == 4 and -1 or 0)
-local k = nx * 1000003 + nz
-if not seen[k] and (nx - sx) ^ 2 + (nz - sz) ^ 2 <= R2 then
-seen[k] = true
-table.insert(queue, nx)
-table.insert(queue, nz)
-table.insert(queue, info.y)
-end
-end
-end
-end
-end
-local function beginGesture(name)
-strokeChanged = false
-table.clear(strokeTouched)
-table.clear(strokeErased)
-table.clear(strokeWiped)
-strokeRec = beginRec(name)
-end
-local function dropErased(erased, wiped, l)
-local a, c, n = App.area, App.area.cell, 0
-if next(erased) then
-n += Engine.dropWhere(a, function(x, z)
-return erased[cellKey(math.floor(x / c), math.floor(z / c))] == true
-end)
-end
-if #wiped > 0 and l then
-n += Engine.dropWhere(a, function(x, z)
-for _, w in wiped do
-local dx, dz = x - w[1], z - w[2]
-if (w[4] and math.max(math.abs(dx), math.abs(dz)) or math.sqrt(dx * dx + dz * dz)) <= w[3] then
-return true
-end
-end
-return false
-end, Engine.layerKey(l), true)
-end
-if n > 0 then
-App.countPlaced()
-end
-end
-App.dropErased = dropErased
-local function finishGesture()
-local rec, changed, box = strokeRec, strokeChanged, strokeBox
-local erased, wiped = table.clone(strokeErased), table.clone(strokeWiped)
-strokeRec, strokeChanged, strokeBox = nil, false, nil
-down = false
-lastPos, shapePts, boxStart = nil, nil, nil
-clearPath()
-flushRows()
-local layerPaint = LAYER_MODES[App.mode] and App.paintLayer
-if changed then
-saveArea()
-end
-endRec(rec, not changed)
-if changed then
-if not layerPaint then
-App.analysisDirty = true
-end
-if layerPaint and box then
-App.applyNow(layerPaint, nil, box)
-elseif G.live and canGenerate() then
-runGenerate(false, nil, box)
-elseif App.area then
-dropErased(erased, wiped, layerPaint)
-App.markPending()
-end
-end
-if not changed then
-return
-end
-if layerPaint then
-App.refreshObjects()
-return
-end
-if not (G.live and canGenerate()) then
-App.refreshScan()
-App.refreshCounts()
-App.status(select(2, canGenerate()) or "Area updated. Press Generate.")
-end
-end
-local function fillSelection()
-if not App.area or App.area.locked then
-return
-end
-local parts = {}
-for _, s in App.Selection:Get() do
-for _, p in s:IsA("BasePart") and { s } or s:GetDescendants() do
-if p:IsA("BasePart") and not p:FindFirstAncestor(Engine.OUT) then
-table.insert(parts, p)
-end
-end
-end
-if #parts == 0 then
-App.status("Select the parts to fill in the Explorer first: an island, a roof, a platform.")
-return
-end
-gestureOn = true
-beginGesture("Smart Scatter: Fill Selected Parts")
-for _, cc in Engine.fillFromParts(App.area, parts) do
-App.dirtyRows[cc[2]] = true
-end
-strokeChanged = true
-finishGesture()
-end
-local function closePolygon()
-if App.polyPts and #App.polyPts >= 3 then
-gestureOn = not erasing()
-beginGesture("Smart Scatter: Polygon")
-fillShape(App.polyPts)
-App.polyPts = nil
-finishGesture()
-else
-App.polyPts = nil
-clearPath()
-end
-end
-local function cancelShape()
-App.polyPts = nil
-if down then
-finishGesture()
-end
-clearPath()
-end
-local function sizeTo()
-local ray, y = mouse.UnitRay, sizing.hit.Position.Y
-if math.abs(ray.Direction.Y) < 1e-3 then
-return
-end
-local t = (y - ray.Origin.Y) / ray.Direction.Y
-if t <= 0 then
-return
-end
-local d = ray.Origin + ray.Direction * t - sizing.hit.Position
-G.radius = math.clamp(math.floor(math.sqrt(d.X * d.X + d.Z * d.Z) + 0.5), 4, 200)
-refreshSliders()
-updateGizmo(sizing.hit)
-end
-local function startSizing()
-local hit = not down and activeTool() == "Brush" and mouseHit()
-if hit then
-sizing = { hit = hit, from = G.radius }
-updateGizmo(hit)
-end
-end
-local function endSizing(keep)
-if not sizing then
-return
-end
-if not keep then
-G.radius = sizing.from
-end
-sizing = nil
-saveG()
-refreshSliders()
-updateGizmo(mouseHit())
-end
-local removeParams = RaycastParams.new()
-removeParams.FilterType = Enum.RaycastFilterType.Include
-local function copyUnderMouse()
-if not App.area then
-return nil
-end
-removeParams.FilterDescendantsInstances = { App.area.folder }
-local ray = mouse.UnitRay
-local r = workspace:Raycast(ray.Origin, ray.Direction * 5000, removeParams)
-return r and Engine.copyAt(App.area, r.Instance)
-end
-local function markCopy(copy)
-gizmoFolder()
-for _, k in { "ring", "disc", "halo", "sq", "dot" } do
-App.gz[k].Visible = false
-end
-App.gz.bb.Enabled = copy ~= nil
-App.gz.pick = App.gz.pick
-or new("Highlight", {
-FillTransparency = 0.6,
-OutlineTransparency = 0,
-DepthMode = Enum.HighlightDepthMode.Occluded,
-Parent = App.gz.folder,
-})
-App.gz.pick.FillColor, App.gz.pick.OutlineColor = P.danger, P.danger
-App.gz.pick.Adornee = copy
-if copy then
-App.gz.anchor.CFrame = copy:GetPivot()
-setLabel("Click to remove " .. copy.Name)
-end
-end
-local function removeUnderMouse()
-local copy = copyUnderMouse()
-if not copy then
-return
-end
-local rec = beginRec("Smart Scatter: Remove copy")
-local h = Engine.removeCopy(App.area, copy)
-for _, l in App.area.layers do
-if l._h == h and App.lastCounts[l] then
-App.lastCounts[l] = math.max(App.lastCounts[l] - 1, 0)
-end
-end
-saveArea()
-endRec(rec)
-markCopy(nil)
-App.refreshCounts()
-App.status(string.format("Removed. %d removed in this area.", Engine.removedCount(App.area)))
-end
-mouse.Move:Connect(function()
-if App.mode == "Off" or App.mode == "Spline" then
-return
-end
-if App.mode == "Remove" then
-markCopy(copyUnderMouse())
-return
-end
-local handler = App.modeHandlers[App.mode]
-if handler then
-handler.move()
-return
-end
-if sizing then
-sizeTo()
-return
-end
-local hit = mouseHit()
-updateGizmo(hit)
-if not hit then
-return
-end
-local tool = activeTool()
-if down then
-if tool == "Brush" then
-strokeTo(hit.Position)
-elseif tool == "Lasso" and shapePts then
-local last = shapePts[#shapePts]
-if (hit.Position - last).Magnitude >= math.max(1.5, App.area.cell * 0.5) and #shapePts < 2000 then
-table.insert(shapePts, hit.Position)
-drawPath(shapePts, true, toolColor())
-end
-elseif tool == "Box" and boxStart then
-local a, b = boxStart, hit.Position
-local y = math.max(a.Y, b.Y)
-drawPath(
-{ Vector3.new(a.X, y, a.Z), Vector3.new(b.X, y, a.Z), Vector3.new(b.X, y, b.Z), Vector3.new(a.X, y, b.Z) },
-true,
-toolColor()
-)
-end
-elseif tool == "Polygon" and App.polyPts then
-local pts = table.clone(App.polyPts)
-table.insert(pts, hit.Position)
-drawPath(pts, false, toolColor())
-end
-end)
-mouse.Button1Down:Connect(function()
-if App.mode == "Off" or App.mode == "Spline" or (App.overViewportUI and App.overViewportUI()) then
-return
-end
-if sizing then
-endSizing(true)
-return
-end
-if App.mode == "Remove" then
-if App.area and not App.area.locked then
-removeUnderMouse()
-end
-return
-end
-local handler = App.modeHandlers[App.mode]
-if handler then
-handler.down()
-return
-end
-if not App.area then
-newArea({ keepMode = true })
-end
-if App.area.locked then
-App.status("This area is locked. Unlock it in the area menu to paint or edit.")
-return
-end
-local hit = mouseHit()
-if not hit then
-return
-end
-local tool = activeTool()
-if tool == "Polygon" then
-local now = os.clock()
-local p = hit.Position
-if App.polyPts and #App.polyPts >= 3 then
-local first = App.polyPts[1]
-local near = (Vector3.new(p.X, 0, p.Z) - Vector3.new(first.X, 0, first.Z)).Magnitude <= math.max(3, App.area.cell * 1.5)
-if near or now - lastClick < 0.3 then
-lastClick = 0
-closePolygon()
-return
-end
-end
-lastClick = now
-App.polyPts = App.polyPts or {}
-table.insert(App.polyPts, p)
-drawPath(App.polyPts, false, toolColor())
-updateGizmo(hit)
-return
-end
-down = true
-gestureOn = not erasing()
-gestureAction = LAYER_MODES[App.mode] and layerAction() or nil
-if tool == "Brush" then
-beginGesture(LAYER_MODES[App.mode] and "Smart Scatter: Paint Layer" or "Smart Scatter: Paint Area")
-lastPos = nil
-strokeTo(hit.Position)
-elseif tool == "Lasso" then
-beginGesture("Smart Scatter: Lasso")
-shapePts = { hit.Position }
-elseif tool == "Box" then
-beginGesture("Smart Scatter: Box")
-boxStart = hit.Position
-elseif tool == "Fill" then
-beginGesture("Smart Scatter: Fill")
-smartFill(hit)
-finishGesture()
-end
-end)
-local upHandlers = {}
-App.onMouseUp = function(fn)
-table.insert(upHandlers, fn)
-end
-local pressed, sawHeld = false, false
-local function releaseMouse()
-if not pressed then
-return
-end
-pressed, sawHeld = false, false
-for _, fn in upHandlers do
-local ok, err = pcall(fn)
-if not ok then
-warn("[Smart Scatter] " .. tostring(err))
-end
-end
-end
-App.releaseMouse = releaseMouse
-mouse.Button1Down:Connect(function()
-pressed, sawHeld = true, false
-end)
-mouse.Button1Up:Connect(releaseMouse)
-track(UIS.InputEnded:Connect(function(input)
-if input.UserInputType == Enum.UserInputType.MouseButton1 then
-releaseMouse()
-end
-end))
-track(UIS.WindowFocusReleased:Connect(releaseMouse))
-track(App.RunService.Heartbeat:Connect(function()
-if not pressed then
-return
-end
-local ok, held = pcall(UIS.IsMouseButtonPressed, UIS, Enum.UserInputType.MouseButton1)
-if not ok then
-return
-end
-if held then
-sawHeld = true
-elseif sawHeld then
-releaseMouse()
-end
-end))
-App.onMouseUp(function()
-local handler = App.modeHandlers[App.mode]
-if handler then
-if handler.up then
-handler.up()
-end
-return
-end
-if not down then
-return
-end
-local tool = activeTool()
-if tool == "Lasso" and shapePts then
-fillShape(shapePts)
-elseif tool == "Box" and boxStart then
-local hit = mouseHit()
-if hit then
-local a, b = boxStart, hit.Position
-fillShape({ a, Vector3.new(b.X, a.Y, a.Z), b, Vector3.new(a.X, b.Y, b.Z) })
-end
-end
-finishGesture()
-end)
-local endStroke = function()
-if down then
-finishGesture()
-end
-end
-local TOOL_KEY = { tool1 = "Brush", tool2 = "Lasso", tool3 = "Box", tool4 = "Polygon", tool5 = "Fill" }
-local lastKeyAt = {}
-local ANY_TIME = {
-palette = true,
-quick = true,
-overlay = true,
-shuffle = true,
-erase = true,
-tool1 = true,
-tool2 = true,
-tool3 = true,
-tool4 = true,
-tool5 = true,
-}
-local NEEDS_AREA = { erase = true, tool1 = true, tool2 = true, tool3 = true, tool4 = true, tool5 = true }
-local function onKey(name)
-if App.mode == "Off" and not (ANY_TIME[name] and App.widget.Enabled and (App.area or not NEEDS_AREA[name])) then
-return
-end
-if os.clock() - (lastKeyAt[name] or 0) < 0.08 then
-return
-end
-lastKeyAt[name] = os.clock()
-if name == "palette" then
-if App.widget.Enabled and App.openPalette then
-App.openPalette()
-end
-return
-end
-if name == "quick" then
-if App.widget.Enabled and App.openQuick then
-App.openQuick()
-end
-return
-end
-if App.mode == "Stamp" and App.stampKey(name) then
-return
-end
-if App.mode == "Select" and App.selectKey and App.selectKey(name) then
-return
-end
-if name == "shuffle" then
-if App.area and not App.area.locked and App.shuffle then
-App.shuffle()
-end
-return
-elseif name == "overlay" then
-App.overlayHidden = not App.overlayHidden
-rebuildOverlay()
-if App.drawSpline then
-App.drawSpline()
-end
-App.status(App.overlayHidden and "Overlay hidden. Press it again to show it." or "Overlay shown.")
-return
-end
-if App.mode == "Spline" then
-App.splineKey(name)
-return
-end
-if sizing and (name == "size" or name == "close" or name == "cancel") then
-endSizing(name ~= "cancel")
-elseif TOOL_KEY[name] and not LAYER_MODES[App.mode] then
-App.setTool(TOOL_KEY[name])
-elseif name == "erase" and not LAYER_MODES[App.mode] then
-App.setMode(App.mode == "Erase" and "Paint" or "Erase")
-elseif name == "size" then
-startSizing()
-elseif name == "grow" or name == "shrink" then
-G.radius = math.clamp(math.floor(G.radius * (name == "grow" and 1.2 or 1 / 1.2) + 0.5), 4, 200)
-saveG()
-refreshSliders()
-updateGizmo(mouseHit())
-elseif name == "close" then
-closePolygon()
-elseif name == "back" then
-if App.polyPts then
-table.remove(App.polyPts)
-if #App.polyPts == 0 then
-App.polyPts = nil
-end
-clearPath()
-if App.polyPts then
-drawPath(App.polyPts, false, toolColor())
-end
-end
-elseif name == "cancel" then
-if App.polyPts or down then
-cancelShape()
-else
-App.setMode("Off")
-end
-end
-end
-local ALIASES = { KeypadEnter = "close" }
-local CHAR = { LeftBracket = "[", RightBracket = "]", Return = "\r", Backspace = "\b", Escape = "\27", Space = " ", Tab = "\t" }
-for n, d in { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", Six = "6", Seven = "7", Eight = "8", Nine = "9", Zero = "0" } do
-CHAR[n] = d
-end
-local function charOf(key)
-return CHAR[key] or (#key == 1 and string.lower(key)) or nil
-end
-local function actionFor(key)
-if App.capturingKey then
-return nil
-end
-local mods = App.modsHeld()
-local exact = App.combo(key, mods)
-for _, a in App.KEYMAP do
-if App.keyOf(a.id) == exact then
-return a.id
-end
-end
-if mods.Ctrl or mods.Alt then
-return nil
-end
-for _, a in App.KEYMAP do
-if App.keyOf(a.id) == key then
-return a.id
-end
-end
-return ALIASES[key]
-end
-track(UIS.InputBegan:Connect(function(input)
-if input.UserInputType ~= Enum.UserInputType.Keyboard or UIS:GetFocusedTextBox() then
-return
-end
-local name = actionFor(input.KeyCode.Name)
-if name then
-onKey(name)
-end
-end))
-App.panelKey = function(input)
-if input.UserInputType == Enum.UserInputType.Keyboard and not UIS:GetFocusedTextBox() then
-local name = actionFor(input.KeyCode.Name)
-if name then
-onKey(name)
-end
-end
-end
-local function shiftChanged(input)
-local k = input.KeyCode
-if (k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift) and App.mode ~= "Off" then
-if App.gz.folder then
-updateGizmo(mouseHit())
-end
-if App.refreshFocus then
-App.refreshFocus()
-end
-end
-end
-track(UIS.InputBegan:Connect(shiftChanged))
-track(UIS.InputEnded:Connect(shiftChanged))
-mouse.KeyDown:Connect(function(k)
-for _, a in App.KEYMAP do
-local key = App.splitCombo(App.keyOf(a.id))
-if charOf(key) == k then
-local name = actionFor(key)
-if name then
-onKey(name)
-end
-return
-end
-end
-end)
-local rightClicks, rmbAt, rmbPos = {}, nil, nil
-App.onRightClick = function(fn)
-table.insert(rightClicks, fn)
-end
-mouse.Button2Down:Connect(function()
-rmbAt, rmbPos = os.clock(), Vector2.new(rawMouse.X, rawMouse.Y)
-end)
-mouse.Button2Up:Connect(function()
-if not rmbAt then
-return
-end
-local quick = os.clock() - rmbAt < 0.35 and (Vector2.new(rawMouse.X, rawMouse.Y) - rmbPos).Magnitude < 6
-rmbAt = nil
-if quick then
-for _, fn in rightClicks do
-fn()
-end
-end
-end)
-App.onRightClick(function()
-if sizing then
-endSizing(false)
-elseif App.polyPts and App.mode ~= "Spline" then
-closePolygon()
-end
-end)
-local MODE_TEXT = {
-Brush = "Drag to paint. Hold Shift to erase. {size} (or {shrink} {grow}) resizes.",
-Lasso = "Drag an outline. It fills when you let go.",
-Box = "Drag a rectangle. It fills when you let go.",
-Polygon = "Click points. Click the first point, double-click, right-click or press {close} to close.",
-Fill = "Click the ground to fill everything connected of that surface.",
-Spline = "Click to add points. Drag to move, Shift+drag for height, {delete} deletes a point, {close} to finish.",
-Place = "Spray: drag to put copies down where you brush. Shift takes hand-placed ones away. {size} resizes.",
-Stamp = "Click to put one copy down, drag to turn it. {turn} turns, {shrink} {grow} size, {model} the model, {shuffle} a random one.",
-Select = "Click a zone's ground, a path or a placed copy; Shift + click or drag a box for more copies. Shift + wheel turns them, Alt + wheel sizes them, {quick} or the bar at the top has the rest.",
-Array = "Press on the ground and drag along where the copies go. A click makes a row of six.",
-More = "Brush where you want more of it. Shift brushes less.",
-Less = "Brush where you want less of it (twice clears it). Shift brushes more.",
-None = "Brush to erase it there, copies placed by hand too. Shift brings it back to normal.",
-Clear = "Brush to bring it back to normal there. Shift erases it.",
-Remove = "Click a placed copy to take it out. It stays gone when you generate again.",
-}
-local function modeText(k)
-return (string.gsub(MODE_TEXT[k] or "", "{(%w+)}", App.keyText))
-end
-local function showMode()
-rebuildOverlay()
-if App.drawSpline then
-App.drawSpline()
-end
-if App.refreshFocus then
-App.refreshFocus()
-end
-for _, k in { "refreshMode", "refreshShapes", "refreshPoint" } do
-if App.ui[k] then
-App.ui[k]()
-end
-end
-end
-local function stopGestures()
-endSizing(false)
-endStroke()
-App.polyPts = nil
-clearPath()
-if App.resetSplineDrag then
-App.resetSplineDrag()
-end
-for _, h in App.modeHandlers do
-if h.stop then
-h.stop()
-end
-end
-end
-App.setMode = function(m, layer)
-if m == App.mode and (not LAYER_MODES[m] or layer == App.paintLayer) then
-m = "Off"
-end
-if not App.NO_AREA_MODES[m] and App.area and App.area.locked then
-App.status("This area is locked. Unlock it in the area menu to paint or edit.")
-m = "Off"
-end
-if m == "Remove" and not App.area then
-App.status("Generate an area first, then remove single copies from it.")
-m = "Off"
-end
-stopGestures()
-if not App.NO_AREA_MODES[m] and not App.area then
-if m == "Spline" then
-App.newSplineFn({ keepMode = true })
-else
-newArea({ keepMode = true })
-end
-end
-App.mode = m
-App.paintLayer = LAYER_MODES[m] and layer or nil
-if App.mode ~= "Off" then
-plugin:Activate(true)
-refreshParams()
-gizmoFolder()
-local t = modeText(MODE_TEXT[App.mode] and App.mode or G.tool)
-App.hint(App.mode .. G.tool, (App.mode == "Erase" and not LAYER_MODES[App.mode]) and ("Erasing. " .. t) or t)
-updateGizmo(mouseHit())
-else
-removeGizmo()
-plugin:Deactivate()
-end
-showMode()
-end
-App.setTool = function(t)
-G.tool = t
-saveG()
-App.polyPts = nil
-clearPath()
-if App.ui.refreshTool then
-App.ui.refreshTool()
-end
-if App.refreshFocus then
-App.refreshFocus()
-end
-if App.mode ~= "Paint" and App.mode ~= "Erase" then
-App.setMode("Paint")
-else
-App.hint("Paint" .. t, modeText(t))
-updateGizmo(mouseHit())
-end
-end
-local GROUND_ICON = { Brush = "brush", Lasso = "lasso", Box = "box", Polygon = "polygon", Fill = "fill" }
-local function groundOK()
-local k = App.selected and App.selected.kind
-return k ~= "Path" and k ~= "Stamps"
-end
-for i, t in App.TOOLS do
-App.registerTool({
-id = "ground:" .. t,
-group = "Ground",
-order = i,
-icon = GROUND_ICON[t],
-name = t,
-key = "tool" .. i,
-when = groundOK,
-on = function()
-return App.mode == "Paint" and G.tool == t
-end,
-click = function()
-if App.mode == "Paint" and G.tool == t then
-App.setMode("Off")
-else
-App.setTool(t)
-end
-end,
-})
-end
-App.registerTool({
-id = "ground:erase",
-group = "Ground",
-order = 10,
-icon = "trash",
-name = "Erase ground",
-key = "erase",
-danger = true,
-when = groundOK,
-on = function()
-return App.mode == "Erase"
-end,
-click = function()
-App.setMode(App.mode == "Erase" and "Off" or "Erase")
-end,
-})
-App.registerTool({
-id = "remove",
-group = "Remove",
-icon = "close",
-name = "Remove single copies",
-danger = true,
-when = function()
-return App.area ~= nil and App.kindOf(App.area) ~= "Clear"
-end,
-on = function()
-return App.mode == "Remove"
-end,
-click = function()
-App.setMode("Remove")
-end,
-})
-track(plugin.Deactivation:Connect(function()
-if App.mode ~= "Off" then
-stopGestures()
-App.mode = "Off"
-App.paintLayer = nil
-removeGizmo()
-showMode()
-end
-end))
-App.stopGestures = stopGestures
-App.fillSelection = fillSelection
-App.rawMouse = rawMouse
-App.mouse = mouse
-App.shiftHeld = shiftHeld
-App.gizmoFolder = gizmoFolder
-App.removeGizmo = removeGizmo
-App.setLabel = setLabel
-App.mouseHit = mouseHit
-end
-end)()
--- #module App/Viewport/Grid
-MODULES["App/Viewport/Grid"] = (function()
---[[
-Smart Scatter — Grid: a floor grid round the brush while painting, like Blender's viewport grid, but lying on the
-ground (hills and all) and drawn on the area's own cells, so it shows exactly what a stroke fills. It fades out
-toward its edge and every 4th line is stronger. Heights come from the overlay's ground probe (cached per cell),
-lines over flat ground are one line, not a line per cell, and it's redrawn only when the brush reaches another
-cell. Settings › Viewport can turn it off.
-Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
-]]
-return function(App)
-local G, P, new = App.G, App.P, App.new
-local MAJOR = 4
-local LIFT = 0.07
-local last
-local function pool()
-local gz = App.gz
-gz.grid = gz.grid or { lines = {}, used = 0 }
-return gz.grid
-end
-local function line(a, b, transparency, major)
-local g = pool()
-g.used += 1
-local l = g.lines[g.used]
-if not l then
-l = new("LineHandleAdornment", {
-Adornee = workspace.Terrain,
-AlwaysOnTop = false,
-ZIndex = 0,
-Parent = App.gizmoFolder(),
-})
-g.lines[g.used] = l
-end
-l.CFrame = CFrame.lookAt(a, b)
-l.Length = (b - a).Magnitude
-l.Thickness = major and 2 or 1
-l.Color3 = major and Color3.new(1, 1, 1):Lerp(P.accent, 0.25) or Color3.fromRGB(225, 225, 225)
-l.Transparency = transparency
-l.Visible = true
-end
-App.clearGrid = function()
-local g = App.gz and App.gz.grid
-if g then
-for _, l in g.lines do
-l.Visible = false
-end
-g.used = 0
-end
-last = nil
-end
-App.drawGrid = function(p)
-if not (App.gz and App.gz.grid) then
-last = nil
-end
-local a = App.area
-if not (p and a and G.grid ~= false) then
-App.clearGrid()
-return
-end
-local c = a.cell
-local R = math.clamp(G.radius * 2.2, 32, 96)
-local hx, hz = math.floor(p.X / c), math.floor(p.Z / c)
-local key = hx .. "," .. hz .. "," .. R
-if key == last then
-return
-end
-last = key
-local g = pool()
-for i = 1, g.used do
-g.lines[i].Visible = false
-end
-g.used = 0
-local n = math.ceil(R / c)
-local heights = {}
-local function y(ix, iz)
-local k = ix * 100003 + iz
-local v = heights[k]
-if not v then
-v = App.probe(ix, iz, p.Y).y + LIFT
-heights[k] = v
-end
-return v
-end
-local function fade(x, z)
-return math.sqrt((x - p.X) ^ 2 + (z - p.Z) ^ 2) / R
-end
-for pass = 1, 2 do
-for k = -n, n + 1 do
-local fixed = (pass == 1 and hz or hx) + k
-local major = fixed % MAJOR == 0
-local runStart, runY, runT
-local function flush(i)
-if runStart then
-local x0, x1 = runStart * c, i * c
-local fx = fixed * c
-local A = pass == 1 and Vector3.new(x0, runY, fx) or Vector3.new(fx, runY, x0)
-local B = pass == 1 and Vector3.new(x1, runY, fx) or Vector3.new(fx, runY, x1)
-line(A, B, runT, major)
-runStart = nil
-end
-end
-for i = (pass == 1 and hx or hz) - n, (pass == 1 and hx or hz) + n do
-local ix, iz = pass == 1 and i or fixed, pass == 1 and fixed or i
-local mx, mz = (pass == 1 and (i + 0.5) * c or fixed * c), (pass == 1 and fixed * c or (i + 0.5) * c)
-local d = fade(mx, mz)
-if d > 1 then
-flush(i)
-else
-local h = y(ix, iz)
-local t = math.clamp((major and 0.35 or 0.6) + (major and 0.65 or 0.4) * d ^ 1.6, 0, 1)
-local tq = math.floor(t * 5 + 0.5) / 5
-if runStart and (math.abs(h - runY) > 0.35 or tq ~= runT) then
-flush(i)
-end
-if not runStart then
-runStart, runY, runT = i, h, tq
-end
-end
-end
-flush((pass == 1 and hx or hz) + n + 1)
-end
-end
-end
-end
-end)()
 -- #module App/Viewport/Spline
 MODULES["App/Viewport/Spline"] = (function()
 --[[
@@ -6814,6 +4693,396 @@ task.delay(0.5, function()
 if App.root and not App.tour then
 App.startTour()
 end
+end)
+end
+end
+end)()
+-- #module App/Core/Lifecycle
+MODULES["App/Core/Lifecycle"] = (function()
+--[[
+Smart Scatter — Lifecycle: undo/redo reload, wiring and cleanup.
+Runs once, in the order App/init.lua sets; shared state and cross-module functions live on App.
+]]
+return function(App)
+local ChangeHistoryService, ctx, plugin, Engine, conns = App.ChangeHistoryService, App.ctx, App.plugin, App.Engine, App.conns
+local track, LAYER_MODES, toggleBtn, clearOverlay = App.track, App.LAYER_MODES, App.toggleBtn, App.clearOverlay
+local switchArea, eachThumb, closePopup, removeGizmo = App.switchArea, App.eachThumb, App.closePopup, App.removeGizmo
+local removeSplineViz = App.removeSplineViz
+local function alive(folder)
+return folder ~= nil and folder:IsDescendantOf(workspace)
+end
+local HttpService = game:GetService("HttpService")
+local G = App.G
+local SKIP =
+{ SS_TopY = true, SS_Failed = true, SS_Kind = true, SS_Area = true, SS_Mask = true, SS_Layers = true, SS_Removed = true, SS_Order = true }
+local AT_ONCE = { SS_Seed = true, SS_Cell = true }
+local OUTPUT_STEPS = { ["Smart Scatter: Clear"] = true }
+local function decode(json)
+local ok, t = pcall(HttpService.JSONDecode, HttpService, json or "[]")
+return (ok and type(t) == "table") and t or {}
+end
+local function same(a, b)
+if type(a) ~= type(b) then
+return false
+end
+if type(a) ~= "table" then
+return a == b
+end
+for k, v in a do
+if not same(v, b[k]) then
+return false
+end
+end
+for k in b do
+if a[k] == nil then
+return false
+end
+end
+return true
+end
+local function keyOf(d)
+return type(d) == "table" and type(d.p) == "table" and table.concat(d.p, ".") or nil
+end
+local function diffLayers(oldJSON, newJSON)
+local old, new = decode(oldJSON), decode(newJSON)
+local r = { dropped = {} }
+local oldBy, oldOrder = {}, {}
+for _, d in old do
+local k = keyOf(d)
+if k then
+oldBy[k] = d
+table.insert(oldOrder, k)
+end
+end
+local newKeys, newOrder = {}, {}
+for _, d in new do
+local k = keyOf(d)
+if k then
+newKeys[k] = true
+table.insert(newOrder, k)
+local o = oldBy[k]
+local s, os = type(d.s) == "table" and d.s or {}, o and type(o.s) == "table" and o.s or {}
+local hand = not o
+or not same(d.v, o.v)
+or not same(d.pm, o.pm)
+or not same(d.pn, o.pn)
+or not same(d.post, o.post)
+or s.seed ~= os.seed
+local rules = o ~= nil and not hand and not same(d.t, o.t)
+if o and not rules then
+local a, b = table.clone(s), table.clone(os)
+a.seed, b.seed = nil, nil
+rules = not same(a, b)
+end
+if hand then
+r.firstHand = r.firstHand or k
+end
+if rules then
+r.rules = true
+end
+if hand or rules then
+r.firstAny = r.firstAny or k
+end
+end
+end
+for _, k in oldOrder do
+if not newKeys[k] then
+table.insert(r.dropped, k)
+end
+end
+local kept = {}
+for _, k in oldOrder do
+if newKeys[k] then
+table.insert(kept, k)
+end
+end
+local shared = 0
+for _, k in newOrder do
+if oldBy[k] then
+shared += 1
+if kept[shared] ~= k then
+r.reordered = true
+break
+end
+end
+end
+return r
+end
+local function diffMask(oldArea, newArea)
+local c = newArea.cell
+local box, gone, rows = nil, {}, {}
+local function grow(cx, cz)
+local x0, z0, x1, z1 = cx * c, cz * c, (cx + 1) * c, (cz + 1) * c
+box = box and { math.min(box[1], x0), math.min(box[2], z0), math.max(box[3], x1), math.max(box[4], z1) } or { x0, z0, x1, z1 }
+end
+for cz, row in newArea.rows do
+for cx in row do
+if not Engine.hasCell(oldArea, cx, cz) then
+grow(cx, cz)
+rows[cz] = true
+end
+end
+end
+local anyGone = false
+for cz, row in oldArea.rows do
+for cx in row do
+if not Engine.hasCell(newArea, cx, cz) then
+gone[App.cellKey(cx, cz)] = true
+rows[cz] = true
+anyGone = true
+end
+end
+end
+return box, anyGone and gone or nil, next(rows) ~= nil and rows or nil
+end
+local function diffRemoved(oldJSON, newJSON)
+local seen, box = {}, nil
+for _, e in decode(oldJSON) do
+if type(e) == "table" then
+seen[table.concat(e, ",")] = (seen[table.concat(e, ",")] or 0) + 1
+end
+end
+for _, e in decode(newJSON) do
+if type(e) == "table" then
+seen[table.concat(e, ",")] = (seen[table.concat(e, ",")] or 0) - 1
+end
+end
+for k, n in seen do
+if n ~= 0 then
+local _, x, z = string.match(k, "^([^,]+),([^,]+),([^,]+)$")
+x, z = tonumber(x), tonumber(z)
+if x and z then
+box = box and { math.min(box[1], x - 1), math.min(box[2], z - 1), math.max(box[3], x + 1), math.max(box[4], z + 1) }
+or { x - 1, z - 1, x + 1, z + 1 }
+end
+end
+end
+return box
+end
+local function joinBoxes(a, b)
+if not (a and b) then
+return a or b
+end
+return { math.min(a[1], b[1]), math.min(a[2], b[2]), math.max(a[3], b[3]), math.max(a[4], b[4]) }
+end
+local function remember()
+return {
+active = App.active and Engine.layerKey(App.active),
+heat = App.heatLayer and Engine.layerKey(App.heatLayer),
+}
+end
+local function layerByKey(k)
+for _, l in App.area and App.area.layers or {} do
+if Engine.layerKey(l) == k then
+return l
+end
+end
+return nil
+end
+local function restore(keys)
+App.heatLayer = keys.heat and layerByKey(keys.heat) or nil
+end
+local function afterHistory(steps)
+local f = App.area and App.area.folder
+local keys = remember()
+App.resetSplineDrag(true)
+App.stopGestures()
+if LAYER_MODES[App.mode] then
+App.setMode("Off")
+end
+local snap, old = App.savedAttrs, App.area
+if not (old and alive(f) and snap and snap.folder == f) then
+switchArea(alive(f) and f or Engine.listAreas()[1], keys.active)
+restore(keys)
+if G.live and App.canGenerate() then
+App.runGenerate(false)
+end
+return
+end
+local outputStep = false
+for name in type(steps) == "table" and steps or { [steps or ""] = true } do
+outputStep = outputStep or OUTPUT_STEPS[name] == true
+end
+App.cancelJob()
+local new = Engine.loadArea(f)
+local oa, na = snap.attrs, f:GetAttributes()
+local wholeNow, areaRules = outputStep, false
+for k in oa do
+if not SKIP[k] and not same(oa[k], na[k]) then
+if AT_ONCE[k] then
+wholeNow = true
+else
+areaRules = true
+end
+end
+end
+for k in na do
+if oa[k] == nil and not SKIP[k] then
+if AT_ONCE[k] then
+wholeNow = true
+else
+areaRules = true
+end
+end
+end
+local L = diffLayers(oa.SS_Layers, na.SS_Layers)
+local rules = areaRules or L.rules or L.reordered
+local cameBack, gone, rows = diffMask(old, new)
+local removedBox = diffRemoved(oa.SS_Removed, na.SS_Removed)
+App.area = new
+App.snapshotArea()
+App.failure = f:GetAttribute("SS_Failed")
+App.paintLayer = nil
+restore(keys)
+App.onAreaSwitched(f, keys.active)
+if new.cell ~= old.cell then
+App.analysisDirty = true
+App.rebuildOverlay(true)
+elseif rows then
+App.analysisDirty = true
+for cz in rows do
+App.dirtyRows[cz] = true
+end
+App.recolorOverlay()
+else
+App.recolorOverlay()
+end
+App.refreshParams()
+App.drawSpline()
+if new.locked and not App.NO_AREA_MODES[App.mode] then
+App.setMode("Off")
+end
+if #L.dropped > 0 then
+local dropped = {}
+for _, k in L.dropped do
+dropped[k] = true
+end
+for _, lf in f:GetChildren() do
+if dropped[lf:GetAttribute("SS_Key") or ""] then
+Engine.dropOutput(lf)
+end
+end
+end
+if gone then
+App.dropErased(gone, {})
+end
+App.countPlaced()
+local canGen = App.canGenerate()
+local runs = {}
+if canGen and G.live then
+if wholeNow or areaRules or L.reordered or (L.firstAny and (cameBack or removedBox)) then
+table.insert(runs, { false })
+elseif L.firstAny then
+table.insert(runs, { false, layerByKey(L.firstAny) })
+elseif cameBack or removedBox then
+table.insert(runs, { false, nil, joinBoxes(cameBack, removedBox) })
+end
+elseif canGen then
+if wholeNow then
+table.insert(runs, { true, nil, nil, true })
+else
+local patch = joinBoxes(cameBack, removedBox)
+if patch then
+table.insert(runs, { false, nil, patch, true })
+end
+if L.firstHand then
+table.insert(runs, { true, layerByKey(L.firstHand), nil, true })
+end
+if rules then
+App.markPending()
+end
+end
+end
+if #runs > 0 then
+task.spawn(function()
+for _, r in runs do
+App.runGenerate(r[1], r[2], r[3], r[4])
+end
+end)
+end
+end
+App.afterHistory = function(steps)
+afterHistory(steps)
+if App.reapplyHidden then
+App.reapplyHidden()
+end
+end
+local function onHistory(name)
+local echoes = App.historyEchoes
+if echoes and echoes.rebuild > 0 then
+echoes.rebuild -= 1
+return
+end
+if type(name) ~= "string" or not string.find(name, "Smart Scatter", 1, true) then
+return
+end
+task.defer(App.afterHistory, name)
+end
+track(ChangeHistoryService.OnUndo:Connect(onHistory))
+track(ChangeHistoryService.OnRedo:Connect(onHistory))
+track(toggleBtn.Click:Connect(function()
+App.widget.Enabled = not App.widget.Enabled
+end))
+track(App.widget:GetPropertyChangedSignal("Enabled"):Connect(function()
+toggleBtn:SetActive(App.widget.Enabled)
+if App.widget.Enabled then
+local f = App.area and App.area.folder
+switchArea(alive(f) and f or Engine.listAreas()[1])
+App.maybeStartTour()
+else
+if App.mode ~= "Off" then
+App.setMode("Off")
+end
+closePopup()
+clearOverlay()
+App.drawSpline()
+end
+end))
+switchArea(Engine.listAreas()[1])
+toggleBtn:SetActive(App.widget.Enabled)
+App.maybeStartTour()
+ctx.offerUpdate = function(version, apply)
+App.dialog(
+"Update available",
+"Smart Scatter " .. tostring(version) .. " is ready. Updating takes a second, needs no restart and changes nothing in your place.",
+{ { "Update now", "accent", apply }, { "Later", nil, function() end } },
+"info",
+"accent"
+)
+end
+if ctx.reloaded then
+App.status("Updated to v" .. tostring(ctx.version) .. ".")
+end
+return function()
+App.cancelJob()
+pcall(App.stopGestures)
+if App.mode ~= "Off" then
+App.mode = "Off"
+pcall(function()
+plugin:Deactivate()
+end)
+end
+for _, c in conns do
+c:Disconnect()
+end
+removeGizmo()
+removeSplineViz()
+clearOverlay()
+if App.clearFocus then
+App.clearFocus()
+end
+if App.closePalette then
+App.closePalette()
+end
+if App.clearToolbar then
+App.clearToolbar()
+end
+if App.root then
+App.root:Destroy()
+App.root = nil
+end
+eachThumb(function(vp)
+vp:Destroy()
 end)
 end
 end

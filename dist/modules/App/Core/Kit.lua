@@ -9,7 +9,6 @@ return function(App)
 	local RunService, FAST, tween, P, SANS = App.RunService, App.FAST, App.tween, App.P, App.SANS
 	local SANS_M, SANS_B = App.SANS_M, App.SANS_B
 	local TweenService = game:GetService("TweenService")
-	local G = App.G
 
 	--------------------------------------------------------------------------------
 	-- UI kit
@@ -110,71 +109,9 @@ return function(App)
 		return o
 	end
 	--------------------------------------------------------------------------------
-	-- Surface effects from the design: a fine halftone grain, a soft sheen from the top, lines that fade out at
-	-- both ends, and a light-to-dark shade on raised things. The grain is a tiny dot texture drawn in code
-	-- (EditableImage) and tiled, so nothing has to be uploaded; where that's unavailable the panel is just plain.
+	-- Surface effects: lines that fade out at both ends, a light-to-dark shade on raised things (the soft gradient
+	-- every button, bar and strip carries) and a faint light along a top edge. All solid: nothing is see-through.
 	--------------------------------------------------------------------------------
-	local grain -- Content of a 4×4 tile with one white dot (false: not available here)
-	local function grainContent()
-		if grain == nil then
-			local ok, c = pcall(function()
-				local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(4, 4) })
-				local buf = buffer.create(4 * 4 * 4) -- RGBA, all clear
-				local i = (1 * 4 + 1) * 4 -- the dot at (1, 1)
-				buffer.writeu8(buf, i, 255)
-				buffer.writeu8(buf, i + 1, 255)
-				buffer.writeu8(buf, i + 2, 255)
-				buffer.writeu8(buf, i + 3, 255)
-				img:WritePixelsBuffer(Vector2.zero, Vector2.new(4, 4), buf)
-				return Content.fromObject(img)
-			end)
-			grain = ok and c or false
-		end
-		return grain or nil
-	end
-	-- halftone dots over `parent` (strength 0–1; they never take clicks)
-	local function halftone(parent, strength, spacing, z)
-		local c = grainContent()
-		if not c then
-			return nil
-		end
-		local l = new("ImageLabel", {
-			BackgroundTransparency = 1,
-			Size = UDim2.fromScale(1, 1),
-			ScaleType = Enum.ScaleType.Tile,
-			TileSize = UDim2.fromOffset(spacing or 4, spacing or 4),
-			ResampleMode = Enum.ResamplerMode.Pixelated,
-			ImageTransparency = 1 - (strength or 0.04),
-			ImageColor3 = settings().Studio.Theme.Name == "Light" and Color3.new(0, 0, 0) or Color3.new(1, 1, 1),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		if not pcall(function()
-			l.ImageContent = c
-		end) then
-			l:Destroy()
-			return nil
-		end
-		return l
-	end
-	-- a soft light from the top of `parent`, fading out over `height` px
-	local function sheen(parent, strength, height, z)
-		local f = new("Frame", {
-			BackgroundColor3 = Color3.new(1, 1, 1),
-			BackgroundTransparency = 0,
-			Size = UDim2.new(1, 0, 0, height or 120),
-			Active = false,
-			ZIndex = z or 1,
-			Parent = parent,
-		})
-		new("UIGradient", {
-			Rotation = 90,
-			Transparency = NumberSequence.new(1 - (strength or 0.04), 1),
-			Parent = f,
-		})
-		return f
-	end
 	-- a 1 px line that fades in and out at the ends (edge "left": strong on the left, fading right)
 	local function fadeLine(parent, edge, strength)
 		local f = new("Frame", {
@@ -217,45 +154,9 @@ return function(App)
 		return f
 	end
 
-	-- glass: obj turns see-through, more toward the bottom, with a lighter tint at the top (a sheen), and its border
-	-- catches the light along the top edge and fades down the sides. The colour blobs behind show through it. Plain
-	-- when the blobs are off. (Gradients only: nothing is added inside obj, so its layout is untouched.)
-	local function glass(obj)
-		if G.blobs == false then
-			return
-		end
-		local light = settings().Studio.Theme.Name == "Light"
-		local base = obj.BackgroundColor3
-		obj.BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), light and 0.3 or 0.07)
-		obj.BackgroundTransparency = 0
-		local k = light and 0.97 or 0.86
-		new("UIGradient", {
-			Rotation = 90,
-			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(k, k, k)),
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, light and 0.1 or 0.12),
-				NumberSequenceKeypoint.new(1, light and 0.2 or 0.32),
-			}),
-			Parent = obj,
-		})
-		local st = obj:FindFirstChildOfClass("UIStroke") or stroke(P.line)
-		st.Color = Color3.new(1, 1, 1)
-		st.Transparency = 0
-		st.Parent = obj
-		new("UIGradient", {
-			Rotation = 90,
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, light and 0.1 or 0.7),
-				NumberSequenceKeypoint.new(0.35, light and 0.5 or 0.88),
-				NumberSequenceKeypoint.new(1, light and 0.6 or 0.93),
-			}),
-			Parent = st,
-		})
-	end
-
 	--------------------------------------------------------------------------------
 	-- Light and motion: neon glow, depth, press-in and a moving sheen. Every control uses these, so the whole
-	-- panel lights and moves the same way. Plugin UI can't blur, so glass is layers: a shade, a top light, a glow.
+	-- panel lights and moves the same way: a shade, a top light, a glow.
 	--------------------------------------------------------------------------------
 	-- a ring just outside obj's edge (a child frame, so it moves and hides with obj; it never takes clicks).
 	-- obj's own padding is undone, so the ring hugs its real edge.
@@ -411,12 +312,12 @@ return function(App)
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(0, 30),
 			AutomaticSize = Enum.AutomaticSize.X,
-		}, { corner(8), pad(kind == "danger" and 4 or 13, kind == "danger" and 4 or 13, 0, 0) })
+		}, { corner(5), pad(kind == "danger" and 4 or 13, kind == "danger" and 4 or 13, 0, 0) })
 		if kind ~= "danger" and not filled then
 			stroke(P.line).Parent = b
 		end
 		if not flat then
-			shade(b, filled and 0.1 or 0.06)
+			shade(b, filled and 0.16 or 0.12)
 			topLight(b, filled and 0.3 or 0.06, 6)
 		end
 		if filled then
@@ -1135,7 +1036,7 @@ return function(App)
 	local function segmented(options, get, set, onChange, height, toggleable, icons, hints)
 		local n = #options
 		height = math.max(height or 30, 30)
-		local f = new("Frame", { BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, height) }, { corner(9), stroke(P.line) })
+		local f = new("Frame", { BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, height) }, { corner(6), stroke(P.line) })
 		local inner = box({ Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -4), Parent = f })
 		local pill = box({
 			BackgroundTransparency = 1,
@@ -1281,7 +1182,7 @@ return function(App)
 			BackgroundTransparency = 0,
 			BackgroundColor3 = P.accent:Lerp(P.bg, 0.9),
 			Parent = parent,
-		}, { corner(10), stroke(P.accent:Lerp(P.bg, 0.72)), pad(12, 12, 10, 10) })
+		}, { corner(6), stroke(P.accent:Lerp(P.bg, 0.72)), pad(12, 12, 10, 10) })
 		local ic = icon("info", 15, P.accent)
 		ic.Position = UDim2.fromOffset(0, 1)
 		ic.Parent = f
@@ -1325,7 +1226,7 @@ return function(App)
 			BackgroundColor3 = on and P.accentSoft or P.raised,
 			AutoButtonColor = false,
 			Size = UDim2.fromOffset(size, size),
-		}, { corner(9), stroke(on and P.accentLine or P.line) })
+		}, { corner(6), stroke(on and P.accentLine or P.line) })
 		pressable(b, 0.94)
 		local ic = icon(iconName, math.floor(size * 0.44), on and P.accent or P.dim)
 		ic.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1477,7 +1378,7 @@ return function(App)
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			AutoButtonColor = false,
 			Parent = parent,
-		}, { corner(8), pad(swatch and 22 or 8, 8, 0, 0) })
+		}, { corner(5), pad(swatch and 22 or 8, 8, 0, 0) })
 		local st = stroke(P.line)
 		st.Parent = b
 		if swatch then -- a colour dot before the name
@@ -1540,7 +1441,7 @@ return function(App)
 		local tiles = { cells = {} }
 		function tiles.add(spec)
 			local color = spec.color or P.accent
-			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(8) })
+			local b = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundColor3 = P.raised, Parent = grid }, { corner(5) })
 			local st = stroke(P.line)
 			st.Parent = b
 			local inner = box({ Size = UDim2.fromScale(1, 1), Parent = b }, {
@@ -1662,7 +1563,7 @@ return function(App)
 			AutoButtonColor = false,
 			Size = opts.full and UDim2.new(1, 0, 0, 32) or UDim2.fromOffset(0, 30),
 			AutomaticSize = opts.full and Enum.AutomaticSize.None or Enum.AutomaticSize.X,
-		}, { corner(8) })
+		}, { corner(5) })
 		-- the trash can and the text in a row of their own: the glow's frames sit on the button itself, and must
 		-- never be laid out with them (they'd push the row off the button's edge)
 		local content = box({
@@ -1849,9 +1750,6 @@ return function(App)
 	App.para = para
 	App.explain = explain
 	App.hoverable = hoverable
-	App.halftone = halftone
-	App.glass = glass
-	App.sheen = sheen
 	App.fadeLine = fadeLine
 	App.shade = shade
 	App.glow = glow

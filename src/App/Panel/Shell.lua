@@ -190,7 +190,6 @@ return function(App)
 			Parent = parent,
 		})
 		App.ui.foot = foot
-		App.glass(foot)
 		App.fadeLine(foot, nil, 0.16)
 		-- progress of a running job: the accent filling along the top edge, with light sweeping through it
 		local line = box({ BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 2), ZIndex = 4, Parent = foot })
@@ -203,7 +202,6 @@ return function(App)
 			Parent = line,
 		})
 		App.ui.progressSweep = App.sweep(App.ui.progress, 0.6)
-		App.sheen(foot, 0.025, 40)
 		if G.history then
 			buildTimeline(foot)
 		end
@@ -227,7 +225,7 @@ return function(App)
 			Size = UDim2.new(1, -162, 1, 0),
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			Parent = inner,
-		}, { corner(10), pad(8, 8, 0, 0) })
+		}, { corner(6), pad(8, 8, 0, 0) })
 		App.shade(App.ui.genBtn, 0.12)
 		App.topLight(App.ui.genBtn, 0.35, 8)
 		App.ui.genSweep = App.sweep(App.ui.genBtn, 0.3)
@@ -238,7 +236,7 @@ return function(App)
 			Size = UDim2.fromScale(0, 1),
 			Visible = false,
 			Parent = App.ui.genBtn,
-		}, { corner(10) })
+		}, { corner(6) })
 		App.ui.genBtn.MouseEnter:Connect(function()
 			if canGenerate() then
 				tween(App.ui.genBtn, FAST, { BackgroundColor3 = (App.failure and P.danger or P.accent):Lerp(Color3.new(1, 1, 1), 0.1) })
@@ -281,7 +279,7 @@ return function(App)
 			Size = UDim2.fromOffset(66, 38),
 			LayoutOrder = 1,
 			Parent = right,
-		}, { corner(10) })
+		}, { corner(6) })
 		local liveStroke = App.stroke(P.line)
 		liveStroke.Parent = live
 		local dot = box({
@@ -528,10 +526,9 @@ return function(App)
 
 	local buildPage, enterCards -- (below)
 	local function buildSearch(parent)
-		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(9) })
+		local row = box({ BackgroundTransparency = 0, BackgroundColor3 = P.field, Size = UDim2.new(1, 0, 0, 32), Parent = parent }, { corner(6) })
 		local st = App.stroke(P.line)
 		st.Parent = row
-		App.glass(row)
 		local ic = App.icon("search", 13, P.faint)
 		ic.AnchorPoint, ic.Position = Vector2.new(0, 0.5), UDim2.new(0, 11, 0.5, 0)
 		ic.Parent = row
@@ -560,7 +557,7 @@ return function(App)
 			st.Color = P.accentLine
 		end)
 		tb.FocusLost:Connect(function()
-			st.Color = App.blobsOn() and Color3.new(1, 1, 1) or P.line -- (back to its glass edge)
+			st.Color = P.line
 		end)
 		-- the results follow the typing, a moment after it pauses
 		local token = 0
@@ -701,10 +698,14 @@ return function(App)
 			App.root:Destroy()
 		end
 		App.ui = {}
-		local blobs = App.backdrop(App.widget) -- (the colour blobs, under everything; it outlives rebuilds)
+		for _, old in App.widget:GetChildren() do -- (the colour blobs of versions before 9.97, left in the widget)
+			if old.Name == "SS_Backdrop" then
+				old:Destroy()
+			end
+		end
 		App.root = box({
 			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = blobs and 1 or 0,
+			BackgroundTransparency = 0,
 			BackgroundColor3 = P.bg,
 			ZIndex = 1,
 			Parent = App.widget,
@@ -719,14 +720,22 @@ return function(App)
 				App.releaseMouse()
 			end
 		end)
-		-- fixed top: title, search, the outliner and the selection's tabs; only the page below scrolls (see-through
-		-- over the blobs)
+		-- Fixed top: title, search and the outliner; only the page below scrolls. Its ground is the panel's colour
+		-- with a wash of the accent at the very top, fading out by the outliner: the one place the theme's colour
+		-- shows as colour and not as a mark on something.
 		local head = col({
-			BackgroundTransparency = App.blobsOn() and 1 or 0,
-			BackgroundColor3 = P.bg,
+			BackgroundTransparency = 0,
+			BackgroundColor3 = Color3.new(1, 1, 1),
 			ZIndex = 2,
 			Parent = App.root,
-		}, { pad(14, 14, 12, 8), vlist(0) })
+		}, {
+			pad(14, 14, 12, 8),
+			vlist(0),
+			new("UIGradient", {
+				Rotation = 90,
+				Color = ColorSequence.new(P.bg:Lerp(P.accent, 0.18), P.bg),
+			}),
+		})
 		App.scroll = new("ScrollingFrame", {
 			Size = UDim2.new(1, 0, 1, -barH()),
 			CanvasSize = UDim2.new(),
@@ -760,10 +769,7 @@ return function(App)
 			end
 		end
 		box({ Size = UDim2.new(1, 0, 0, 2), Parent = head })
-		App.sheen(App.root, 0.04, 140, 150)
-		App.halftone(App.root, 0.07, 4, 150)
-		-- The workbench, under the head: one solid sheet (the backdrop's colours stay behind the title and the
-		-- outliner), with a strip across its top naming what's open, the tabs as a rail down its left on a darker
+		-- The workbench, under the head: one solid sheet, with a strip across its top naming what's open, the tabs as a rail down its left on a darker
 		-- ground, and the page. The settings page has the sheet alone.
 		local bench = box({ BackgroundTransparency = 0, BackgroundColor3 = P.bg, ZIndex = 0, Parent = App.root })
 		box({ BackgroundTransparency = 0, BackgroundColor3 = P.line, Size = UDim2.new(1, 0, 0, 1), Parent = bench })
@@ -772,6 +778,7 @@ return function(App)
 			strip = box({ BackgroundTransparency = 0, BackgroundColor3 = P.strip, Size = UDim2.new(1, 0, 0, CRUMB_H), Parent = bench }, {
 				pad(PAGE_PAD, PAGE_PAD, 4, 4),
 			})
+			App.shade(strip, 0.14) -- (lit from the top, as a header bar is)
 			App.buildCrumb(strip)
 			box({
 				BackgroundTransparency = 0,

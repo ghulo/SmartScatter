@@ -35,7 +35,6 @@ local ORDER = {
 	"Panel/Tabs/Stamp",
 	"Panel/Tabs/World",
 	"Panel/Tabs/Settings",
-	"Panel/Backdrop",
 	"Panel/Outliner",
 	"Panel/Properties",
 	"Panel/Shell",
